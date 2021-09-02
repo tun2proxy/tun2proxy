@@ -14,13 +14,35 @@ use smoltcp::socket::{SocketHandle, SocketSet, TcpSocket, TcpSocketBuffer};
 use smoltcp::time::Instant;
 use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Packet, TcpPacket, UdpPacket, Ipv6Packet};
 use crate::virtdevice::VirtualTunDevice;
+use std::net::Shutdown::Both;
 
+pub struct ProxyError {
+    message: String
+}
+
+impl ProxyError {
+    pub fn new(message: String) -> Self {
+        Self {
+            message
+        }
+    }
+
+    pub fn message(&self) -> String {
+        self.message.clone()
+    }
+}
 
 #[derive(Hash, Clone, Copy)]
 pub struct Connection {
     pub src: std::net::SocketAddr,
     pub dst: std::net::SocketAddr,
     pub proto: u8
+}
+
+impl std::fmt::Display for Connection {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        write!(f, "{} -> {}", self.src, self.dst)
+    }
 }
 
 impl Eq for Connection {}
@@ -141,9 +163,10 @@ struct ConnectionState {
 }
 
 pub(crate) trait TcpProxy {
-    fn push_data(&mut self, event: IncomingDataEvent<'_>);
+    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), ProxyError>;
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent;
+    fn connection_established(&self) -> bool;
 }
 
 pub(crate) trait ConnectionManager {
@@ -227,7 +250,7 @@ impl<'a> TunToProxy<'a> {
         let mut connection_state = self.connections.remove(connection).unwrap();
         self.token_to_connection.remove(&connection_state.token);
         self.poll.registry().deregister(&mut connection_state.mio_stream).unwrap();
-        println!("[{:?}] CLOSE {} -> {} (TCP)", chrono::offset::Local::now(), connection.src, connection.dst);
+        println!("[{:?}] CLOSE {}", chrono::offset::Local::now(), connection);
     }
 
     fn get_connection_manager(&self, connection: &Connection) -> Option<&Box<dyn ConnectionManager>>{
@@ -239,25 +262,35 @@ impl<'a> TunToProxy<'a> {
         None
     }
 
+    fn print_error(error: ProxyError) {
+        println!("Error: {}", error.message());
+    }
+
     fn tunsocket_read_and_forward(&mut self, connection: &Connection) {
         if let Some(handler) = self.managers.get_mut(&connection) {
             let closed = {
                 let conn_info = self.connections.get_mut(&connection).unwrap();
                 let mut socket = self.socketset.get::<TcpSocket>(conn_info.smoltcp_handle);
-                while socket.can_recv() {
+                let mut error = Ok(());
+                while socket.can_recv() && error.is_ok() {
                     socket.recv(|data| {
                         let event = IncomingDataEvent {
                             direction: IncomingDirection::FromClient,
                             buffer: data,
 
                         };
-                        handler.push_data(event);
+                        error = handler.push_data(event);
 
                         (data.len(), ())
                     }).unwrap();
                 }
 
-                socket.state() == smoltcp::socket::TcpState::CloseWait
+                if error.is_err() {
+                    Self::print_error(error.unwrap_err());
+                    true
+                } else {
+                    socket.state() == smoltcp::socket::TcpState::CloseWait
+                }
             };
 
             if closed {
@@ -284,7 +317,11 @@ impl<'a> TunToProxy<'a> {
                     socket.listen(connection.dst).unwrap();
                     let handle = self.socketset.add(socket);
 
-                    let socket = MioTcp::new_v4().unwrap();
+                    let socket = if server.is_ipv4() {
+                        MioTcp::new_v4().unwrap()
+                    } else {
+                        MioTcp::new_v6().unwrap()
+                    };
                     let client = socket.connect(server).unwrap();
 
                     let token = Token(self.next_token);
@@ -309,7 +346,7 @@ impl<'a> TunToProxy<'a> {
                     }
 
 
-                    println!("[{:?}] CONNECT {} -> {} (TCP)", chrono::offset::Local::now(), connection.src, connection.dst);
+                    println!("[{:?}] CONNECT {}", chrono::offset::Local::now(), connection);
                 } else if !self.connections.contains_key(&connection) {
                     return;
                 }
@@ -388,16 +425,6 @@ impl<'a> TunToProxy<'a> {
     fn mio_socket_event(&mut self, event: &Event) {
         let connection = *self.token_to_connection.get(&event.token()).unwrap();
 
-        if event.is_read_closed() {
-            {
-                let mut socket = self.socketset.get::<TcpSocket>(self.connections.get(&connection).unwrap().smoltcp_handle);
-                socket.close();
-            }
-            self.expect_smoltcp_send();
-            self.remove_connection(&connection.clone());
-            return;
-        }
-
         if event.is_readable() {
             {
                 let conn = self.managers.get_mut(&connection).unwrap();
@@ -406,12 +433,32 @@ impl<'a> TunToProxy<'a> {
                 let mut buf = [0u8; 4096];
                 let read = state.mio_stream.read(&mut buf).unwrap();
 
+                if read == 0 {
+                    {
+                        let mut socket = self.socketset.get::<TcpSocket>(self.connections.get(&connection).unwrap().smoltcp_handle);
+                        socket.close();
+                    }
+                    self.expect_smoltcp_send();
+                    self.remove_connection(&connection.clone());
+                    return;
+                }
+
                 let event = IncomingDataEvent {
                     direction: IncomingDirection::FromServer,
                     buffer: &buf[0..read],
 
                 };
-                conn.push_data(event);
+                if let Err(error) = conn.push_data(event) {
+                    state.mio_stream.shutdown(Both).unwrap();
+                    {
+                        let mut socket = self.socketset.get::<TcpSocket>(self.connections.get(&connection).unwrap().smoltcp_handle);
+                        socket.close();
+                    }
+                    self.expect_smoltcp_send();
+                    Self::print_error(error);
+                    self.remove_connection(&connection.clone());
+                    return;
+                }
             }
 
             // We have read from the proxy server and pushed the data to the connection handler.

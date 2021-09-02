@@ -1,4 +1,6 @@
 #![feature(deque_make_contiguous)]
+#![feature(deque_range)]
+
 mod virtdevice;
 mod socks5;
 mod http;
@@ -7,8 +9,7 @@ mod tun2proxy;
 use socks5::*;
 use crate::http::HttpManager;
 use crate::tun2proxy::TunToProxy;
-use std::net::SocketAddr;
-use std::str::FromStr;
+use std::net::ToSocketAddrs;
 
 fn main() {
     let matches = clap::App::new(env!("CARGO_PKG_NAME"))
@@ -44,8 +45,10 @@ fn main() {
     let tun_name = matches.value_of("tun").unwrap();
     let mut ttp = TunToProxy::new(tun_name);
     if let Some(addr) = matches.value_of("socks5_server") {
-        if let Ok(server) = SocketAddr::from_str(addr)
+        if let Ok(mut servers) = addr.to_socket_addrs()
         {
+            let server = servers.next().unwrap();
+            println!("SOCKS5 server: {}", server);
             ttp.add_connection_manager(Box::new(Socks5Manager::new(server)));
         } else {
             eprintln!("Invalid server address.");
@@ -54,8 +57,10 @@ fn main() {
     }
 
     if let Some(addr) = matches.value_of("http_server") {
-        if let Ok(server) = SocketAddr::from_str(addr)
+        if let Ok(mut servers) = addr.to_socket_addrs()
         {
+            let server = servers.next().unwrap();
+            println!("HTTP server: {}", server);
             ttp.add_connection_manager(Box::new(HttpManager::new(server)));
         } else {
             eprintln!("Invalid server address.");

@@ -1,4 +1,4 @@
-use crate::tun2proxy::{Connection, TcpProxy, IncomingDirection, OutgoingDirection, OutgoingDataEvent, IncomingDataEvent, ConnectionManager};
+use crate::tun2proxy::{Connection, TcpProxy, IncomingDirection, OutgoingDirection, OutgoingDataEvent, IncomingDataEvent, ConnectionManager, ProxyError};
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 
@@ -6,6 +6,7 @@ use std::net::SocketAddr;
 #[allow(dead_code)]
 enum HttpState {
     SendRequest,
+    ExpectStatusCode,
     ExpectResponse,
     Established
 }
@@ -23,7 +24,7 @@ pub struct HttpConnection {
 impl HttpConnection {
     fn new(connection: &Connection) -> Self {
         let mut result = Self {
-            state: HttpState::ExpectResponse,
+            state: HttpState::ExpectStatusCode,
             client_inbuf: Default::default(),
             server_inbuf: Default::default(),
             client_outbuf: Default::default(),
@@ -34,29 +35,27 @@ impl HttpConnection {
 
 
         result.server_outbuf.extend(b"CONNECT ".iter());
-        result.destination_to_server_outbuf(connection);
+        result.server_outbuf.extend(connection.dst.to_string().as_bytes());
         result.server_outbuf.extend(b" HTTP/1.1\r\nHost: ".iter());
-        result.destination_to_server_outbuf(connection);
+        result.server_outbuf.extend(connection.dst.to_string().as_bytes());
         result.server_outbuf.extend(b"\r\n\r\n".iter());
 
         result
     }
 
-    fn destination_to_server_outbuf(&mut self, connection: &Connection) {
-        let ipv6 = connection.dst.is_ipv6();
-        if ipv6 {
-            self.server_outbuf.extend(b"[".iter());
-        }
-        self.server_outbuf.extend(connection.dst.ip().to_string().as_bytes());
-        if ipv6 {
-            self.server_outbuf.extend(b"]".iter());
-        }
-        self.server_outbuf.extend(b":".iter());
-        self.server_outbuf.extend(connection.dst.port().to_string().as_bytes());
-    }
-
-    fn state_change(&mut self) {
+    fn state_change(&mut self) -> Result<(), ProxyError> {
         match self.state {
+            HttpState::ExpectStatusCode if self.server_inbuf.len() >= "HTTP/1.1 200 ".len() => {
+                let status_line: Vec<u8> = self.server_inbuf.range(0.."HTTP/1.1 200 ".len()).map(|&x| x).collect();
+                let slice = &status_line.as_slice()[0.."HTTP/1.1 2".len()];
+                if slice != b"HTTP/1.1 2" && slice != b"HTTP/1.0 2"
+                    || self.server_inbuf["HTTP/1.1 200 ".len() - 1] != b' '{
+                    let status_str = String::from_utf8_lossy(&status_line.as_slice()[0.."HTTP/1.1 200".len()]);
+                    return Err(ProxyError::new("Expected success status code. Server replied with ".to_owned() + &*status_str + "."));
+                }
+                self.state = HttpState::ExpectResponse;
+                return self.state_change();
+            }
             HttpState::ExpectResponse => {
                 let mut counter = 0usize;
                 for b_ref in self.server_inbuf.iter() {
@@ -74,13 +73,8 @@ impl HttpConnection {
                         self.server_outbuf.append(&mut self.data_buf);
                         self.data_buf.clear();
 
-                        self.client_outbuf.extend(self.server_inbuf.iter());
-                        self.server_outbuf.extend(self.client_inbuf.iter());
-                        self.server_inbuf.clear();
-                        self.client_inbuf.clear();
-
                         self.state = HttpState::Established;
-                        return;
+                        return self.state_change();
                     }
                 }
 
@@ -93,15 +87,15 @@ impl HttpConnection {
                 self.client_inbuf.clear();
             }
             _ => {
-                unreachable!();
             }
         }
+        Ok(())
     }
 }
 
 
 impl TcpProxy for HttpConnection {
-    fn push_data(&mut self, event: IncomingDataEvent<'_>) {
+    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), ProxyError> {
         let direction = event.direction;
         let buffer = event.buffer;
         match direction {
@@ -117,7 +111,7 @@ impl TcpProxy for HttpConnection {
             }
         }
 
-        self.state_change();
+        self.state_change()
 
     }
 
@@ -142,6 +136,10 @@ impl TcpProxy for HttpConnection {
             buffer: buffer.make_contiguous()
         };
         return event;
+    }
+
+    fn connection_established(&self) -> bool {
+        return self.state == HttpState::Established
     }
 }
 
