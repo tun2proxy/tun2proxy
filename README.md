@@ -21,7 +21,7 @@ sudo ip link set tun0 up
 sudo ip route add 1.2.3.4 $(ip route | grep '^default' | cut -d' ' -f2-)
 
 # Route all your traffic through tun0 without interfering with the default route.
-sudo ip route add 8.0.0.0/1 dev tun0
+sudo ip route add 128.0.0.0/1 dev tun0
 sudo ip route add 0.0.0.0/1 dev tun0
 
 # Again, replace 1.2.3.4 with the IP address of the proxy server.
