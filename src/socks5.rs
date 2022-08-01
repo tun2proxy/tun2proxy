@@ -1,4 +1,7 @@
-use crate::tun2proxy::{Connection, OutgoingDirection, OutgoingDataEvent, IncomingDirection, IncomingDataEvent, ConnectionManager, TcpProxy, ProxyError};
+use crate::tun2proxy::{
+    Connection, ConnectionManager, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
+    OutgoingDirection, ProxyError, TcpProxy,
+};
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr};
 
@@ -9,7 +12,7 @@ enum SocksState {
     ServerHello,
     SendRequest,
     ReceiveResponse,
-    Established
+    Established,
 }
 
 #[allow(dead_code)]
@@ -18,14 +21,14 @@ enum SocksState {
 enum SocksAddressType {
     Ipv4 = 1,
     DomainName = 3,
-    Ipv6 = 4
+    Ipv6 = 4,
 }
 
 #[allow(dead_code)]
 #[repr(u8)]
 enum SocksAuthentication {
     None = 0,
-    Password = 2
+    Password = 2,
 }
 
 #[allow(dead_code)]
@@ -39,7 +42,7 @@ enum SocksReplies {
     ConnectionRefused,
     TtlExpired,
     CommandUnsupported,
-    AddressUnsupported
+    AddressUnsupported,
 }
 
 impl std::fmt::Display for SocksReplies {
@@ -77,19 +80,19 @@ impl SocksConnection {
     pub fn state_change(&mut self) -> Result<(), ProxyError> {
         let dst_ip = self.connection.dst.ip();
 
-
         match self.state {
             SocksState::ServerHello if self.server_inbuf.len() >= 2 => {
                 if self.server_inbuf[0] != 5 {
                     return Err(ProxyError::new(
-                        "SOCKS server replied with an unexpected version.".into()));
+                        "SOCKS server replied with an unexpected version.".into(),
+                    ));
                 }
 
                 if self.server_inbuf[1] != 0 {
                     return Err(ProxyError::new(
-                        "SOCKS server requires an unsupported authentication method.".into()));
+                        "SOCKS server requires an unsupported authentication method.".into(),
+                    ));
                 }
-
 
                 self.server_inbuf.drain(0..2);
 
@@ -101,7 +104,7 @@ impl SocksConnection {
                 };
                 self.server_outbuf.extend(&[
                     (self.connection.dst.port() >> 8) as u8,
-                    (self.connection.dst.port() & 0xff) as u8
+                    (self.connection.dst.port() & 0xff) as u8,
                 ]);
 
                 self.state = SocksState::ReceiveResponse;
@@ -115,7 +118,9 @@ impl SocksConnection {
                 let atyp = self.server_inbuf[3];
 
                 if ver != 5 {
-                    return Err(ProxyError::new("SOCKS server replied with an unexpected version.".into()));
+                    return Err(ProxyError::new(
+                        "SOCKS server replied with an unexpected version.".into(),
+                    ));
                 }
 
                 if rep != 0 {
@@ -124,8 +129,11 @@ impl SocksConnection {
 
                 if atyp != SocksAddressType::Ipv4 as u8
                     && atyp != SocksAddressType::Ipv6 as u8
-                    && atyp != SocksAddressType::DomainName as u8 {
-                    return Err(ProxyError::new("SOCKS server replied with unrecognized address type.".into()));
+                    && atyp != SocksAddressType::DomainName as u8
+                {
+                    return Err(ProxyError::new(
+                        "SOCKS server replied with unrecognized address type.".into(),
+                    ));
                 }
 
                 if atyp == SocksAddressType::DomainName as u8 && self.server_inbuf.len() < 5 {
@@ -133,7 +141,8 @@ impl SocksConnection {
                 }
 
                 if atyp == SocksAddressType::DomainName as u8
-                    && self.server_inbuf.len() < 7 + (self.server_inbuf[4] as usize) {
+                    && self.server_inbuf.len() < 7 + (self.server_inbuf[4] as usize)
+                {
                     return Ok(());
                 }
 
@@ -173,7 +182,7 @@ impl TcpProxy for SocksConnection {
         match direction {
             IncomingDirection::FromServer => {
                 self.server_inbuf.extend(buffer.iter());
-            },
+            }
             IncomingDirection::FromClient => {
                 if self.state == SocksState::Established {
                     self.client_inbuf.extend(buffer.iter());
@@ -184,12 +193,10 @@ impl TcpProxy for SocksConnection {
         }
 
         self.state_change()
-
     }
 
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize) {
-        let buffer = if dir == OutgoingDirection::ToServer
-        {
+        let buffer = if dir == OutgoingDirection::ToServer {
             &mut self.server_outbuf
         } else {
             &mut self.client_outbuf
@@ -203,15 +210,14 @@ impl TcpProxy for SocksConnection {
         } else {
             &mut self.client_outbuf
         };
-        let event = OutgoingDataEvent {
+        OutgoingDataEvent {
             direction: dir,
-            buffer: buffer.make_contiguous()
-        };
-        return event;
+            buffer: buffer.make_contiguous(),
+        }
     }
 
     fn connection_established(&self) -> bool {
-        return self.state == SocksState::Established
+        self.state == SocksState::Established
     }
 }
 
@@ -231,7 +237,7 @@ impl ConnectionManager for Socks5Manager {
         if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
             return None;
         }
-        Some(std::boxed::Box::new(SocksConnection::new(&connection)))
+        Some(std::boxed::Box::new(SocksConnection::new(connection)))
     }
 
     fn close_connection(&mut self, _: &Connection) {}
@@ -247,7 +253,7 @@ impl Socks5Manager {
             server,
             authentication: SocksAuthentication::None,
             username: Default::default(),
-            password: Default::default()
+            password: Default::default(),
         }
     }
 
