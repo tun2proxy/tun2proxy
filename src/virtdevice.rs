@@ -6,17 +6,16 @@ use smoltcp::time::Instant;
 pub struct VirtualTunDevice {
     capabilities: DeviceCapabilities,
     inbuf: Vec<Vec<u8>>,
-    outbuf: Vec<Vec<u8>>
+    outbuf: Vec<Vec<u8>>,
 }
 
-
 impl VirtualTunDevice {
-    pub fn inject_packet(self: &mut Self, buffer: &[u8]) {
+    pub fn inject_packet(&mut self, buffer: &[u8]) {
         let vec = Vec::from(buffer);
         self.inbuf.push(vec);
     }
 
-    pub fn exfiltrate_packet(self: &mut Self, ) -> Option<Vec<u8>> {
+    pub fn exfiltrate_packet(&mut self) -> Option<Vec<u8>> {
         self.outbuf.pop()
     }
 }
@@ -27,8 +26,8 @@ pub struct VirtRxToken {
 
 impl phy::RxToken for VirtRxToken {
     fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> smoltcp::Result<R>
-        where
-            F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+    where
+        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
         f(&mut self.buffer[..])
     }
@@ -38,12 +37,12 @@ pub struct VirtTxToken<'a>(&'a mut VirtualTunDevice);
 
 impl<'a> phy::TxToken for VirtTxToken<'a> {
     fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> smoltcp::Result<R>
-        where
-            F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+    where
+        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
     {
         let mut buffer = vec![0; len];
         let result = f(&mut buffer);
-        self.0.outbuf.push(Vec::from(buffer));
+        self.0.outbuf.push(buffer);
         result
     }
 }
@@ -70,7 +69,7 @@ impl<'a> Device<'a> for VirtualTunDevice {
     }
 }
 
-impl<'a> VirtualTunDevice {
+impl VirtualTunDevice {
     pub fn new(capabilities: DeviceCapabilities) -> Self {
         Self {
             capabilities,

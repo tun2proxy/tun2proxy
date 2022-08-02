@@ -1,12 +1,11 @@
 [package]
-name = "tun2proxy"
-version = "0.1.0"
 authors = ["B. Blechschmidt"]
 edition = "2018"
-
+name = "tun2proxy"
+version = "0.1.1"
 
 [dependencies]
-smoltcp = { version="0.8.0", git="https://github.com/smoltcp-rs/smoltcp", features = ["std"], rev="cb1828cbe6d19b10cb50d3e4323fa8c5ca25e5e4" }
-mio = { version="0.7", features = ["os-poll", "net", "os-util"]}
-clap = { version = "2.33.3" }
-chrono = {version = "" }
+chrono = "0.4"
+clap = "3.2"
+mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
+smoltcp = { version = "0.8", features = ["std"] }
