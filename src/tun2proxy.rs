@@ -379,11 +379,12 @@ impl<'a> TunToProxy<'a> {
                 // Therefore, we now expect it to write data to the server.
                 self.write_to_server(&connection);
             } else if connection.proto == smoltcp::wire::IpProtocol::Udp.into() {
-                /* // UDP is not yet supported.
-                if payload_offset > frame.len() || payload_offset + payload_offset > frame.len() {
+                // UDP is not yet supported
+                /*if _payload_offset > frame.len() || _payload_offset + _payload_offset > frame.len() {
                     return;
                 }
-                let payload = &frame[payload_offset..payload_offset+payload_size]; */
+                let payload = &frame[_payload_offset.._payload_offset + _payload_size];
+                self.virtual_dns.add_query(payload);*/
             }
         }
     }
@@ -445,7 +446,13 @@ impl<'a> TunToProxy<'a> {
                 let state = self.connections.get_mut(&connection).unwrap();
 
                 let mut buf = [0u8; 4096];
-                let read = state.mio_stream.read(&mut buf).unwrap();
+                let read_result = state.mio_stream.read(&mut buf);
+                let read = if read_result.is_err() {
+                    error!("READ from proxy: {}", read_result.as_ref().err().unwrap());
+                    0
+                } else {
+                    read_result.unwrap()
+                };
 
                 if read == 0 {
                     {
