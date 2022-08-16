@@ -1,4 +1,5 @@
 use crate::virtdevice::VirtualTunDevice;
+use log::{error, info};
 use mio::event::Event;
 use mio::net::TcpStream;
 use mio::unix::SourceFd;
@@ -255,7 +256,7 @@ impl<'a> TunToProxy<'a> {
             .registry()
             .deregister(&mut connection_state.mio_stream)
             .unwrap();
-        println!("[{:?}] CLOSE {}", chrono::offset::Local::now(), connection);
+        info!("CLOSE {}", connection);
     }
 
     fn get_connection_manager(&self, connection: &Connection) -> Option<&dyn ConnectionManager> {
@@ -268,7 +269,7 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn print_error(error: ProxyError) {
-        println!("Error: {}", error.message());
+        error!("{}", error.message());
     }
 
     fn tunsocket_read_and_forward(&mut self, connection: &Connection) {
@@ -355,11 +356,7 @@ impl<'a> TunToProxy<'a> {
 
                             self.connections.insert(connection, state);
 
-                            println!(
-                                "[{:?}] CONNECT {}",
-                                chrono::offset::Local::now(),
-                                connection
-                            );
+                            info!("CONNECT {}", connection,);
                             break;
                         }
                     }

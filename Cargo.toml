@@ -5,7 +5,8 @@ name = "tun2proxy"
 version = "0.1.1"
 
 [dependencies]
-chrono = "0.4"
 clap = "3.2"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 smoltcp = { version = "0.8", features = ["std"] }
+log = "0.4"
+env_logger = "0.9"

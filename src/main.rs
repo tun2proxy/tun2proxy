@@ -5,10 +5,12 @@ mod virtdevice;
 
 use crate::http::HttpManager;
 use crate::tun2proxy::TunToProxy;
+use env_logger::Env;
 use socks5::*;
 use std::net::ToSocketAddrs;
 
 fn main() {
+    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let matches = clap::App::new(env!("CARGO_PKG_NAME"))
         .version(env!("CARGO_PKG_VERSION"))
         .about("Tunnel interface to proxy.")
