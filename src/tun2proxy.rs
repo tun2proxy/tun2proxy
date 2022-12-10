@@ -439,61 +439,62 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn mio_socket_event(&mut self, event: &Event) {
-        let connection = *self.token_to_connection.get(&event.token()).unwrap();
+        if let Some(conn_ref) = self.token_to_connection.get(&event.token()) {
+            let connection = *conn_ref;
+            if event.is_readable() {
+                {
+                    let state = self.connections.get_mut(&connection).unwrap();
 
-        if event.is_readable() {
-            {
-                let state = self.connections.get_mut(&connection).unwrap();
+                    let mut buf = [0u8; 4096];
+                    let read_result = state.mio_stream.read(&mut buf);
+                    let read = if read_result.is_err() {
+                        error!("READ from proxy: {}", read_result.as_ref().err().unwrap());
+                        0
+                    } else {
+                        read_result.unwrap()
+                    };
 
-                let mut buf = [0u8; 4096];
-                let read_result = state.mio_stream.read(&mut buf);
-                let read = if read_result.is_err() {
-                    error!("READ from proxy: {}", read_result.as_ref().err().unwrap());
-                    0
-                } else {
-                    read_result.unwrap()
-                };
-
-                if read == 0 {
-                    {
-                        let socket = self.iface.get_socket::<TcpSocket>(
-                            self.connections.get(&connection).unwrap().smoltcp_handle,
-                        );
-                        socket.close();
+                    if read == 0 {
+                        {
+                            let socket = self.iface.get_socket::<TcpSocket>(
+                                self.connections.get(&connection).unwrap().smoltcp_handle,
+                            );
+                            socket.close();
+                        }
+                        self.expect_smoltcp_send();
+                        self.remove_connection(&connection.clone());
+                        return;
                     }
-                    self.expect_smoltcp_send();
-                    self.remove_connection(&connection.clone());
-                    return;
+
+                    let event = IncomingDataEvent {
+                        direction: IncomingDirection::FromServer,
+                        buffer: &buf[0..read],
+                    };
+                    if let Err(error) = state.handler.push_data(event) {
+                        state.mio_stream.shutdown(Both).unwrap();
+                        {
+                            let socket = self.iface.get_socket::<TcpSocket>(
+                                self.connections.get(&connection).unwrap().smoltcp_handle,
+                            );
+                            socket.close();
+                        }
+                        self.expect_smoltcp_send();
+                        Self::print_error(error);
+                        self.remove_connection(&connection.clone());
+                        return;
+                    }
                 }
 
-                let event = IncomingDataEvent {
-                    direction: IncomingDirection::FromServer,
-                    buffer: &buf[0..read],
-                };
-                if let Err(error) = state.handler.push_data(event) {
-                    state.mio_stream.shutdown(Both).unwrap();
-                    {
-                        let socket = self.iface.get_socket::<TcpSocket>(
-                            self.connections.get(&connection).unwrap().smoltcp_handle,
-                        );
-                        socket.close();
-                    }
-                    self.expect_smoltcp_send();
-                    Self::print_error(error);
-                    self.remove_connection(&connection.clone());
-                    return;
-                }
+                // We have read from the proxy server and pushed the data to the connection handler.
+                // Thus, expect data to be processed (e.g. decapsulated) and forwarded to the client.
+
+                //self.expect_smoltcp_send();
+                self.write_to_client(&connection);
+                self.expect_smoltcp_send();
             }
-
-            // We have read from the proxy server and pushed the data to the connection handler.
-            // Thus, expect data to be processed (e.g. decapsulated) and forwarded to the client.
-
-            //self.expect_smoltcp_send();
-            self.write_to_client(&connection);
-            self.expect_smoltcp_send();
-        }
-        if event.is_writable() {
-            self.write_to_server(&connection);
+            if event.is_writable() {
+                self.write_to_server(&connection);
+            }
         }
     }
 
