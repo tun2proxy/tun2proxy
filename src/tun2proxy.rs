@@ -447,11 +447,11 @@ impl<'a> TunToProxy<'a> {
 
                     let mut buf = [0u8; 4096];
                     let read_result = state.mio_stream.read(&mut buf);
-                    let read = if read_result.is_err() {
+                    let read = if let Ok(read_result) = read_result {
+                        read_result
+                    } else {
                         error!("READ from proxy: {}", read_result.as_ref().err().unwrap());
                         0
-                    } else {
-                        read_result.unwrap()
                     };
 
                     if read == 0 {
