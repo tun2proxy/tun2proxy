@@ -6,7 +6,7 @@ use smoltcp::time::Instant;
 pub struct VirtualTunDevice {
     capabilities: DeviceCapabilities,
     inbuf: Vec<Vec<u8>>,
-    outbuf: Vec<Vec<u8>>,
+    outbuf: Vec<Vec<u8>>
 }
 
 impl VirtualTunDevice {
@@ -24,10 +24,10 @@ pub struct VirtRxToken {
     buffer: Vec<u8>,
 }
 
-impl phy::RxToken for VirtRxToken {
-    fn consume<R, F>(mut self, _timestamp: Instant, f: F) -> smoltcp::Result<R>
+impl<'a> phy::RxToken for VirtRxToken {
+    fn consume<R, F>(mut self, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
         f(&mut self.buffer[..])
     }
@@ -36,9 +36,9 @@ impl phy::RxToken for VirtRxToken {
 pub struct VirtTxToken<'a>(&'a mut VirtualTunDevice);
 
 impl<'a> phy::TxToken for VirtTxToken<'a> {
-    fn consume<R, F>(self, _timestamp: Instant, len: usize, f: F) -> smoltcp::Result<R>
+    fn consume<R, F>(self, len: usize, f: F) -> R
     where
-        F: FnOnce(&mut [u8]) -> smoltcp::Result<R>,
+        F: FnOnce(&mut [u8]) -> R,
     {
         let mut buffer = vec![0; len];
         let result = f(&mut buffer);
@@ -47,11 +47,11 @@ impl<'a> phy::TxToken for VirtTxToken<'a> {
     }
 }
 
-impl<'a> Device<'a> for VirtualTunDevice {
-    type RxToken = VirtRxToken;
-    type TxToken = VirtTxToken<'a>;
+impl Device for VirtualTunDevice {
+    type RxToken<'a> = VirtRxToken;
+    type TxToken<'a> = VirtTxToken<'a>;
 
-    fn receive(&'a mut self) -> Option<(Self::RxToken, Self::TxToken)> {
+    fn receive(&mut self,  _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         if let Some(buffer) = self.inbuf.pop() {
             let rx = Self::RxToken { buffer };
             let tx = VirtTxToken(self);
@@ -60,7 +60,7 @@ impl<'a> Device<'a> for VirtualTunDevice {
         None
     }
 
-    fn transmit(&'a mut self) -> Option<Self::TxToken> {
+    fn transmit(&mut self,  _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         return Some(VirtTxToken(self));
     }
 
@@ -69,7 +69,7 @@ impl<'a> Device<'a> for VirtualTunDevice {
     }
 }
 
-impl VirtualTunDevice {
+impl<'a> VirtualTunDevice {
     pub fn new(capabilities: DeviceCapabilities) -> Self {
         Self {
             capabilities,
