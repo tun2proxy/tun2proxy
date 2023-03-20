@@ -6,7 +6,7 @@ version = "0.1.1"
 
 [dependencies]
 clap = { version = "4.1", features = ["derive"] }
+env_logger = "0.10"
+log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 smoltcp = { version = "0.8", features = ["std"] }
-log = "0.4"
-env_logger = "0.10"
