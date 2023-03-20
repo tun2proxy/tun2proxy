@@ -15,15 +15,15 @@ use std::net::SocketAddr;
 #[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
 struct Args {
     /// Name of the tun interface
-    #[arg(short, long)]
+    #[arg(short, long, value_name = "name")]
     tun: String,
 
     /// What proxy type to run
-    #[arg(short, long = "proxy", value_enum)]
+    #[arg(short, long = "proxy", value_name = "type", value_enum)]
     proxy_type: ProxyType,
 
-    /// Server address with format IP:PORT
-    #[clap(short, long)]
+    /// Server address with format ip:port
+    #[clap(short, long, value_name = "ip:port")]
     addr: SocketAddr,
 }
 
