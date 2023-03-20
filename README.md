@@ -43,24 +43,11 @@ Tunnel interface to proxy.
 Usage: tun2proxy --tun <TUN> --proxy <PROXY_TYPE> --addr <ADDR>
 
 Options:
-  -t, --tun <TUN>
-          Name of the tun interface
-
-  -p, --proxy <PROXY_TYPE>
-          What proxy type to run
-
-          Possible values:
-          - socks5: SOCKS5 server to use
-          - http:   HTTP server to use
-
-  -a, --addr <ADDR>
-          Server address with format IP:PORT
-
-  -h, --help
-          Print help (see a summary with '-h')
-
-  -V, --version
-          Print version
+  -t, --tun <TUN>           Name of the tun interface
+  -p, --proxy <PROXY_TYPE>  What proxy type to run [possible values: socks5, http]
+  -a, --addr <ADDR>         Server address with format IP:PORT
+  -h, --help                Print help (see more with '--help')
+  -V, --version             Print version
 ```
 
 ## TODO
