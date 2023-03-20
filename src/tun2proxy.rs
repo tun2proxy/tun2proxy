@@ -6,15 +6,17 @@ use mio::unix::SourceFd;
 use mio::{Events, Interest, Poll, Token};
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, Medium, RxToken, TunTapInterface, TxToken};
+use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
-use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet, TcpPacket, UdpPacket};
-use std::collections::{HashMap};
+use smoltcp::wire::{
+    IpAddress, IpCidr, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet, TcpPacket, UdpPacket,
+};
+use std::collections::HashMap;
 use std::convert::From;
 use std::io::{Read, Write};
 use std::net::Shutdown::Both;
 use std::net::{IpAddr, Shutdown, SocketAddr};
 use std::os::unix::io::AsRawFd;
-use smoltcp::socket::tcp;
 
 pub struct ProxyError {
     message: String,
@@ -205,11 +207,21 @@ impl<'a> TunToProxy<'a> {
         let mut virt = VirtualTunDevice::new(tun.capabilities());
         let mut iface = Interface::new(config, &mut virt);
         iface.update_ip_addrs(|ip_addrs| {
-            ip_addrs.push(IpCidr::new(IpAddress::v4(0, 0, 0, 1), 0)).unwrap();
-            ip_addrs.push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 0)).unwrap()
+            ip_addrs
+                .push(IpCidr::new(IpAddress::v4(0, 0, 0, 1), 0))
+                .unwrap();
+            ip_addrs
+                .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 0))
+                .unwrap()
         });
-        iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(0, 0, 0, 1)).unwrap();
-        iface.routes_mut().add_default_ipv6_route(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 1)).unwrap();
+        iface
+            .routes_mut()
+            .add_default_ipv4_route(Ipv4Address::new(0, 0, 0, 1))
+            .unwrap();
+        iface
+            .routes_mut()
+            .add_default_ipv6_route(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 1))
+            .unwrap();
         iface.set_any_ip(true);
 
         Self {
@@ -232,7 +244,8 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn expect_smoltcp_send(&mut self) {
-        self.iface.poll(Instant::now(), &mut self.device, &mut self.sockets);
+        self.iface
+            .poll(Instant::now(), &mut self.device, &mut self.sockets);
 
         while let Some(vec) = self.device.exfiltrate_packet() {
             let slice = vec.as_slice();

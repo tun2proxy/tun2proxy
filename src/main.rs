@@ -1,7 +1,7 @@
-use tun2proxy::{ProxyType, main_entry};
 use clap::{Parser, ValueEnum};
 use env_logger::Env;
 use std::net::SocketAddr;
+use tun2proxy::{main_entry, ProxyType};
 
 /// Tunnel interface to proxy
 #[derive(Parser)]

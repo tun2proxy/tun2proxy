@@ -6,7 +6,7 @@ use smoltcp::time::Instant;
 pub struct VirtualTunDevice {
     capabilities: DeviceCapabilities,
     inbuf: Vec<Vec<u8>>,
-    outbuf: Vec<Vec<u8>>
+    outbuf: Vec<Vec<u8>>,
 }
 
 impl VirtualTunDevice {
@@ -51,7 +51,7 @@ impl Device for VirtualTunDevice {
     type RxToken<'a> = VirtRxToken;
     type TxToken<'a> = VirtTxToken<'a>;
 
-    fn receive(&mut self,  _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+    fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
         if let Some(buffer) = self.inbuf.pop() {
             let rx = Self::RxToken { buffer };
             let tx = VirtTxToken(self);
@@ -60,7 +60,7 @@ impl Device for VirtualTunDevice {
         None
     }
 
-    fn transmit(&mut self,  _timestamp: Instant) -> Option<Self::TxToken<'_>> {
+    fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         return Some(VirtTxToken(self));
     }
 
