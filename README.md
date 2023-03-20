@@ -38,20 +38,29 @@ configured to listen on a local UDP port and communicates with the upstream DNS 
 
 ## CLI
 ```
-tun2proxy 0.1.0
 Tunnel interface to proxy.
 
-USAGE:
-    tun2proxy [OPTIONS] --tun <TUN>
+Usage: tun2proxy --tun <TUN> --proxy <PROXY_TYPE> --addr <ADDR>
 
-FLAGS:
-        --help       Prints help information
-    -V, --version    Prints version information
+Options:
+  -t, --tun <TUN>
+          Name of the tun interface
 
-OPTIONS:
-    -h, --http <IP:PORT>      HTTP server to use
-    -s, --socks5 <IP:PORT>    SOCKS5 server to use
-    -t, --tun <TUN>           Name of the tun interface
+  -p, --proxy <PROXY_TYPE>
+          What proxy type to run
+
+          Possible values:
+          - socks5: SOCKS5 server to use
+          - http:   HTTP server to use
+
+  -a, --addr <ADDR>
+          Server address with format IP:PORT
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 ```
 
 ## TODO
