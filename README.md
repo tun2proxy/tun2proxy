@@ -27,7 +27,7 @@ sudo ip route add "$PROXY_IP" $(ip route | grep '^default' | cut -d ' ' -f 2-)
 sudo ip route add 128.0.0.0/1 dev tun0
 sudo ip route add 0.0.0.0/1 dev tun0
 
-./target/release/tun2proxy --tun tun0 --socks5 "$PROXY_IP:$PROXY_PORT"
+./target/release/tun2proxy --tun tun0 --proxy socks5 --addr "$PROXY_IP:$PROXY_PORT"
 ```
 
 Note that if you paste these commands into a shell script, which you then run with `sudo`, you might want to replace
