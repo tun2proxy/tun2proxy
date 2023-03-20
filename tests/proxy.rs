@@ -5,6 +5,7 @@ mod tests {
     use fork::Fork;
     use nix::sys::signal;
     use nix::unistd::Pid;
+    use serial_test::serial;
     use std::env;
     use std::io::BufRead;
     use std::net::{SocketAddr, ToSocketAddrs};
@@ -147,11 +148,13 @@ mod tests {
     }
 
     #[test]
+    #[serial]
     fn test_socks5() {
         run_test(|test| test.proxy_type == ProxyType::Socks5)
     }
 
     #[test]
+    #[serial]
     fn test_http() {
         run_test(|test| test.proxy_type == ProxyType::Http)
     }
