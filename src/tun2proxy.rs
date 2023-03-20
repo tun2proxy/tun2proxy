@@ -7,7 +7,7 @@ use mio::{Events, Interest, Poll, Token};
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, Medium, RxToken, TunTapInterface, TxToken};
 use smoltcp::time::Instant;
-use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket};
+use smoltcp::wire::{IpAddress, IpCidr, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet, TcpPacket, UdpPacket};
 use std::collections::{HashMap};
 use std::convert::From;
 use std::io::{Read, Write};
@@ -205,9 +205,11 @@ impl<'a> TunToProxy<'a> {
         let mut virt = VirtualTunDevice::new(tun.capabilities());
         let mut iface = Interface::new(config, &mut virt);
         iface.update_ip_addrs(|ip_addrs| {
-            ip_addrs.push(IpCidr::new(IpAddress::v4(0, 0, 0, 1), 0)).unwrap()
+            ip_addrs.push(IpCidr::new(IpAddress::v4(0, 0, 0, 1), 0)).unwrap();
+            ip_addrs.push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 0)).unwrap()
         });
         iface.routes_mut().add_default_ipv4_route(Ipv4Address::new(0, 0, 0, 1)).unwrap();
+        iface.routes_mut().add_default_ipv6_route(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 1)).unwrap();
         iface.set_any_ip(true);
 
         Self {
