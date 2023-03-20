@@ -5,68 +5,49 @@ mod virtdevice;
 
 use crate::http::HttpManager;
 use crate::tun2proxy::TunToProxy;
+use clap::{Parser, ValueEnum};
 use env_logger::Env;
 use socks5::*;
-use std::net::ToSocketAddrs;
+use std::net::SocketAddr;
+
+/// Tunnel interface to proxy
+#[derive(Parser)]
+#[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
+struct Args {
+    /// Name of the tun interface
+    #[arg(short, long)]
+    tun: String,
+
+    /// What proxy type to run
+    #[arg(short, long = "proxy", value_enum)]
+    proxy_type: ProxyType,
+
+    /// Server address with format IP:PORT
+    #[clap(short, long)]
+    addr: SocketAddr,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
+enum ProxyType {
+    /// SOCKS5 server to use
+    Socks5,
+    /// HTTP server to use
+    Http,
+}
 
 fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
-    let matches = clap::App::new(env!("CARGO_PKG_NAME"))
-        .version(env!("CARGO_PKG_VERSION"))
-        .about("Tunnel interface to proxy.")
-        .arg(
-            clap::Arg::with_name("tun")
-                .short('t')
-                .long("tun")
-                .value_name("TUN")
-                .help("Name of the tun interface")
-                .required(true)
-                .takes_value(true),
-        )
-        .arg(
-            clap::Arg::with_name("socks5_server")
-                .help("SOCKS5 server to use")
-                .short('s')
-                .long("socks5")
-                .value_name("IP:PORT"),
-        )
-        .arg(
-            clap::Arg::with_name("http_server")
-                .help("HTTP server to use")
-                .short('h')
-                .long("http")
-                .value_name("IP:PORT"),
-        )
-        .get_matches();
+    let args = Args::parse();
 
-    if matches.value_of("socks5_server").is_some() && matches.value_of("http_server").is_some()
-        || matches.value_of("socks5_server").is_none() && matches.value_of("http_server").is_none()
-    {
-        eprintln!("You need to specify exactly one server.");
-        return;
-    }
-
-    let tun_name = matches.value_of("tun").unwrap();
-    let mut ttp = TunToProxy::new(tun_name);
-    if let Some(addr) = matches.value_of("socks5_server") {
-        if let Ok(mut servers) = addr.to_socket_addrs() {
-            let server = servers.next().unwrap();
-            println!("SOCKS5 server: {}", server);
-            ttp.add_connection_manager(Box::new(Socks5Manager::new(server)));
-        } else {
-            eprintln!("Invalid server address.");
-            return;
+    let mut ttp = TunToProxy::new(&args.tun);
+    match args.proxy_type {
+        ProxyType::Socks5 => {
+            log::info!("SOCKS5 server: {}", args.addr);
+            ttp.add_connection_manager(Box::new(Socks5Manager::new(args.addr)));
         }
-    }
-
-    if let Some(addr) = matches.value_of("http_server") {
-        if let Ok(mut servers) = addr.to_socket_addrs() {
-            let server = servers.next().unwrap();
-            println!("HTTP server: {}", server);
-            ttp.add_connection_manager(Box::new(HttpManager::new(server)));
-        } else {
-            eprintln!("Invalid server address.");
-            return;
+        ProxyType::Http => {
+            log::info!("HTTP server: {}", args.addr);
+            ttp.add_connection_manager(Box::new(HttpManager::new(args.addr)));
         }
     }
     ttp.run();
