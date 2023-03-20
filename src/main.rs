@@ -20,7 +20,7 @@ struct Args {
 
     /// What proxy type to run
     #[arg(short, long = "proxy", value_name = "type", value_enum)]
-    proxy_type: ProxyType,
+    proxy_type: ArgProxyType,
 
     /// Server address with format ip:port
     #[clap(short, long, value_name = "ip:port")]
@@ -28,7 +28,7 @@ struct Args {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-enum ProxyType {
+enum ArgProxyType {
     /// SOCKS5 server to use
     Socks5,
     /// HTTP server to use
@@ -41,11 +41,11 @@ fn main() {
 
     let mut ttp = TunToProxy::new(&args.tun);
     match args.proxy_type {
-        ProxyType::Socks5 => {
+        ArgProxyType::Socks5 => {
             log::info!("SOCKS5 server: {}", args.addr);
             ttp.add_connection_manager(Box::new(Socks5Manager::new(args.addr)));
         }
-        ProxyType::Http => {
+        ArgProxyType::Http => {
             log::info!("HTTP server: {}", args.addr);
             ttp.add_connection_manager(Box::new(HttpManager::new(args.addr)));
         }
