@@ -24,7 +24,7 @@ pub struct VirtRxToken {
     buffer: Vec<u8>,
 }
 
-impl<'a> phy::RxToken for VirtRxToken {
+impl phy::RxToken for VirtRxToken {
     fn consume<R, F>(mut self, f: F) -> R
     where
         F: FnOnce(&mut [u8]) -> R,
@@ -69,7 +69,7 @@ impl Device for VirtualTunDevice {
     }
 }
 
-impl<'a> VirtualTunDevice {
+impl VirtualTunDevice {
     pub fn new(capabilities: DeviceCapabilities) -> Self {
         Self {
             capabilities,

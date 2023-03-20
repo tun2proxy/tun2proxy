@@ -256,7 +256,6 @@ impl<'a> TunToProxy<'a> {
                 .unwrap()
                 .consume(slice.len(), |buf| {
                     buf[..].clone_from_slice(slice);
-                    ()
                 });
         }
     }
@@ -443,7 +442,6 @@ impl<'a> TunToProxy<'a> {
             while let Some((rx_token, _)) = self.tun.receive(Instant::now()) {
                 rx_token.consume(|frame| {
                     self.receive_tun(frame);
-                    ()
                 });
             }
         }
