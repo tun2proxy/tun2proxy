@@ -1,13 +1,6 @@
-mod http;
-mod socks5;
-mod tun2proxy;
-mod virtdevice;
-
-use crate::http::HttpManager;
-use crate::tun2proxy::TunToProxy;
+use tun2proxy::{ProxyType, main_entry};
 use clap::{Parser, ValueEnum};
 use env_logger::Env;
-use socks5::*;
 use std::net::SocketAddr;
 
 /// Tunnel interface to proxy
@@ -39,16 +32,14 @@ fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = Args::parse();
 
-    let mut ttp = TunToProxy::new(&args.tun);
     match args.proxy_type {
         ArgProxyType::Socks5 => {
             log::info!("SOCKS5 server: {}", args.addr);
-            ttp.add_connection_manager(Box::new(Socks5Manager::new(args.addr)));
+            main_entry(&args.tun, args.addr, ProxyType::Socks5);
         }
         ArgProxyType::Http => {
             log::info!("HTTP server: {}", args.addr);
-            ttp.add_connection_manager(Box::new(HttpManager::new(args.addr)));
+            main_entry(&args.tun, args.addr, ProxyType::Http);
         }
     }
-    ttp.run();
 }
