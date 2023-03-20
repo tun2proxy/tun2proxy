@@ -10,3 +10,10 @@ env_logger = "0.10"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 smoltcp = { version = "0.9", features = ["std"] }
+
+[dev-dependencies]
+ctor = "0.1"
+reqwest = { version = "0.11", features = ["blocking", "json"] }
+fork = "0.1"
+prctl = "1.0"
+nix = { version = "0.26", features = ["process", "signal"] }
