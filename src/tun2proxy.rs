@@ -171,8 +171,8 @@ pub(crate) trait TcpProxy {
 
 pub(crate) trait ConnectionManager {
     fn handles_connection(&self, connection: &Connection) -> bool;
-    fn new_connection(&mut self, connection: &Connection) -> Option<std::boxed::Box<dyn TcpProxy>>;
-    fn close_connection(&mut self, connection: &Connection);
+    fn new_connection(&self, connection: &Connection) -> Option<std::boxed::Box<dyn TcpProxy>>;
+    fn close_connection(&self, connection: &Connection);
     fn get_server(&self) -> SocketAddr;
 }
 

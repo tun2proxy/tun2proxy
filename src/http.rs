@@ -163,14 +163,14 @@ impl ConnectionManager for HttpManager {
         connection.proto == smoltcp::wire::IpProtocol::Tcp.into()
     }
 
-    fn new_connection(&mut self, connection: &Connection) -> Option<std::boxed::Box<dyn TcpProxy>> {
+    fn new_connection(&self, connection: &Connection) -> Option<std::boxed::Box<dyn TcpProxy>> {
         if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
             return None;
         }
         Some(std::boxed::Box::new(HttpConnection::new(connection)))
     }
 
-    fn close_connection(&mut self, _: &Connection) {}
+    fn close_connection(&self, _: &Connection) {}
 
     fn get_server(&self) -> SocketAddr {
         self.server
