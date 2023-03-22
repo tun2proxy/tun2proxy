@@ -36,7 +36,18 @@ Note that if you paste these commands into a shell script, which you then run wi
 For DNS to work, you might need an additional tool like [dnsproxy](https://github.com/AdguardTeam/dnsproxy) that is
 configured to listen on a local UDP port and communicates with the upstream DNS server via TCP.
 
-## CLI (unstable)
+## CLI
+=======
+When you end the running of this program and want to eliminate the impact caused by the above several commands,
+you can execute the following commands.
+```shell
+sudo ip route del 0.0.0.0/1 dev tun0
+sudo ip route del 128.0.0.0/1 dev tun0
+sudo ip link set tun0 down
+sudo ip tuntap del tun0 mode tun
+```
+
+## CLI
 ```
 Tunnel interface to proxy.
 
