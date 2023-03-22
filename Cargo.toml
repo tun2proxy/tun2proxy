@@ -11,6 +11,7 @@ env_logger = "0.10"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 smoltcp = { version = "0.9", features = ["std"] }
+url = "2.3"
 
 [dev-dependencies]
 ctor = "0.1"

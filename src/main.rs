@@ -1,6 +1,6 @@
-use std::net::SocketAddr;
+use std::net::{SocketAddr, ToSocketAddrs};
 
-use clap::{Parser, ValueEnum};
+use clap::Parser;
 use env_logger::Env;
 
 use tun2proxy::tun2proxy::Credentials;
@@ -11,55 +11,76 @@ use tun2proxy::{main_entry, ProxyType};
 #[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
 struct Args {
     /// Name of the tun interface
-    #[arg(short, long, value_name = "name")]
+    #[arg(short, long, value_name = "name", default_value = "tun0")]
     tun: String,
 
     /// What proxy type to run
-    #[arg(short, long = "proxy", value_name = "type", value_enum)]
-    proxy_type: ArgProxyType,
-
-    /// Server address with format ip:port
-    #[clap(short, long, value_name = "ip:port")]
-    addr: SocketAddr,
-
-    /// Username for authentication
-    #[clap(long, value_name = "username")]
-    username: Option<String>,
-
-    /// Password for authentication
-    #[clap(long, value_name = "password")]
-    password: Option<String>,
+    #[arg(short, long = "proxy", value_parser = proxy_url_parser)]
+    proxy: ArgProxy,
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, ValueEnum)]
-enum ArgProxyType {
-    /// SOCKS5 server to use
-    Socks5,
-    /// HTTP server to use
-    Http,
+#[derive(Clone)]
+struct ArgProxy {
+    proxy_type: ProxyType,
+    addr: SocketAddr,
+    credentials: Credentials,
+}
+
+fn proxy_url_parser(s: &str) -> Result<ArgProxy, String> {
+    let url = url::Url::parse(s).map_err(|_| format!("`{s}` is not a valid proxy URL"))?;
+    let host = url
+        .host_str()
+        .ok_or(format!("`{s}` does not contain a host"))?;
+
+    let mut url_host = String::from(host);
+    let port = url.port().ok_or(format!("`{s}` does not contain a port"))?;
+    url_host.push(':');
+    url_host.push_str(port.to_string().as_str());
+
+    let mut addr_iter = url_host
+        .to_socket_addrs()
+        .map_err(|_| format!("`{host}` could not be resolved"))?;
+
+    let addr = addr_iter
+        .next()
+        .ok_or(format!("`{host}` does not resolve to a usable IP address"))?;
+
+    let credentials = if url.username() == "" && url.password().is_none() {
+        Credentials::none()
+    } else {
+        Credentials::new(
+            String::from(url.username()),
+            String::from(url.password().unwrap_or("")),
+        )
+    };
+
+    let scheme = url.scheme();
+
+    let proxy_type = match url.scheme().to_ascii_lowercase().as_str() {
+        "socks5" => Some(ProxyType::Socks5),
+        "http" => Some(ProxyType::Http),
+        _ => None,
+    }
+    .ok_or(format!("`{scheme}` is an invalid proxy type"))?;
+
+    Ok(ArgProxy {
+        proxy_type,
+        addr,
+        credentials,
+    })
 }
 
 fn main() {
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = Args::parse();
 
-    let credentials = if args.username.is_some() || args.password.is_some() {
-        Credentials::new(
-            args.username.unwrap_or(String::from("")),
-            args.password.unwrap_or(String::from("")),
-        )
-    } else {
-        Credentials::none()
-    };
+    let addr = args.proxy.addr;
+    log::info!("Proxy server: {addr}");
 
-    match args.proxy_type {
-        ArgProxyType::Socks5 => {
-            log::info!("SOCKS5 server: {}", args.addr);
-            main_entry(&args.tun, args.addr, ProxyType::Socks5, credentials);
-        }
-        ArgProxyType::Http => {
-            log::info!("HTTP server: {}", args.addr);
-            main_entry(&args.tun, args.addr, ProxyType::Http, credentials);
-        }
-    }
+    main_entry(
+        &args.tun,
+        args.proxy.addr,
+        args.proxy.proxy_type,
+        args.proxy.credentials,
+    );
 }

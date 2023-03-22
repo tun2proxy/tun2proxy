@@ -7,7 +7,7 @@ pub mod socks5;
 pub mod tun2proxy;
 pub mod virtdevice;
 
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ProxyType {
     Socks5,
     Http,
