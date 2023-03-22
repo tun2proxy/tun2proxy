@@ -7,6 +7,7 @@ version = "0.1.1"
 [dependencies]
 base64 = { version = "0.21" }
 clap = { version = "4.1", features = ["derive"] }
+dotenv = "0.15"
 env_logger = "0.10"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
