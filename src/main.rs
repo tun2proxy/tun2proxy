@@ -26,7 +26,7 @@ struct Args {
     #[clap(long, value_name = "username")]
     username: Option<String>,
 
-    /// Username for authentication
+    /// Password for authentication
     #[clap(long, value_name = "password")]
     password: Option<String>,
 }

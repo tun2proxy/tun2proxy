@@ -2,6 +2,7 @@ use crate::tun2proxy::{
     Connection, ConnectionManager, Credentials, IncomingDataEvent, IncomingDirection,
     OutgoingDataEvent, OutgoingDirection, ProxyError, TcpProxy,
 };
+use base64::Engine;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 
@@ -25,28 +26,36 @@ pub struct HttpConnection {
 }
 
 impl HttpConnection {
-    fn new(connection: &Connection) -> Self {
-        let mut result = Self {
+    fn new(connection: &Connection, manager: std::rc::Rc<dyn ConnectionManager>) -> Self {
+        let mut server_outbuf: VecDeque<u8> = VecDeque::new();
+        {
+            let credentials = manager.get_credentials();
+            server_outbuf.extend(b"CONNECT ".iter());
+            server_outbuf.extend(connection.dst.to_string().as_bytes());
+            server_outbuf.extend(b" HTTP/1.1\r\nHost: ".iter());
+            server_outbuf.extend(connection.dst.to_string().as_bytes());
+            server_outbuf.extend(b"\r\n".iter());
+            if credentials.authenticate {
+                server_outbuf.extend(b"Proxy-Authorization: Basic ");
+                let mut auth_plain = credentials.username.clone();
+                auth_plain.extend(b":".iter());
+                auth_plain.extend(&credentials.password);
+                let auth_b64 = base64::engine::general_purpose::STANDARD.encode(auth_plain);
+                server_outbuf.extend(auth_b64.as_bytes().iter());
+                server_outbuf.extend(b"\r\n".iter());
+            }
+            server_outbuf.extend(b"\r\n".iter());
+        }
+
+        Self {
             state: HttpState::ExpectStatusCode,
             client_inbuf: Default::default(),
             server_inbuf: Default::default(),
             client_outbuf: Default::default(),
-            server_outbuf: Default::default(),
+            server_outbuf,
             data_buf: Default::default(),
             crlf_state: Default::default(),
-        };
-
-        result.server_outbuf.extend(b"CONNECT ".iter());
-        result
-            .server_outbuf
-            .extend(connection.dst.to_string().as_bytes());
-        result.server_outbuf.extend(b" HTTP/1.1\r\nHost: ".iter());
-        result
-            .server_outbuf
-            .extend(connection.dst.to_string().as_bytes());
-        result.server_outbuf.extend(b"\r\n\r\n".iter());
-
-        result
+        }
     }
 
     fn state_change(&mut self) -> Result<(), ProxyError> {
@@ -167,12 +176,14 @@ impl ConnectionManager for HttpManager {
     fn new_connection(
         &self,
         connection: &Connection,
-        _manager: std::rc::Rc<dyn ConnectionManager>,
+        manager: std::rc::Rc<dyn ConnectionManager>,
     ) -> Option<std::boxed::Box<dyn TcpProxy>> {
         if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
             return None;
         }
-        Some(std::boxed::Box::new(HttpConnection::new(connection)))
+        Some(std::boxed::Box::new(HttpConnection::new(
+            connection, manager,
+        )))
     }
 
     fn close_connection(&self, _: &Connection) {}

@@ -36,21 +36,39 @@ Note that if you paste these commands into a shell script, which you then run wi
 For DNS to work, you might need an additional tool like [dnsproxy](https://github.com/AdguardTeam/dnsproxy) that is
 configured to listen on a local UDP port and communicates with the upstream DNS server via TCP.
 
-## CLI
+## CLI (unstable)
 ```
 Tunnel interface to proxy.
 
-Usage: tun2proxy --tun <name> --proxy <type> --addr <ip:port>
+Usage: tun2proxy [OPTIONS] --tun <name> --proxy <type> --addr <ip:port>
 
 Options:
-  -t, --tun <name>      Name of the tun interface
-  -p, --proxy <type>    What proxy type to run [possible values: socks5, http]
-  -a, --addr <ip:port>  Server address with format ip:port
-  -h, --help            Print help (see more with '--help')
-  -V, --version         Print version
+  -t, --tun <name>
+          Name of the tun interface
+
+  -p, --proxy <type>
+          What proxy type to run
+
+          Possible values:
+          - socks5: SOCKS5 server to use
+          - http:   HTTP server to use
+
+  -a, --addr <ip:port>
+          Server address with format ip:port
+
+      --username <username>
+          Username for authentication
+
+      --password <password>
+          Password for authentication
+
+  -h, --help
+          Print help (see a summary with '-h')
+
+  -V, --version
+          Print version
 ```
 
 ## TODO
-- Authentication for SOCKS (plain) and HTTP (base64)
 - UDP support for SOCKS
 - Virtual DNS
