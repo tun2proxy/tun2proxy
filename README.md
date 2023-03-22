@@ -1,7 +1,7 @@
 # tun2proxy
 Tunnel TCP traffic through SOCKS5 or HTTP on Linux.
 
-**Authentication not yet supported. Error handling incomplete and too restrictive.**
+**Error handling incomplete and too restrictive.**
 
 ## Build
 Clone the repository and `cd` into the project folder. Then run the following:
