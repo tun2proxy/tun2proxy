@@ -41,6 +41,7 @@ mod tests {
     #[cfg(test)]
     #[ctor::ctor]
     fn init() {
+        dotenvy::dotenv().ok();
         routes_setup();
     }
 
