@@ -1,4 +1,5 @@
 .*
+*.secret
 !/.github
 /target
 Cargo.lock
