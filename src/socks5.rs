@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::tun2proxy::{
-    Connection, ConnectionManager, Credentials, IncomingDataEvent, IncomingDirection,
-    OutgoingDataEvent, OutgoingDirection, TcpProxy,
+    Connection, ConnectionManager, Credentials, DestinationHost, IncomingDataEvent,
+    IncomingDirection, OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr};
@@ -18,7 +18,6 @@ enum SocksState {
     Established,
 }
 
-#[allow(dead_code)]
 #[repr(u8)]
 #[derive(Copy, Clone)]
 enum SocksAddressType {
@@ -28,7 +27,6 @@ enum SocksAddressType {
 }
 
 #[allow(dead_code)]
-#[repr(u8)]
 enum SocksAuthentication {
     None = 0,
     Password = 2,
@@ -68,7 +66,7 @@ pub(crate) struct SocksConnection {
 impl SocksConnection {
     pub fn new(connection: &Connection, manager: std::rc::Rc<dyn ConnectionManager>) -> Self {
         let mut result = Self {
-            connection: *connection,
+            connection: connection.clone(),
             state: SocksState::ServerHello,
             client_inbuf: Default::default(),
             server_inbuf: Default::default(),
@@ -84,9 +82,11 @@ impl SocksConnection {
     fn send_client_hello(&mut self) {
         let credentials = self.manager.get_credentials();
         if credentials.is_some() {
-            self.server_outbuf.extend(&[5u8, 1, 2]);
+            self.server_outbuf
+                .extend(&[5u8, 1, SocksAuthentication::Password as u8]);
         } else {
-            self.server_outbuf.extend(&[5u8, 1, 0]);
+            self.server_outbuf
+                .extend(&[5u8, 1, SocksAuthentication::None as u8]);
         }
         self.state = SocksState::ServerHello;
     }
@@ -191,16 +191,28 @@ impl SocksConnection {
     }
 
     fn send_request(&mut self) -> Result<(), Error> {
-        let dst_ip = self.connection.dst.ip();
-        let cmd = if dst_ip.is_ipv4() { 1 } else { 4 };
-        self.server_outbuf.extend(&[5u8, 1, 0, cmd]);
-        match dst_ip {
-            IpAddr::V4(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
-            IpAddr::V6(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
-        };
+        self.server_outbuf.extend(&[5u8, 1, 0]);
+        match &self.connection.dst.host {
+            DestinationHost::Address(dst_ip) => {
+                let cmd = if dst_ip.is_ipv4() {
+                    SocksAddressType::Ipv4
+                } else {
+                    SocksAddressType::Ipv6
+                };
+                self.server_outbuf.extend(&[cmd as u8]);
+                match dst_ip {
+                    IpAddr::V4(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
+                    IpAddr::V6(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
+                };
+            }
+            DestinationHost::Hostname(_) => {
+                self.server_outbuf
+                    .extend(&[SocksAddressType::DomainName as u8]);
+            }
+        }
         self.server_outbuf.extend(&[
-            (self.connection.dst.port() >> 8) as u8,
-            (self.connection.dst.port() & 0xff) as u8,
+            (self.connection.dst.port >> 8) as u8,
+            (self.connection.dst.port & 0xff) as u8,
         ]);
         self.state = SocksState::ReceiveResponse;
         self.state_change()

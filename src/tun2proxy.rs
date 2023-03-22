@@ -14,16 +14,67 @@ use smoltcp::wire::{
 };
 use std::collections::HashMap;
 use std::convert::From;
+use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::net::Shutdown::Both;
 use std::net::{IpAddr, Shutdown, SocketAddr};
 use std::os::unix::io::AsRawFd;
 
-#[derive(Hash, Clone, Copy, Eq, PartialEq)]
-pub struct Connection {
-    pub src: std::net::SocketAddr,
-    pub dst: std::net::SocketAddr,
-    pub proto: u8,
+#[derive(Hash, Clone, Eq, PartialEq)]
+pub enum DestinationHost {
+    Address(IpAddr),
+    Hostname(String),
+}
+
+impl ToString for DestinationHost {
+    fn to_string(&self) -> String {
+        match self {
+            DestinationHost::Address(addr) => addr.to_string(),
+            DestinationHost::Hostname(name) => name.clone(),
+        }
+    }
+}
+
+#[derive(Hash, Clone, Eq, PartialEq)]
+pub(crate) struct Destination {
+    pub(crate) host: DestinationHost,
+    pub(crate) port: u16,
+}
+
+impl From<Destination> for SocketAddr {
+    fn from(value: Destination) -> Self {
+        SocketAddr::new(
+            match value.host {
+                DestinationHost::Address(addr) => addr,
+                DestinationHost::Hostname(_) => {
+                    panic!("Failed to convert hostname destination into socket address")
+                }
+            },
+            value.port,
+        )
+    }
+}
+
+impl From<SocketAddr> for Destination {
+    fn from(addr: SocketAddr) -> Self {
+        Self {
+            host: DestinationHost::Address(addr.ip()),
+            port: addr.port(),
+        }
+    }
+}
+
+impl Display for Destination {
+    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host.to_string(), self.port)
+    }
+}
+
+#[derive(Hash, Clone, Eq, PartialEq)]
+pub(crate) struct Connection {
+    pub(crate) src: std::net::SocketAddr,
+    pub(crate) dst: Destination,
+    pub(crate) proto: u8,
 }
 
 impl std::fmt::Display for Connection {
@@ -105,7 +156,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
         ) {
             let connection = Connection {
                 src: SocketAddr::new(src_addr, ports.0),
-                dst: SocketAddr::new(dst_addr, ports.1),
+                dst: SocketAddr::new(dst_addr, ports.1).into(),
                 proto,
             };
             return Some((connection, first_packet, payload_offset, payload_size));
@@ -130,7 +181,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
             {
                 let connection = Connection {
                     src: SocketAddr::new(src_addr, ports.0),
-                    dst: SocketAddr::new(dst_addr, ports.1),
+                    dst: SocketAddr::new(dst_addr, ports.1).into(),
                     proto,
                 };
                 Some((connection, first_packet, payload_offset, payload_size))
@@ -348,7 +399,10 @@ impl<'a> TunToProxy<'a> {
                                 smoltcp::socket::tcp::SocketBuffer::new(vec![0; 4096]),
                             );
                             socket.set_ack_delay(None);
-                            socket.listen(connection.dst).unwrap();
+                            let dst = connection.dst.clone();
+                            socket
+                                .listen(<Destination as Into<SocketAddr>>::into(dst))
+                                .unwrap();
                             let handle = self.sockets.add(socket);
 
                             let client = TcpStream::connect(server).unwrap();
@@ -363,7 +417,7 @@ impl<'a> TunToProxy<'a> {
                                 handler,
                             };
 
-                            self.token_to_connection.insert(token, connection);
+                            self.token_to_connection.insert(token, connection.clone());
                             self.poll
                                 .registry()
                                 .register(
@@ -373,7 +427,7 @@ impl<'a> TunToProxy<'a> {
                                 )
                                 .unwrap();
 
-                            self.connections.insert(connection, state);
+                            self.connections.insert(connection.clone(), state);
 
                             info!("CONNECT {}", connection,);
                             break;
@@ -456,7 +510,7 @@ impl<'a> TunToProxy<'a> {
 
     fn mio_socket_event(&mut self, event: &Event) {
         if let Some(conn_ref) = self.token_to_connection.get(&event.token()) {
-            let connection = *conn_ref;
+            let connection = conn_ref.clone();
             if event.is_readable() {
                 {
                     let state = self.connections.get_mut(&connection).unwrap();
