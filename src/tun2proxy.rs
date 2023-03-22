@@ -162,6 +162,27 @@ struct ConnectionState {
     handler: std::boxed::Box<dyn TcpProxy>,
 }
 
+#[derive(Default, Clone)]
+pub struct Credentials {
+    pub(crate) authenticate: bool,
+    pub(crate) username: Vec<u8>,
+    pub(crate) password: Vec<u8>,
+}
+
+impl Credentials {
+    pub fn new(username: String, password: String) -> Self {
+        Self {
+            authenticate: true,
+            username: username.as_bytes().to_vec(),
+            password: password.as_bytes().to_vec(),
+        }
+    }
+
+    pub fn none() -> Self {
+        Default::default()
+    }
+}
+
 pub(crate) trait TcpProxy {
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), ProxyError>;
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
@@ -171,9 +192,14 @@ pub(crate) trait TcpProxy {
 
 pub(crate) trait ConnectionManager {
     fn handles_connection(&self, connection: &Connection) -> bool;
-    fn new_connection(&self, connection: &Connection) -> Option<std::boxed::Box<dyn TcpProxy>>;
+    fn new_connection(
+        &self,
+        connection: &Connection,
+        manager: std::rc::Rc<dyn ConnectionManager>,
+    ) -> Option<std::boxed::Box<dyn TcpProxy>>;
     fn close_connection(&self, connection: &Connection);
     fn get_server(&self) -> SocketAddr;
+    fn get_credentials(&self) -> &Credentials;
 }
 
 pub(crate) struct TunToProxy<'a> {
@@ -183,7 +209,7 @@ pub(crate) struct TunToProxy<'a> {
     udp_token: Token,
     iface: Interface,
     connections: HashMap<Connection, ConnectionState>,
-    connection_managers: Vec<std::boxed::Box<dyn ConnectionManager>>,
+    connection_managers: Vec<std::rc::Rc<dyn ConnectionManager>>,
     next_token: usize,
     token_to_connection: HashMap<Token, Connection>,
     sockets: SocketSet<'a>,
@@ -239,7 +265,7 @@ impl<'a> TunToProxy<'a> {
         }
     }
 
-    pub(crate) fn add_connection_manager(&mut self, manager: Box<dyn ConnectionManager>) {
+    pub(crate) fn add_connection_manager(&mut self, manager: std::rc::Rc<dyn ConnectionManager>) {
         self.connection_managers.push(manager);
     }
 
@@ -270,10 +296,13 @@ impl<'a> TunToProxy<'a> {
         info!("CLOSE {}", connection);
     }
 
-    fn get_connection_manager(&self, connection: &Connection) -> Option<&dyn ConnectionManager> {
+    fn get_connection_manager(
+        &self,
+        connection: &Connection,
+    ) -> Option<std::rc::Rc<dyn ConnectionManager>> {
         for manager in self.connection_managers.iter() {
             if manager.handles_connection(connection) {
-                return Some(manager.as_ref());
+                return Some(manager.clone());
             }
         }
         None
@@ -335,7 +364,8 @@ impl<'a> TunToProxy<'a> {
                 let server = cm.unwrap().get_server();
                 if first_packet {
                     for manager in self.connection_managers.iter_mut() {
-                        if let Some(handler) = manager.new_connection(&connection) {
+                        if let Some(handler) = manager.new_connection(&connection, manager.clone())
+                        {
                             let mut socket = smoltcp::socket::tcp::Socket::new(
                                 smoltcp::socket::tcp::SocketBuffer::new(vec![0; 4096]),
                                 smoltcp::socket::tcp::SocketBuffer::new(vec![0; 4096]),

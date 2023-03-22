@@ -1,6 +1,6 @@
 use crate::tun2proxy::{
-    Connection, ConnectionManager, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
-    OutgoingDirection, ProxyError, TcpProxy,
+    Connection, ConnectionManager, Credentials, IncomingDataEvent, IncomingDirection,
+    OutgoingDataEvent, OutgoingDirection, ProxyError, TcpProxy,
 };
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr};
@@ -10,6 +10,8 @@ use std::net::{IpAddr, SocketAddr};
 enum SocksState {
     ClientHello,
     ServerHello,
+    SendAuthData,
+    ReceiveAuthResponse,
     SendRequest,
     ReceiveResponse,
     Established,
@@ -51,7 +53,7 @@ impl std::fmt::Display for SocksReplies {
     }
 }
 
-pub struct SocksConnection {
+pub(crate) struct SocksConnection {
     connection: Connection,
     state: SocksState,
     client_inbuf: VecDeque<u8>,
@@ -59,10 +61,11 @@ pub struct SocksConnection {
     client_outbuf: VecDeque<u8>,
     server_outbuf: VecDeque<u8>,
     data_buf: VecDeque<u8>,
+    manager: std::rc::Rc<dyn ConnectionManager>,
 }
 
 impl SocksConnection {
-    pub fn new(connection: &Connection) -> Self {
+    pub fn new(connection: &Connection, manager: std::rc::Rc<dyn ConnectionManager>) -> Self {
         let mut result = Self {
             connection: *connection,
             state: SocksState::ServerHello,
@@ -71,107 +74,166 @@ impl SocksConnection {
             client_outbuf: Default::default(),
             server_outbuf: Default::default(),
             data_buf: Default::default(),
+            manager,
         };
-        result.server_outbuf.extend(&[5u8, 1, 0]);
-        result.state = SocksState::ServerHello;
+        result.send_client_hello();
         result
     }
 
-    pub fn state_change(&mut self) -> Result<(), ProxyError> {
+    fn send_client_hello(&mut self) {
+        let credentials = self.manager.get_credentials();
+        if credentials.authenticate {
+            self.server_outbuf.extend(&[5u8, 1, 2]);
+        } else {
+            self.server_outbuf.extend(&[5u8, 1, 0]);
+        }
+        self.state = SocksState::ServerHello;
+    }
+
+    fn receive_server_hello(&mut self) -> Result<(), ProxyError> {
+        if self.server_inbuf.len() < 2 {
+            return Ok(());
+        }
+        if self.server_inbuf[0] != 5 {
+            return Err(ProxyError::new(
+                "SOCKS server replied with an unexpected version.".into(),
+            ));
+        }
+
+        if self.server_inbuf[1] != 0 && !self.manager.get_credentials().authenticate
+            || self.server_inbuf[1] != 2 && self.manager.get_credentials().authenticate
+        {
+            return Err(ProxyError::new(
+                "SOCKS server requires an unsupported authentication method.".into(),
+            ));
+        }
+
+        self.server_inbuf.drain(0..2);
+
+        if self.manager.get_credentials().authenticate {
+            self.state = SocksState::SendAuthData;
+        } else {
+            self.state = SocksState::SendRequest;
+        }
+        self.state_change()
+    }
+
+    fn send_auth_data(&mut self) -> Result<(), ProxyError> {
+        let credentials = self.manager.get_credentials();
+        self.server_outbuf
+            .extend(&[1u8, credentials.username.len() as u8]);
+        self.server_outbuf.extend(&credentials.username);
+        self.server_outbuf
+            .extend(&[credentials.password.len() as u8]);
+        self.server_outbuf.extend(&credentials.password);
+        self.state = SocksState::ReceiveAuthResponse;
+        self.state_change()
+    }
+
+    fn receive_auth_data(&mut self) -> Result<(), ProxyError> {
+        if self.server_inbuf.len() < 2 {
+            return Ok(());
+        }
+        if self.server_inbuf[0] != 1 || self.server_inbuf[1] != 0 {
+            return Err(ProxyError::new("SOCKS authentication failed.".into()));
+        }
+        self.server_inbuf.drain(0..2);
+        self.state = SocksState::SendRequest;
+        self.state_change()
+    }
+
+    fn receive_connection_status(&mut self) -> Result<(), ProxyError> {
+        if self.server_inbuf.len() < 4 {
+            return Ok(());
+        }
+        let ver = self.server_inbuf[0];
+        let rep = self.server_inbuf[1];
+        let _rsv = self.server_inbuf[2];
+        let atyp = self.server_inbuf[3];
+
+        if ver != 5 {
+            return Err(ProxyError::new(
+                "SOCKS server replied with an unexpected version.".into(),
+            ));
+        }
+
+        if rep != 0 {
+            return Err(ProxyError::new("SOCKS connection unsuccessful.".into()));
+        }
+
+        if atyp != SocksAddressType::Ipv4 as u8
+            && atyp != SocksAddressType::Ipv6 as u8
+            && atyp != SocksAddressType::DomainName as u8
+        {
+            return Err(ProxyError::new(
+                "SOCKS server replied with unrecognized address type.".into(),
+            ));
+        }
+
+        if atyp == SocksAddressType::DomainName as u8 && self.server_inbuf.len() < 5 {
+            return Ok(());
+        }
+
+        if atyp == SocksAddressType::DomainName as u8
+            && self.server_inbuf.len() < 7 + (self.server_inbuf[4] as usize)
+        {
+            return Ok(());
+        }
+
+        let message_length = if atyp == SocksAddressType::Ipv4 as u8 {
+            10
+        } else if atyp == SocksAddressType::Ipv6 as u8 {
+            22
+        } else {
+            7 + (self.server_inbuf[4] as usize)
+        };
+
+        self.server_inbuf.drain(0..message_length);
+        self.server_outbuf.append(&mut self.data_buf);
+        self.data_buf.clear();
+
+        self.state = SocksState::Established;
+        self.state_change()
+    }
+
+    fn send_request(&mut self) -> Result<(), ProxyError> {
         let dst_ip = self.connection.dst.ip();
+        let cmd = if dst_ip.is_ipv4() { 1 } else { 4 };
+        self.server_outbuf.extend(&[5u8, 1, 0, cmd]);
+        match dst_ip {
+            IpAddr::V4(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
+            IpAddr::V6(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
+        };
+        self.server_outbuf.extend(&[
+            (self.connection.dst.port() >> 8) as u8,
+            (self.connection.dst.port() & 0xff) as u8,
+        ]);
+        self.state = SocksState::ReceiveResponse;
+        self.state_change()
+    }
 
+    pub fn state_change(&mut self) -> Result<(), ProxyError> {
         match self.state {
-            SocksState::ServerHello if self.server_inbuf.len() >= 2 => {
-                if self.server_inbuf[0] != 5 {
-                    return Err(ProxyError::new(
-                        "SOCKS server replied with an unexpected version.".into(),
-                    ));
-                }
+            SocksState::ServerHello => self.receive_server_hello(),
 
-                if self.server_inbuf[1] != 0 {
-                    return Err(ProxyError::new(
-                        "SOCKS server requires an unsupported authentication method.".into(),
-                    ));
-                }
+            SocksState::SendAuthData => self.send_auth_data(),
 
-                self.server_inbuf.drain(0..2);
+            SocksState::ReceiveAuthResponse => self.receive_auth_data(),
 
-                let cmd = if dst_ip.is_ipv4() { 1 } else { 4 };
-                self.server_outbuf.extend(&[5u8, 1, 0, cmd]);
-                match dst_ip {
-                    IpAddr::V4(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
-                    IpAddr::V6(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
-                };
-                self.server_outbuf.extend(&[
-                    (self.connection.dst.port() >> 8) as u8,
-                    (self.connection.dst.port() & 0xff) as u8,
-                ]);
+            SocksState::SendRequest => self.send_request(),
 
-                self.state = SocksState::ReceiveResponse;
-                return self.state_change();
-            }
-
-            SocksState::ReceiveResponse if self.server_inbuf.len() >= 4 => {
-                let ver = self.server_inbuf[0];
-                let rep = self.server_inbuf[1];
-                let _rsv = self.server_inbuf[2];
-                let atyp = self.server_inbuf[3];
-
-                if ver != 5 {
-                    return Err(ProxyError::new(
-                        "SOCKS server replied with an unexpected version.".into(),
-                    ));
-                }
-
-                if rep != 0 {
-                    return Err(ProxyError::new("SOCKS connection unsuccessful.".into()));
-                }
-
-                if atyp != SocksAddressType::Ipv4 as u8
-                    && atyp != SocksAddressType::Ipv6 as u8
-                    && atyp != SocksAddressType::DomainName as u8
-                {
-                    return Err(ProxyError::new(
-                        "SOCKS server replied with unrecognized address type.".into(),
-                    ));
-                }
-
-                if atyp == SocksAddressType::DomainName as u8 && self.server_inbuf.len() < 5 {
-                    return Ok(());
-                }
-
-                if atyp == SocksAddressType::DomainName as u8
-                    && self.server_inbuf.len() < 7 + (self.server_inbuf[4] as usize)
-                {
-                    return Ok(());
-                }
-
-                let message_length = if atyp == SocksAddressType::Ipv4 as u8 {
-                    10
-                } else if atyp == SocksAddressType::Ipv6 as u8 {
-                    22
-                } else {
-                    7 + (self.server_inbuf[4] as usize)
-                };
-
-                self.server_inbuf.drain(0..message_length);
-                self.server_outbuf.append(&mut self.data_buf);
-                self.data_buf.clear();
-
-                self.state = SocksState::Established;
-                return self.state_change();
-            }
+            SocksState::ReceiveResponse => self.receive_connection_status(),
 
             SocksState::Established => {
                 self.client_outbuf.extend(self.server_inbuf.iter());
                 self.server_outbuf.extend(self.client_inbuf.iter());
                 self.server_inbuf.clear();
                 self.client_inbuf.clear();
+                Ok(())
             }
 
-            _ => {}
+            _ => Ok(()),
         }
-        Ok(())
     }
 }
 
@@ -223,9 +285,7 @@ impl TcpProxy for SocksConnection {
 
 pub struct Socks5Manager {
     server: std::net::SocketAddr,
-    authentication: SocksAuthentication,
-    username: Vec<u8>,
-    password: Vec<u8>,
+    credentials: Credentials,
 }
 
 impl ConnectionManager for Socks5Manager {
@@ -233,11 +293,17 @@ impl ConnectionManager for Socks5Manager {
         connection.proto == smoltcp::wire::IpProtocol::Tcp.into()
     }
 
-    fn new_connection(&self, connection: &Connection) -> Option<std::boxed::Box<dyn TcpProxy>> {
+    fn new_connection(
+        &self,
+        connection: &Connection,
+        manager: std::rc::Rc<dyn ConnectionManager>,
+    ) -> Option<std::boxed::Box<dyn TcpProxy>> {
         if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
             return None;
         }
-        Some(std::boxed::Box::new(SocksConnection::new(connection)))
+        Some(std::boxed::Box::new(SocksConnection::new(
+            connection, manager,
+        )))
     }
 
     fn close_connection(&self, _: &Connection) {}
@@ -245,23 +311,17 @@ impl ConnectionManager for Socks5Manager {
     fn get_server(&self) -> SocketAddr {
         self.server
     }
+
+    fn get_credentials(&self) -> &Credentials {
+        &self.credentials
+    }
 }
 
 impl Socks5Manager {
-    pub fn new(server: SocketAddr) -> Self {
-        Self {
+    pub fn new(server: SocketAddr, credentials: Credentials) -> std::rc::Rc<Self> {
+        std::rc::Rc::new(Self {
             server,
-            authentication: SocksAuthentication::None,
-            username: Default::default(),
-            password: Default::default(),
-        }
-    }
-
-    #[allow(dead_code)]
-    pub fn set_credentials(&mut self, username: &[u8], password: &[u8]) {
-        assert!(username.len() <= 255 && password.len() <= 255);
-        self.authentication = SocksAuthentication::Password;
-        self.username = Vec::from(username);
-        self.password = Vec::from(password);
+            credentials,
+        })
     }
 }

@@ -1,6 +1,6 @@
 use crate::tun2proxy::{
-    Connection, ConnectionManager, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
-    OutgoingDirection, ProxyError, TcpProxy,
+    Connection, ConnectionManager, Credentials, IncomingDataEvent, IncomingDirection,
+    OutgoingDataEvent, OutgoingDirection, ProxyError, TcpProxy,
 };
 use std::collections::VecDeque;
 use std::net::SocketAddr;
@@ -156,6 +156,7 @@ impl TcpProxy for HttpConnection {
 
 pub struct HttpManager {
     server: std::net::SocketAddr,
+    credentials: Credentials,
 }
 
 impl ConnectionManager for HttpManager {
@@ -163,7 +164,11 @@ impl ConnectionManager for HttpManager {
         connection.proto == smoltcp::wire::IpProtocol::Tcp.into()
     }
 
-    fn new_connection(&self, connection: &Connection) -> Option<std::boxed::Box<dyn TcpProxy>> {
+    fn new_connection(
+        &self,
+        connection: &Connection,
+        _manager: std::rc::Rc<dyn ConnectionManager>,
+    ) -> Option<std::boxed::Box<dyn TcpProxy>> {
         if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
             return None;
         }
@@ -175,10 +180,17 @@ impl ConnectionManager for HttpManager {
     fn get_server(&self) -> SocketAddr {
         self.server
     }
+
+    fn get_credentials(&self) -> &Credentials {
+        &self.credentials
+    }
 }
 
 impl HttpManager {
-    pub fn new(server: SocketAddr) -> Self {
-        Self { server }
+    pub fn new(server: SocketAddr, credentials: Credentials) -> std::rc::Rc<Self> {
+        std::rc::Rc::new(Self {
+            server,
+            credentials,
+        })
     }
 }
