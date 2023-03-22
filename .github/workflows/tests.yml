@@ -1,0 +1,27 @@
+on:
+  pull_request_review:
+    types: [submitted]
+  push:
+  workflow_dispatch:
+
+name: Integration Tests
+
+jobs:
+  proxy_tests:
+    name: Proxy Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: test
+          args: --no-run
+      - env:
+          SOCKS5_SERVER: ${{ secrets.SOCKS5_SERVER }}
+          HTTP_SERVER: ${{ secrets.HTTP_SERVER }}
+        run: sudo -E find -wholename './target/debug/deps/proxy-*' -executable -exec "{}" \;

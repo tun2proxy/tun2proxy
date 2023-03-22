@@ -148,15 +148,21 @@ mod tests {
         }
     }
 
+    fn require_var(var: &str) {
+        env::var(var).expect(format!("{var} environment variable required").as_str());
+    }
+
     #[serial]
-    #[test_with::env(SOCKS5_SERVER)]
+    #[test]
     fn test_socks5() {
+        require_var("SOCKS5_SERVER");
         run_test(|test| test.proxy.proxy_type == ProxyType::Socks5)
     }
 
     #[serial]
-    #[test_with::env(HTTP_SERVER)]
+    #[test]
     fn test_http() {
+        require_var("HTTP_SERVER");
         run_test(|test| test.proxy.proxy_type == ProxyType::Http)
     }
 }
