@@ -164,22 +164,16 @@ struct ConnectionState {
 
 #[derive(Default, Clone)]
 pub struct Credentials {
-    pub(crate) authenticate: bool,
     pub(crate) username: Vec<u8>,
     pub(crate) password: Vec<u8>,
 }
 
 impl Credentials {
-    pub fn new(username: String, password: String) -> Self {
+    pub fn new(username: &str, password: &str) -> Self {
         Self {
-            authenticate: true,
             username: username.as_bytes().to_vec(),
             password: password.as_bytes().to_vec(),
         }
-    }
-
-    pub fn none() -> Self {
-        Default::default()
     }
 }
 
@@ -199,7 +193,7 @@ pub(crate) trait ConnectionManager {
     ) -> Option<std::boxed::Box<dyn TcpProxy>>;
     fn close_connection(&self, connection: &Connection);
     fn get_server(&self) -> SocketAddr;
-    fn get_credentials(&self) -> &Credentials;
+    fn get_credentials(&self) -> &Option<Credentials>;
 }
 
 pub(crate) struct TunToProxy<'a> {

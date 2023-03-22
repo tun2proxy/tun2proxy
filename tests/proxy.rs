@@ -140,7 +140,7 @@ mod tests {
                 }
                 Ok(Fork::Child) => {
                     prctl::set_death_signal(signal::SIGKILL as isize).unwrap(); // 9 == SIGKILL
-                    main_entry(TUN_TEST_DEVICE, address, ProxyType::Socks5);
+                    main_entry(TUN_TEST_DEVICE, address, ProxyType::Socks5, None);
                 }
                 Err(_) => assert!(false),
             }

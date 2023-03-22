@@ -35,7 +35,7 @@ impl HttpConnection {
             server_outbuf.extend(b" HTTP/1.1\r\nHost: ".iter());
             server_outbuf.extend(connection.dst.to_string().as_bytes());
             server_outbuf.extend(b"\r\n".iter());
-            if credentials.authenticate {
+            if let Some(credentials) = credentials {
                 server_outbuf.extend(b"Proxy-Authorization: Basic ");
                 let mut auth_plain = credentials.username.clone();
                 auth_plain.extend(b":".iter());
@@ -165,7 +165,7 @@ impl TcpProxy for HttpConnection {
 
 pub struct HttpManager {
     server: std::net::SocketAddr,
-    credentials: Credentials,
+    credentials: Option<Credentials>,
 }
 
 impl ConnectionManager for HttpManager {
@@ -192,13 +192,13 @@ impl ConnectionManager for HttpManager {
         self.server
     }
 
-    fn get_credentials(&self) -> &Credentials {
+    fn get_credentials(&self) -> &Option<Credentials> {
         &self.credentials
     }
 }
 
 impl HttpManager {
-    pub fn new(server: SocketAddr, credentials: Credentials) -> std::rc::Rc<Self> {
+    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> std::rc::Rc<Self> {
         std::rc::Rc::new(Self {
             server,
             credentials,

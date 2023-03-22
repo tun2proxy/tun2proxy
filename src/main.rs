@@ -23,7 +23,7 @@ struct Args {
 struct ArgProxy {
     proxy_type: ProxyType,
     addr: SocketAddr,
-    credentials: Credentials,
+    credentials: Option<Credentials>,
 }
 
 fn proxy_url_parser(s: &str) -> Result<ArgProxy, String> {
@@ -46,12 +46,11 @@ fn proxy_url_parser(s: &str) -> Result<ArgProxy, String> {
         .ok_or(format!("`{host}` does not resolve to a usable IP address"))?;
 
     let credentials = if url.username() == "" && url.password().is_none() {
-        Credentials::none()
+        None
     } else {
-        Credentials::new(
-            String::from(url.username()),
-            String::from(url.password().unwrap_or("")),
-        )
+        let username = String::from(url.username());
+        let password = String::from(url.password().unwrap_or(""));
+        Some(Credentials::new(&username, &password))
     };
 
     let scheme = url.scheme();
@@ -75,12 +74,8 @@ fn main() {
     let args = Args::parse();
 
     let addr = args.proxy.addr;
-    log::info!("Proxy server: {addr}");
+    let proxy_type = args.proxy.proxy_type;
+    log::info!("Proxy {proxy_type} server: {addr}");
 
-    main_entry(
-        &args.tun,
-        args.proxy.addr,
-        args.proxy.proxy_type,
-        args.proxy.credentials,
-    );
+    main_entry(&args.tun, addr, proxy_type, args.proxy.credentials);
 }

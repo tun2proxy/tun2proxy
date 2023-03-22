@@ -13,7 +13,21 @@ pub enum ProxyType {
     Http,
 }
 
-pub fn main_entry(tun: &str, addr: SocketAddr, proxy_type: ProxyType, credentials: Credentials) {
+impl std::fmt::Display for ProxyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProxyType::Socks5 => write!(f, "socks5"),
+            ProxyType::Http => write!(f, "http"),
+        }
+    }
+}
+
+pub fn main_entry(
+    tun: &str,
+    addr: SocketAddr,
+    proxy_type: ProxyType,
+    credentials: Option<Credentials>,
+) {
     let mut ttp = TunToProxy::new(tun);
     match proxy_type {
         ProxyType::Socks5 => {

@@ -82,7 +82,7 @@ impl SocksConnection {
 
     fn send_client_hello(&mut self) {
         let credentials = self.manager.get_credentials();
-        if credentials.authenticate {
+        if credentials.is_some() {
             self.server_outbuf.extend(&[5u8, 1, 2]);
         } else {
             self.server_outbuf.extend(&[5u8, 1, 0]);
@@ -100,8 +100,8 @@ impl SocksConnection {
             ));
         }
 
-        if self.server_inbuf[1] != 0 && !self.manager.get_credentials().authenticate
-            || self.server_inbuf[1] != 2 && self.manager.get_credentials().authenticate
+        if self.server_inbuf[1] != 0 && self.manager.get_credentials().is_none()
+            || self.server_inbuf[1] != 2 && self.manager.get_credentials().is_some()
         {
             return Err(ProxyError::new(
                 "SOCKS server requires an unsupported authentication method.".into(),
@@ -110,7 +110,7 @@ impl SocksConnection {
 
         self.server_inbuf.drain(0..2);
 
-        if self.manager.get_credentials().authenticate {
+        if self.manager.get_credentials().is_some() {
             self.state = SocksState::SendAuthData;
         } else {
             self.state = SocksState::SendRequest;
@@ -119,7 +119,8 @@ impl SocksConnection {
     }
 
     fn send_auth_data(&mut self) -> Result<(), ProxyError> {
-        let credentials = self.manager.get_credentials();
+        let tmp = Credentials::default();
+        let credentials = self.manager.get_credentials().as_ref().unwrap_or(&tmp);
         self.server_outbuf
             .extend(&[1u8, credentials.username.len() as u8]);
         self.server_outbuf.extend(&credentials.username);
@@ -285,7 +286,7 @@ impl TcpProxy for SocksConnection {
 
 pub struct Socks5Manager {
     server: std::net::SocketAddr,
-    credentials: Credentials,
+    credentials: Option<Credentials>,
 }
 
 impl ConnectionManager for Socks5Manager {
@@ -312,13 +313,13 @@ impl ConnectionManager for Socks5Manager {
         self.server
     }
 
-    fn get_credentials(&self) -> &Credentials {
+    fn get_credentials(&self) -> &Option<Credentials> {
         &self.credentials
     }
 }
 
 impl Socks5Manager {
-    pub fn new(server: SocketAddr, credentials: Credentials) -> std::rc::Rc<Self> {
+    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> std::rc::Rc<Self> {
         std::rc::Rc::new(Self {
             server,
             credentials,
