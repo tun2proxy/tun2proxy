@@ -14,8 +14,8 @@ struct Args {
     #[arg(short, long, value_name = "name", default_value = "tun0")]
     tun: String,
 
-    /// What proxy type to run
-    #[arg(short, long = "proxy", value_parser = proxy_url_parser)]
+    /// The proxy URL in the form proto://[username[:password]@]host:port
+    #[arg(short, long = "proxy", value_parser = proxy_url_parser, value_name = "URL")]
     proxy: ArgProxy,
 }
 
