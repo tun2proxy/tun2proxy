@@ -1,3 +1,4 @@
+use crate::error::Error;
 use crate::virtdevice::VirtualTunDevice;
 use log::{error, info};
 use mio::event::Event;
@@ -17,20 +18,6 @@ use std::io::{Read, Write};
 use std::net::Shutdown::Both;
 use std::net::{IpAddr, Shutdown, SocketAddr};
 use std::os::unix::io::AsRawFd;
-
-pub struct ProxyError {
-    message: String,
-}
-
-impl ProxyError {
-    pub fn new(message: String) -> Self {
-        Self { message }
-    }
-
-    pub fn message(&self) -> String {
-        self.message.clone()
-    }
-}
 
 #[derive(Hash, Clone, Copy, Eq, PartialEq)]
 pub struct Connection {
@@ -178,7 +165,7 @@ impl Credentials {
 }
 
 pub(crate) trait TcpProxy {
-    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), ProxyError>;
+    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error>;
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent;
     fn connection_established(&self) -> bool;
@@ -302,10 +289,6 @@ impl<'a> TunToProxy<'a> {
         None
     }
 
-    fn print_error(error: ProxyError) {
-        error!("{}", error.message());
-    }
-
     fn tunsocket_read_and_forward(&mut self, connection: &Connection) {
         if let Some(state) = self.connections.get_mut(connection) {
             let closed = {
@@ -329,7 +312,7 @@ impl<'a> TunToProxy<'a> {
                 match error {
                     Ok(_) => socket.state() == smoltcp::socket::tcp::State::CloseWait,
                     Err(e) => {
-                        Self::print_error(e);
+                        log::error!("{e}");
                         true
                     }
                 }
@@ -512,7 +495,7 @@ impl<'a> TunToProxy<'a> {
                             socket.close();
                         }
                         self.expect_smoltcp_send();
-                        Self::print_error(error);
+                        log::error! {"{error}"};
                         self.remove_connection(&connection.clone());
                         return;
                     }
