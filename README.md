@@ -58,8 +58,8 @@ Options:
   -V, --version      Print version
 ```
 Currently, tun2proxy supports two proxy protocols: HTTP and SOCKS5. A proxy is supplied to the `--proxy` argument in the
-URL format. For example, an HTTP proxy at 1.2.3.4:1080 with a username of `john.doe` and a password of `secret` is
-supplied as `--proxy http://john.doe:secret@1.2.3.4:1080`. This works analogously to curl's `--proxy` argument.
+URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is
+supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogously to curl's `--proxy` argument.
 
 ## TODO
 - UDP support for SOCKS
