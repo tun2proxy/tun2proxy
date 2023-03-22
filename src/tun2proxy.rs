@@ -162,7 +162,7 @@ struct ConnectionState {
     handler: std::boxed::Box<dyn TcpProxy>,
 }
 
-#[derive(Default, Clone)]
+#[derive(Default, Clone, Debug)]
 pub struct Credentials {
     pub(crate) username: Vec<u8>,
     pub(crate) password: Vec<u8>,

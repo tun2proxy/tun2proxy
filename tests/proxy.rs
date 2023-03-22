@@ -2,36 +2,41 @@
 mod tests {
     extern crate reqwest;
 
+    use std::env;
+    use std::io::BufRead;
+    use std::net::SocketAddr;
+    use std::process::Command;
+    use std::string::ToString;
+
     use fork::Fork;
     use nix::sys::signal;
     use nix::unistd::Pid;
     use serial_test::serial;
-    use std::env;
-    use std::io::BufRead;
-    use std::net::{SocketAddr, ToSocketAddrs};
-    use std::process::Command;
-    use std::string::ToString;
-    use tun2proxy::{main_entry, ProxyType};
+
+    use tun2proxy::{main_entry, Proxy, ProxyType};
 
     static TUN_TEST_DEVICE: &str = "tun0";
     static ALL_ROUTES: [&str; 4] = ["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"];
 
-    #[derive(Clone, Copy)]
+    #[derive(Clone, Debug)]
     struct Test {
-        env: &'static str,
-        proxy_type: ProxyType,
+        proxy: Proxy,
     }
 
-    static TESTS: [Test; 2] = [
-        Test {
-            env: "SOCKS5_SERVER",
-            proxy_type: ProxyType::Socks5,
-        },
-        Test {
-            env: "HTTP_SERVER",
-            proxy_type: ProxyType::Http,
-        },
-    ];
+    fn proxy_from_env(env_var: &str) -> Result<Proxy, String> {
+        let url =
+            env::var(env_var).map_err(|_| format!("{env_var} environment variable not found"))?;
+        Proxy::from_url(url.as_str()).map_err(|_| format!("{env_var} URL cannot be parsed"))
+    }
+
+    fn test_from_env(env_var: &str) -> Result<Test, String> {
+        let proxy = proxy_from_env(env_var)?;
+        Ok(Test { proxy })
+    }
+
+    fn tests() -> [Result<Test, String>; 2] {
+        [test_from_env("SOCKS5_SERVER"), test_from_env("HTTP_SERVER")]
+    }
 
     #[cfg(test)]
     #[ctor::ctor]
@@ -48,17 +53,14 @@ mod tests {
             .expect("failed to delete tun device");
     }
 
-    fn parse_server_addr(string: String) -> SocketAddr {
-        return string.to_socket_addrs().unwrap().next().unwrap();
-    }
-
     fn routes_setup() {
         let mut all_servers: Vec<SocketAddr> = Vec::new();
 
-        for test in TESTS {
-            if let Ok(server) = env::var(test.env) {
-                all_servers.push(parse_server_addr(server));
+        for test in tests() {
+            if test.is_err() {
+                continue;
             }
+            all_servers.push(test.unwrap().proxy.addr);
         }
 
         Command::new("ip")
@@ -116,46 +118,45 @@ mod tests {
     where
         F: Fn(&Test) -> bool,
     {
-        for test in TESTS {
-            if !filter(&test) {
-                continue;
-            }
-            let env_var = env::var(test.env).expect(
-                format!(
-                    "this test requires the {} environment variable to be set",
-                    test.env
-                )
-                .as_str(),
-            );
-            let address = parse_server_addr(env_var);
+        for potential_test in tests() {
+            match potential_test {
+                Ok(test) => {
+                    if filter(&test) {
+                        continue;
+                    }
 
-            match fork::fork() {
-                Ok(Fork::Parent(child)) => {
-                    reqwest::blocking::get("https://1.1.1.1")
-                        .expect("failed to issue HTTP request");
-                    signal::kill(Pid::from_raw(child), signal::SIGKILL)
-                        .expect("failed to kill child");
-                    nix::sys::wait::waitpid(Pid::from_raw(child), None)
-                        .expect("failed to wait for child");
+                    match fork::fork() {
+                        Ok(Fork::Parent(child)) => {
+                            reqwest::blocking::get("https://1.1.1.1")
+                                .expect("failed to issue HTTP request");
+                            signal::kill(Pid::from_raw(child), signal::SIGKILL)
+                                .expect("failed to kill child");
+                            nix::sys::wait::waitpid(Pid::from_raw(child), None)
+                                .expect("failed to wait for child");
+                        }
+                        Ok(Fork::Child) => {
+                            prctl::set_death_signal(signal::SIGKILL as isize).unwrap(); // 9 == SIGKILL
+                            main_entry(TUN_TEST_DEVICE, test.proxy);
+                        }
+                        Err(_) => assert!(false),
+                    }
                 }
-                Ok(Fork::Child) => {
-                    prctl::set_death_signal(signal::SIGKILL as isize).unwrap(); // 9 == SIGKILL
-                    main_entry(TUN_TEST_DEVICE, address, ProxyType::Socks5, None);
+                Err(_) => {
+                    continue;
                 }
-                Err(_) => assert!(false),
             }
         }
     }
 
-    #[test]
     #[serial]
+    #[test_with::env(SOCKS5_SERVER)]
     fn test_socks5() {
-        run_test(|test| test.proxy_type == ProxyType::Socks5)
+        run_test(|test| test.proxy.proxy_type == ProxyType::Socks5)
     }
 
-    #[test]
     #[serial]
+    #[test_with::env(HTTP_SERVER)]
     fn test_http() {
-        run_test(|test| test.proxy_type == ProxyType::Http)
+        run_test(|test| test.proxy.proxy_type == ProxyType::Http)
     }
 }
