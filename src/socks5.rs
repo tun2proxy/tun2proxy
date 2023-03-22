@@ -205,9 +205,10 @@ impl SocksConnection {
                     IpAddr::V6(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
                 };
             }
-            DestinationHost::Hostname(_) => {
+            DestinationHost::Hostname(host) => {
                 self.server_outbuf
-                    .extend(&[SocksAddressType::DomainName as u8]);
+                    .extend(&[SocksAddressType::DomainName as u8, host.len() as u8]);
+                self.server_outbuf.extend(host.as_bytes());
             }
         }
         self.server_outbuf.extend(&[
