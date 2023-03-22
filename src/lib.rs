@@ -1,7 +1,9 @@
+use crate::error::{s2e, Error};
 use crate::tun2proxy::Credentials;
 use crate::{http::HttpManager, socks5::Socks5Manager, tun2proxy::TunToProxy};
 use std::net::{SocketAddr, ToSocketAddrs};
 
+pub mod error;
 pub mod http;
 pub mod socks5;
 pub mod tun2proxy;
@@ -15,24 +17,23 @@ pub struct Proxy {
 }
 
 impl Proxy {
-    pub fn from_url(s: &str) -> Result<Proxy, String> {
-        let url = url::Url::parse(s).map_err(|_| format!("`{s}` is not a valid proxy URL"))?;
-        let host = url
-            .host_str()
-            .ok_or(format!("`{s}` does not contain a host"))?;
+    pub fn from_url(s: &str) -> Result<Proxy, Error> {
+        let e = format!("`{s}` is not a valid proxy URL");
+        let url = url::Url::parse(s).map_err(|_| s2e(&e))?;
+        let e = format!("`{s}` does not contain a host");
+        let host = url.host_str().ok_or(s2e(&e))?;
 
         let mut url_host = String::from(host);
-        let port = url.port().ok_or(format!("`{s}` does not contain a port"))?;
+        let e = format!("`{s}` does not contain a port");
+        let port = url.port().ok_or(s2e(&e))?;
         url_host.push(':');
         url_host.push_str(port.to_string().as_str());
 
-        let mut addr_iter = url_host
-            .to_socket_addrs()
-            .map_err(|_| format!("`{host}` could not be resolved"))?;
+        let e = format!("`{host}` could not be resolved");
+        let mut addr_iter = url_host.to_socket_addrs().map_err(|_| s2e(&e))?;
 
-        let addr = addr_iter
-            .next()
-            .ok_or(format!("`{host}` does not resolve to a usable IP address"))?;
+        let e = format!("`{host}` does not resolve to a usable IP address");
+        let addr = addr_iter.next().ok_or(s2e(&e))?;
 
         let credentials = if url.username() == "" && url.password().is_none() {
             None
@@ -49,7 +50,7 @@ impl Proxy {
             "http" => Some(ProxyType::Http),
             _ => None,
         }
-        .ok_or(format!("`{scheme}` is an invalid proxy type"))?;
+        .ok_or(s2e(&format!("`{scheme}` is an invalid proxy type")))?;
 
         Ok(Proxy {
             proxy_type,

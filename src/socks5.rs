@@ -1,6 +1,7 @@
+use crate::error::Error;
 use crate::tun2proxy::{
     Connection, ConnectionManager, Credentials, IncomingDataEvent, IncomingDirection,
-    OutgoingDataEvent, OutgoingDirection, ProxyError, TcpProxy,
+    OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr};
@@ -90,22 +91,18 @@ impl SocksConnection {
         self.state = SocksState::ServerHello;
     }
 
-    fn receive_server_hello(&mut self) -> Result<(), ProxyError> {
+    fn receive_server_hello(&mut self) -> Result<(), Error> {
         if self.server_inbuf.len() < 2 {
             return Ok(());
         }
         if self.server_inbuf[0] != 5 {
-            return Err(ProxyError::new(
-                "SOCKS server replied with an unexpected version.".into(),
-            ));
+            return Err("SOCKS server replied with an unexpected version.".into());
         }
 
         if self.server_inbuf[1] != 0 && self.manager.get_credentials().is_none()
             || self.server_inbuf[1] != 2 && self.manager.get_credentials().is_some()
         {
-            return Err(ProxyError::new(
-                "SOCKS server requires an unsupported authentication method.".into(),
-            ));
+            return Err("SOCKS server requires an unsupported authentication method.".into());
         }
 
         self.server_inbuf.drain(0..2);
@@ -118,7 +115,7 @@ impl SocksConnection {
         self.state_change()
     }
 
-    fn send_auth_data(&mut self) -> Result<(), ProxyError> {
+    fn send_auth_data(&mut self) -> Result<(), Error> {
         let tmp = Credentials::default();
         let credentials = self.manager.get_credentials().as_ref().unwrap_or(&tmp);
         self.server_outbuf
@@ -131,19 +128,19 @@ impl SocksConnection {
         self.state_change()
     }
 
-    fn receive_auth_data(&mut self) -> Result<(), ProxyError> {
+    fn receive_auth_data(&mut self) -> Result<(), Error> {
         if self.server_inbuf.len() < 2 {
             return Ok(());
         }
         if self.server_inbuf[0] != 1 || self.server_inbuf[1] != 0 {
-            return Err(ProxyError::new("SOCKS authentication failed.".into()));
+            return Err("SOCKS authentication failed.".into());
         }
         self.server_inbuf.drain(0..2);
         self.state = SocksState::SendRequest;
         self.state_change()
     }
 
-    fn receive_connection_status(&mut self) -> Result<(), ProxyError> {
+    fn receive_connection_status(&mut self) -> Result<(), Error> {
         if self.server_inbuf.len() < 4 {
             return Ok(());
         }
@@ -153,22 +150,18 @@ impl SocksConnection {
         let atyp = self.server_inbuf[3];
 
         if ver != 5 {
-            return Err(ProxyError::new(
-                "SOCKS server replied with an unexpected version.".into(),
-            ));
+            return Err("SOCKS server replied with an unexpected version.".into());
         }
 
         if rep != 0 {
-            return Err(ProxyError::new("SOCKS connection unsuccessful.".into()));
+            return Err("SOCKS connection unsuccessful.".into());
         }
 
         if atyp != SocksAddressType::Ipv4 as u8
             && atyp != SocksAddressType::Ipv6 as u8
             && atyp != SocksAddressType::DomainName as u8
         {
-            return Err(ProxyError::new(
-                "SOCKS server replied with unrecognized address type.".into(),
-            ));
+            return Err("SOCKS server replied with unrecognized address type.".into());
         }
 
         if atyp == SocksAddressType::DomainName as u8 && self.server_inbuf.len() < 5 {
@@ -197,7 +190,7 @@ impl SocksConnection {
         self.state_change()
     }
 
-    fn send_request(&mut self) -> Result<(), ProxyError> {
+    fn send_request(&mut self) -> Result<(), Error> {
         let dst_ip = self.connection.dst.ip();
         let cmd = if dst_ip.is_ipv4() { 1 } else { 4 };
         self.server_outbuf.extend(&[5u8, 1, 0, cmd]);
@@ -213,7 +206,7 @@ impl SocksConnection {
         self.state_change()
     }
 
-    pub fn state_change(&mut self) -> Result<(), ProxyError> {
+    pub fn state_change(&mut self) -> Result<(), Error> {
         match self.state {
             SocksState::ServerHello => self.receive_server_hello(),
 
@@ -239,7 +232,7 @@ impl SocksConnection {
 }
 
 impl TcpProxy for SocksConnection {
-    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), ProxyError> {
+    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
         let direction = event.direction;
         let buffer = event.buffer;
         match direction {

@@ -1,6 +1,7 @@
+use crate::error::Error;
 use crate::tun2proxy::{
     Connection, ConnectionManager, Credentials, IncomingDataEvent, IncomingDirection,
-    OutgoingDataEvent, OutgoingDirection, ProxyError, TcpProxy,
+    OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
 use base64::Engine;
 use std::collections::VecDeque;
@@ -58,7 +59,7 @@ impl HttpConnection {
         }
     }
 
-    fn state_change(&mut self) -> Result<(), ProxyError> {
+    fn state_change(&mut self) -> Result<(), Error> {
         match self.state {
             HttpState::ExpectStatusCode if self.server_inbuf.len() >= "HTTP/1.1 200 ".len() => {
                 let status_line: Vec<u8> = self
@@ -72,11 +73,9 @@ impl HttpConnection {
                 {
                     let status_str =
                         String::from_utf8_lossy(&status_line.as_slice()[0.."HTTP/1.1 200".len()]);
-                    return Err(ProxyError::new(
-                        "Expected success status code. Server replied with ".to_owned()
-                            + &*status_str
-                            + ".",
-                    ));
+                    let e =
+                        format!("Expected success status code. Server replied with {status_str}.");
+                    return Err(e.into());
                 }
                 self.state = HttpState::ExpectResponse;
                 return self.state_change();
@@ -118,7 +117,7 @@ impl HttpConnection {
 }
 
 impl TcpProxy for HttpConnection {
-    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), ProxyError> {
+    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
         let direction = event.direction;
         let buffer = event.buffer;
         match direction {
