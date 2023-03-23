@@ -11,10 +11,7 @@ use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, Medium, RxToken, TunTapInterface, TxToken};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
-use smoltcp::wire::{
-    IpAddress, IpCidr, IpProtocol, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet, TcpPacket,
-    UdpPacket,
-};
+use smoltcp::wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket};
 use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryFrom};
 use std::fmt::{Display, Formatter};
@@ -23,6 +20,7 @@ use std::net::Shutdown::Both;
 use std::net::{IpAddr, SocketAddr};
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
+use std::str::FromStr;
 
 #[derive(Hash, Clone, Eq, PartialEq)]
 pub enum DestinationHost {
@@ -304,19 +302,25 @@ impl<'a> TunToProxy<'a> {
         let mut iface = Interface::new(config, &mut virt);
         iface.update_ip_addrs(|ip_addrs| {
             ip_addrs
-                .push(IpCidr::new(IpAddress::v4(0, 0, 0, 1), 0))
+                .push(IpCidr::new(
+                    std::net::Ipv4Addr::from_str("0.0.0.1").unwrap().into(),
+                    0,
+                ))
                 .unwrap();
             ip_addrs
-                .push(IpCidr::new(IpAddress::v6(0, 0, 0, 0, 0, 0, 0, 1), 0))
+                .push(IpCidr::new(
+                    std::net::Ipv6Addr::from_str("::1").unwrap().into(),
+                    0,
+                ))
                 .unwrap()
         });
         iface
             .routes_mut()
-            .add_default_ipv4_route(Ipv4Address::new(0, 0, 0, 1))
+            .add_default_ipv4_route(std::net::Ipv4Addr::from_str("0.0.0.1").unwrap().into())
             .unwrap();
         iface
             .routes_mut()
-            .add_default_ipv6_route(Ipv6Address::new(0, 0, 0, 0, 0, 0, 0, 1))
+            .add_default_ipv6_route(std::net::Ipv6Addr::from_str("::1").unwrap().into())
             .unwrap();
         iface.set_any_ip(true);
 
