@@ -60,20 +60,6 @@ impl TryFrom<Destination> for SocketAddr {
     }
 }
 
-impl From<&Destination> for SocketAddr {
-    fn from(value: &Destination) -> Self {
-        SocketAddr::new(
-            match value.host {
-                DestinationHost::Address(addr) => addr,
-                Hostname(_) => {
-                    panic!("Failed to convert hostname destination into socket address")
-                }
-            },
-            value.port,
-        )
-    }
-}
-
 impl From<SocketAddr> for Destination {
     fn from(addr: SocketAddr) -> Self {
         Self {
@@ -438,7 +424,8 @@ impl<'a> TunToProxy<'a> {
             let resolved_conn = match &self.options.virtdns {
                 None => connection.clone(),
                 Some(virt_dns) => {
-                    match virt_dns.ip_to_name(&SocketAddr::from(&connection.dst).ip()) {
+                    let ip = SocketAddr::try_from(connection.dst.clone()).unwrap().ip();
+                    match virt_dns.ip_to_name(&ip) {
                         None => connection.clone(),
                         Some(name) => connection.to_named(name.clone()),
                     }
