@@ -16,6 +16,7 @@ struct Args {
     #[arg(short, long, value_parser = Proxy::from_url, value_name = "URL")]
     proxy: Proxy,
 
+    /// Enable virtual DNS feature
     #[arg(short = 'd', long = "dns")]
     virtual_dns: bool,
 }
