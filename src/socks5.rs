@@ -3,6 +3,7 @@ use crate::tun2proxy::{
     Connection, ConnectionManager, Credentials, DestinationHost, IncomingDataEvent,
     IncomingDirection, OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
+use smoltcp::wire::IpProtocol;
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr};
 use std::rc::Rc;
@@ -297,7 +298,7 @@ pub struct Socks5Manager {
 
 impl ConnectionManager for Socks5Manager {
     fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == smoltcp::wire::IpProtocol::Tcp.into()
+        connection.proto == IpProtocol::Tcp.into()
     }
 
     fn new_connection(
@@ -305,7 +306,7 @@ impl ConnectionManager for Socks5Manager {
         connection: &Connection,
         manager: Rc<dyn ConnectionManager>,
     ) -> Option<Box<dyn TcpProxy>> {
-        if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
+        if connection.proto != IpProtocol::Tcp.into() {
             return None;
         }
         Some(Box::new(SocksConnection::new(connection, manager)))

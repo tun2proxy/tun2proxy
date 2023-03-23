@@ -4,6 +4,7 @@ use crate::tun2proxy::{
     OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
 use base64::Engine;
+use smoltcp::wire::IpProtocol;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
 use std::rc::Rc;
@@ -170,7 +171,7 @@ pub struct HttpManager {
 
 impl ConnectionManager for HttpManager {
     fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == smoltcp::wire::IpProtocol::Tcp.into()
+        connection.proto == IpProtocol::Tcp.into()
     }
 
     fn new_connection(
@@ -178,7 +179,7 @@ impl ConnectionManager for HttpManager {
         connection: &Connection,
         manager: Rc<dyn ConnectionManager>,
     ) -> Option<Box<dyn TcpProxy>> {
-        if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
+        if connection.proto != IpProtocol::Tcp.into() {
             return None;
         }
         Some(Box::new(HttpConnection::new(connection, manager)))

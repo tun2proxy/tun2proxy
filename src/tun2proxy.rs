@@ -10,7 +10,8 @@ use smoltcp::phy::{Device, Medium, RxToken, TunTapInterface, TxToken};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{
-    IpAddress, IpCidr, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet, TcpPacket, UdpPacket,
+    IpAddress, IpCidr, IpProtocol, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet, TcpPacket,
+    UdpPacket,
 };
 use std::collections::HashMap;
 use std::convert::From;
@@ -115,7 +116,7 @@ fn get_transport_info(
     transport_offset: usize,
     packet: &[u8],
 ) -> Option<((u16, u16), bool, usize, usize)> {
-    if proto == smoltcp::wire::IpProtocol::Udp.into() {
+    if proto == IpProtocol::Udp.into() {
         match UdpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
@@ -125,7 +126,7 @@ fn get_transport_info(
             )),
             Err(_) => None,
         }
-    } else if proto == smoltcp::wire::IpProtocol::Tcp.into() {
+    } else if proto == IpProtocol::Tcp.into() {
         match TcpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
@@ -380,7 +381,7 @@ impl<'a> TunToProxy<'a> {
         if let Some((connection, first_packet, _payload_offset, _payload_size)) =
             connection_tuple(frame)
         {
-            if connection.proto == smoltcp::wire::IpProtocol::Tcp.into() {
+            if connection.proto == IpProtocol::Tcp.into() {
                 let cm = self.get_connection_manager(&connection);
                 if cm.is_none() {
                     return;
@@ -447,7 +448,7 @@ impl<'a> TunToProxy<'a> {
                 // The connection handler builds up the connection or encapsulates the data.
                 // Therefore, we now expect it to write data to the server.
                 self.write_to_server(&connection);
-            } else if connection.proto == smoltcp::wire::IpProtocol::Udp.into() {
+            } else if connection.proto == IpProtocol::Udp.into() {
                 // UDP is not yet supported
                 /*if _payload_offset > frame.len() || _payload_offset + _payload_offset > frame.len() {
                     return;
