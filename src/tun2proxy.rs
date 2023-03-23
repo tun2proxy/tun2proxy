@@ -19,6 +19,7 @@ use std::io::{Read, Write};
 use std::net::Shutdown::Both;
 use std::net::{IpAddr, Shutdown, SocketAddr};
 use std::os::unix::io::AsRawFd;
+use std::rc::Rc;
 
 #[derive(Hash, Clone, Eq, PartialEq)]
 pub enum DestinationHost {
@@ -197,7 +198,7 @@ struct ConnectionState {
     smoltcp_handle: SocketHandle,
     mio_stream: TcpStream,
     token: Token,
-    handler: std::boxed::Box<dyn TcpProxy>,
+    handler: Box<dyn TcpProxy>,
 }
 
 #[derive(Default, Clone, Debug)]
@@ -227,21 +228,22 @@ pub(crate) trait ConnectionManager {
     fn new_connection(
         &self,
         connection: &Connection,
-        manager: std::rc::Rc<dyn ConnectionManager>,
-    ) -> Option<std::boxed::Box<dyn TcpProxy>>;
+        manager: Rc<dyn ConnectionManager>,
+    ) -> Option<Box<dyn TcpProxy>>;
     fn close_connection(&self, connection: &Connection);
     fn get_server(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<Credentials>;
 }
 
+const TCP_TOKEN: Token = Token(0);
+const UDP_TOKEN: Token = Token(1);
+
 pub(crate) struct TunToProxy<'a> {
     tun: TunTapInterface,
     poll: Poll,
-    tun_token: Token,
-    udp_token: Token,
     iface: Interface,
     connections: HashMap<Connection, ConnectionState>,
-    connection_managers: Vec<std::rc::Rc<dyn ConnectionManager>>,
+    connection_managers: Vec<Rc<dyn ConnectionManager>>,
     next_token: usize,
     token_to_connection: HashMap<Token, Connection>,
     sockets: SocketSet<'a>,
@@ -250,13 +252,12 @@ pub(crate) struct TunToProxy<'a> {
 
 impl<'a> TunToProxy<'a> {
     pub(crate) fn new(interface: &str) -> Self {
-        let tun_token = Token(0);
         let tun = TunTapInterface::new(interface, Medium::Ip).unwrap();
         let poll = Poll::new().unwrap();
         poll.registry()
             .register(
                 &mut SourceFd(&tun.as_raw_fd()),
-                tun_token,
+                TCP_TOKEN,
                 Interest::READABLE,
             )
             .unwrap();
@@ -285,8 +286,6 @@ impl<'a> TunToProxy<'a> {
         Self {
             tun,
             poll,
-            tun_token,
-            udp_token: Token(1),
             iface,
             connections: Default::default(),
             next_token: 2,
@@ -297,7 +296,7 @@ impl<'a> TunToProxy<'a> {
         }
     }
 
-    pub(crate) fn add_connection_manager(&mut self, manager: std::rc::Rc<dyn ConnectionManager>) {
+    pub(crate) fn add_connection_manager(&mut self, manager: Rc<dyn ConnectionManager>) {
         self.connection_managers.push(manager);
     }
 
@@ -328,10 +327,7 @@ impl<'a> TunToProxy<'a> {
         info!("CLOSE {}", connection);
     }
 
-    fn get_connection_manager(
-        &self,
-        connection: &Connection,
-    ) -> Option<std::rc::Rc<dyn ConnectionManager>> {
+    fn get_connection_manager(&self, connection: &Connection) -> Option<Rc<dyn ConnectionManager>> {
         for manager in self.connection_managers.iter() {
             if manager.handles_connection(connection) {
                 return Some(manager.clone());
@@ -570,18 +566,16 @@ impl<'a> TunToProxy<'a> {
 
     fn udp_event(&mut self, _event: &Event) {}
 
-    pub(crate) fn run(&mut self) {
+    pub(crate) fn run(&mut self) -> Result<(), Error> {
         let mut events = Events::with_capacity(1024);
 
         loop {
-            self.poll.poll(&mut events, None).unwrap();
+            self.poll.poll(&mut events, None)?;
             for event in events.iter() {
-                if event.token() == self.tun_token {
-                    self.tun_event(event);
-                } else if event.token() == self.udp_token {
-                    self.udp_event(event);
-                } else {
-                    self.mio_socket_event(event);
+                match event.token() {
+                    TCP_TOKEN => self.tun_event(event),
+                    UDP_TOKEN => self.udp_event(event),
+                    _ => self.mio_socket_event(event),
                 }
             }
         }

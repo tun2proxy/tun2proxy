@@ -85,5 +85,7 @@ pub fn main_entry(tun: &str, proxy: Proxy) {
             ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials));
         }
     }
-    ttp.run();
+    if let Err(e) = ttp.run() {
+        log::error!("{e}");
+    }
 }
