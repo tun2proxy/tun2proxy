@@ -116,9 +116,18 @@ mod tests {
         }
     }
 
-    fn run_test<F>(filter: F)
+    fn request_ip_host_http() {
+        reqwest::blocking::get("http://1.1.1.1").expect("failed to issue HTTP request");
+    }
+
+    fn request_example_https() {
+        reqwest::blocking::get("https://example.org").expect("failed to issue HTTPs request");
+    }
+
+    fn run_test<F, T>(filter: F, test_function: T)
     where
         F: Fn(&Test) -> bool,
+        T: Fn(),
     {
         for potential_test in tests() {
             match potential_test {
@@ -129,8 +138,7 @@ mod tests {
 
                     match fork::fork() {
                         Ok(Fork::Parent(child)) => {
-                            reqwest::blocking::get("https://1.1.1.1")
-                                .expect("failed to issue HTTP request");
+                            test_function();
                             signal::kill(Pid::from_raw(child), signal::SIGKILL)
                                 .expect("failed to kill child");
                             nix::sys::wait::waitpid(Pid::from_raw(child), None)
@@ -158,13 +166,39 @@ mod tests {
     #[test]
     fn test_socks5() {
         require_var("SOCKS5_SERVER");
-        run_test(|test| test.proxy.proxy_type == ProxyType::Socks5)
+        run_test(
+            |test| test.proxy.proxy_type == ProxyType::Socks5,
+            request_ip_host_http,
+        )
     }
 
     #[serial]
     #[test]
     fn test_http() {
         require_var("HTTP_SERVER");
-        run_test(|test| test.proxy.proxy_type == ProxyType::Http)
+        run_test(
+            |test| test.proxy.proxy_type == ProxyType::Http,
+            request_ip_host_http,
+        )
+    }
+
+    #[serial]
+    #[test]
+    fn test_socks5_dns() {
+        require_var("SOCKS5_SERVER");
+        run_test(
+            |test| test.proxy.proxy_type == ProxyType::Socks5,
+            request_example_https,
+        )
+    }
+
+    #[serial]
+    #[test]
+    fn test_http_dns() {
+        require_var("HTTP_SERVER");
+        run_test(
+            |test| test.proxy.proxy_type == ProxyType::Http,
+            request_example_https,
+        )
     }
 }
