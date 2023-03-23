@@ -20,7 +20,7 @@ use std::convert::{From, TryFrom};
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::net::Shutdown::Both;
-use std::net::{IpAddr, Shutdown, SocketAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 
@@ -34,7 +34,7 @@ impl ToString for DestinationHost {
     fn to_string(&self) -> String {
         match self {
             DestinationHost::Address(addr) => addr.to_string(),
-            DestinationHost::Hostname(name) => name.clone(),
+            Hostname(name) => name.clone(),
         }
     }
 }
@@ -51,7 +51,7 @@ impl TryFrom<Destination> for SocketAddr {
         Ok(SocketAddr::new(
             match value.host {
                 DestinationHost::Address(addr) => addr,
-                DestinationHost::Hostname(e) => {
+                Hostname(e) => {
                     return Err(e.into());
                 }
             },
@@ -65,7 +65,7 @@ impl From<&Destination> for SocketAddr {
         SocketAddr::new(
             match value.host {
                 DestinationHost::Address(addr) => addr,
-                DestinationHost::Hostname(_) => {
+                Hostname(_) => {
                     panic!("Failed to convert hostname destination into socket address")
                 }
             },
@@ -111,8 +111,8 @@ impl Connection {
     }
 }
 
-impl std::fmt::Display for Connection {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+impl Display for Connection {
+    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
         write!(f, "{} -> {}", self.src, self.dst)
     }
 }
@@ -183,7 +183,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
         a.copy_from_slice(packet.dst_addr().as_bytes());
         let dst_addr = IpAddr::from(a);
 
-        if let Some((ports, first_packet, payload_offset, payload_size)) = get_transport_info(
+        return if let Some((ports, first_packet, payload_offset, payload_size)) = get_transport_info(
             proto,
             packet.header_len().into(),
             &frame[packet.header_len().into()..],
@@ -193,10 +193,10 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
                 dst: SocketAddr::new(dst_addr, ports.1).into(),
                 proto,
             };
-            return Some((connection, first_packet, payload_offset, payload_size));
+            Some((connection, first_packet, payload_offset, payload_size))
         } else {
-            return None;
-        }
+            None
+        };
     }
 
     match Ipv6Packet::new_checked(frame) {
@@ -412,7 +412,7 @@ impl<'a> TunToProxy<'a> {
                 }
 
                 match error {
-                    Ok(_) => socket.state() == smoltcp::socket::tcp::State::CloseWait,
+                    Ok(_) => socket.state() == tcp::State::CloseWait,
                     Err(e) => {
                         log::error!("{e}");
                         true
@@ -425,10 +425,7 @@ impl<'a> TunToProxy<'a> {
 
             if closed {
                 let connection_state = self.connections.get_mut(connection).unwrap();
-                connection_state
-                    .mio_stream
-                    .shutdown(Shutdown::Both)
-                    .unwrap();
+                connection_state.mio_stream.shutdown(Both).unwrap();
                 self.remove_connection(connection);
             }
         }
@@ -458,9 +455,9 @@ impl<'a> TunToProxy<'a> {
                         if let Some(handler) =
                             manager.new_connection(&resolved_conn, manager.clone())
                         {
-                            let mut socket = smoltcp::socket::tcp::Socket::new(
-                                smoltcp::socket::tcp::SocketBuffer::new(vec![0; 4096]),
-                                smoltcp::socket::tcp::SocketBuffer::new(vec![0; 4096]),
+                            let mut socket = tcp::Socket::new(
+                                tcp::SocketBuffer::new(vec![0; 4096]),
+                                tcp::SocketBuffer::new(vec![0; 4096]),
                             );
                             socket.set_ack_delay(None);
                             let dst = SocketAddr::try_from(connection.dst).unwrap();
@@ -672,7 +669,7 @@ impl<'a> TunToProxy<'a> {
                             socket.close();
                         }
                         self.expect_smoltcp_send();
-                        log::error! {"{error}"};
+                        log::error! {"{error}"}
                         self.remove_connection(&connection.clone());
                         return;
                     }

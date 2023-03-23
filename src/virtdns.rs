@@ -23,12 +23,12 @@ pub struct VirtualDns {
     mapping: HashMap<IpAddr, String>,
     expiry: LinkedList<IpAddr>,
     cidr: IpCidr,
-    next_addr: std::net::IpAddr,
+    next_addr: IpAddr,
 }
 
 impl Default for VirtualDns {
     fn default() -> Self {
-        let start_addr = std::net::Ipv4Addr::from_str("198.18.0.0").unwrap();
+        let start_addr = Ipv4Addr::from_str("198.18.0.0").unwrap();
         Self {
             cidr: Ipv4Cidr::new(start_addr.into(), 15).into(),
             next_addr: start_addr.into(),
@@ -101,7 +101,7 @@ impl VirtualDns {
                     0, 0, 0, 1, // TTL: 30 seconds
                     0, 4, // Data length: 4 bytes
                 ]);
-                match ip as std::net::IpAddr {
+                match ip as IpAddr {
                     IpAddr::V4(ip) => response.extend(ip.octets().as_ref()),
                     IpAddr::V6(ip) => response.extend(ip.octets().as_ref()),
                 };
@@ -114,7 +114,7 @@ impl VirtualDns {
     }
 
     fn increment_ip(addr: IpAddr) -> IpAddr {
-        let mut ip_bytes = match addr as std::net::IpAddr {
+        let mut ip_bytes = match addr as IpAddr {
             IpAddr::V4(ip) => Vec::<u8>::from(ip.octets()),
             IpAddr::V6(ip) => Vec::<u8>::from(ip.octets()),
         };
