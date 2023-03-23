@@ -1,5 +1,5 @@
 use crate::error::{s2e, Error};
-use crate::tun2proxy::Credentials;
+use crate::tun2proxy::{Credentials, Options};
 use crate::{http::HttpManager, socks5::Socks5Manager, tun2proxy::TunToProxy};
 use std::net::{SocketAddr, ToSocketAddrs};
 
@@ -8,6 +8,7 @@ pub mod http;
 pub mod socks5;
 pub mod tun2proxy;
 pub mod virtdevice;
+pub mod virtdns;
 
 #[derive(Clone, Debug)]
 pub struct Proxy {
@@ -75,8 +76,8 @@ impl std::fmt::Display for ProxyType {
     }
 }
 
-pub fn main_entry(tun: &str, proxy: Proxy) {
-    let mut ttp = TunToProxy::new(tun);
+pub fn main_entry(tun: &str, proxy: Proxy, options: Options) {
+    let mut ttp = TunToProxy::new(tun, options);
     match proxy.proxy_type {
         ProxyType::Socks5 => {
             ttp.add_connection_manager(Socks5Manager::new(proxy.addr, proxy.credentials));

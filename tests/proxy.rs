@@ -13,6 +13,7 @@ mod tests {
     use nix::unistd::Pid;
     use serial_test::serial;
 
+    use tun2proxy::tun2proxy::Options;
     use tun2proxy::{main_entry, Proxy, ProxyType};
 
     static TUN_TEST_DEVICE: &str = "tun0";
@@ -92,7 +93,7 @@ mod tests {
                 }
                 default_route_args.push(String::from(route_component));
             }
-            if default_route_args.len() > 0 {
+            if !default_route_args.is_empty() {
                 break;
             }
         }
@@ -137,9 +138,9 @@ mod tests {
                         }
                         Ok(Fork::Child) => {
                             prctl::set_death_signal(signal::SIGKILL as isize).unwrap(); // 9 == SIGKILL
-                            main_entry(TUN_TEST_DEVICE, test.proxy);
+                            main_entry(TUN_TEST_DEVICE, test.proxy, Options::new());
                         }
-                        Err(_) => assert!(false),
+                        Err(_) => panic!(),
                     }
                 }
                 Err(_) => {
@@ -150,7 +151,7 @@ mod tests {
     }
 
     fn require_var(var: &str) {
-        env::var(var).expect(format!("{var} environment variable required").as_str());
+        env::var(var).unwrap_or_else(|_| panic!("{}", "{var} environment variable required"));
     }
 
     #[serial]

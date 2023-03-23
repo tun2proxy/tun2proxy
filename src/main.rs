@@ -1,6 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
 
+use tun2proxy::tun2proxy::Options;
 use tun2proxy::{main_entry, Proxy};
 
 /// Tunnel interface to proxy
@@ -14,6 +15,9 @@ struct Args {
     /// The proxy URL in the form proto://[username[:password]@]host:port
     #[arg(short, long = "proxy", value_parser = Proxy::from_url, value_name = "URL")]
     proxy: Proxy,
+
+    #[arg(short, long = "dns")]
+    virtual_dns: bool,
 }
 
 fn main() {
@@ -24,5 +28,10 @@ fn main() {
     let proxy_type = args.proxy.proxy_type;
     log::info!("Proxy {proxy_type} server: {addr}");
 
-    main_entry(&args.tun, args.proxy);
+    let mut options = Options::new();
+    if args.virtual_dns {
+        options = options.with_virtual_dns();
+    }
+
+    main_entry(&args.tun, args.proxy, options);
 }
