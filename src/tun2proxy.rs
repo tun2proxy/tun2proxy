@@ -14,7 +14,7 @@ use smoltcp::wire::{
     UdpPacket,
 };
 use std::collections::HashMap;
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::net::Shutdown::Both;
@@ -43,17 +43,18 @@ pub(crate) struct Destination {
     pub(crate) port: u16,
 }
 
-impl From<Destination> for SocketAddr {
-    fn from(value: Destination) -> Self {
-        SocketAddr::new(
+impl TryFrom<Destination> for SocketAddr {
+    type Error = Error;
+    fn try_from(value: Destination) -> Result<Self, Self::Error> {
+        Ok(SocketAddr::new(
             match value.host {
                 DestinationHost::Address(addr) => addr,
-                DestinationHost::Hostname(_) => {
-                    panic!("Failed to convert hostname destination into socket address")
+                DestinationHost::Hostname(e) => {
+                    return Err(e.into());
                 }
             },
             value.port,
-        )
+        ))
     }
 }
 
@@ -74,7 +75,7 @@ impl Display for Destination {
 
 #[derive(Hash, Clone, Eq, PartialEq)]
 pub(crate) struct Connection {
-    pub(crate) src: std::net::SocketAddr,
+    pub(crate) src: SocketAddr,
     pub(crate) dst: Destination,
     pub(crate) proto: u8,
 }
@@ -396,10 +397,8 @@ impl<'a> TunToProxy<'a> {
                                 smoltcp::socket::tcp::SocketBuffer::new(vec![0; 4096]),
                             );
                             socket.set_ack_delay(None);
-                            let dst = connection.dst.clone();
-                            socket
-                                .listen(<Destination as Into<SocketAddr>>::into(dst))
-                                .unwrap();
+                            let dst = SocketAddr::try_from(connection.dst.clone()).unwrap();
+                            socket.listen(dst).unwrap();
                             let handle = self.sockets.add(socket);
 
                             let client = TcpStream::connect(server).unwrap();

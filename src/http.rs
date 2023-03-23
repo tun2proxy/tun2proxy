@@ -165,7 +165,7 @@ impl TcpProxy for HttpConnection {
 }
 
 pub struct HttpManager {
-    server: std::net::SocketAddr,
+    server: SocketAddr,
     credentials: Option<Credentials>,
 }
 

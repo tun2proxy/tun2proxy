@@ -292,7 +292,7 @@ impl TcpProxy for SocksConnection {
 }
 
 pub struct Socks5Manager {
-    server: std::net::SocketAddr,
+    server: SocketAddr,
     credentials: Option<Credentials>,
 }
 
