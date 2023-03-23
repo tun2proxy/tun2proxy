@@ -146,7 +146,11 @@ mod tests {
                         }
                         Ok(Fork::Child) => {
                             prctl::set_death_signal(signal::SIGKILL as isize).unwrap(); // 9 == SIGKILL
-                            main_entry(TUN_TEST_DEVICE, test.proxy, Options::new());
+                            main_entry(
+                                TUN_TEST_DEVICE,
+                                test.proxy,
+                                Options::new().with_virtual_dns(),
+                            );
                         }
                         Err(_) => panic!(),
                     }
@@ -163,7 +167,7 @@ mod tests {
     }
 
     #[serial]
-    #[test]
+    #[test_log::test]
     fn test_socks5() {
         require_var("SOCKS5_SERVER");
         run_test(
@@ -173,7 +177,7 @@ mod tests {
     }
 
     #[serial]
-    #[test]
+    #[test_log::test]
     fn test_http() {
         require_var("HTTP_SERVER");
         run_test(
@@ -183,7 +187,7 @@ mod tests {
     }
 
     #[serial]
-    #[test]
+    #[test_log::test]
     fn test_socks5_dns() {
         require_var("SOCKS5_SERVER");
         run_test(
@@ -193,7 +197,7 @@ mod tests {
     }
 
     #[serial]
-    #[test]
+    #[test_log::test]
     fn test_http_dns() {
         require_var("HTTP_SERVER");
         run_test(
