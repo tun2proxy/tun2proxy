@@ -68,6 +68,8 @@ URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `joh
 supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogously to curl's `--proxy` argument.
 
 ## TODO
+- Improve handling of half-open connections
 - Increase error robustness (reduce `unwrap` and `expect` usage)
 - UDP support for SOCKS
+- SOCKS4/SOCKS4a support
 - Native support for proxying DNS over TCP or TLS
