@@ -501,7 +501,8 @@ impl<'a> TunToProxy<'a> {
                 // The connection handler builds up the connection or encapsulates the data.
                 // Therefore, we now expect it to write data to the server.
                 self.write_to_server(&resolved_conn);
-            } else if resolved_conn.proto == IpProtocol::Udp.into() {
+            } else if resolved_conn.proto == IpProtocol::Udp.into() && resolved_conn.dst.port == 53
+            {
                 if let Some(virtual_dns) = &mut self.options.virtdns {
                     let payload = &frame[_payload_offset.._payload_offset + _payload_size];
                     if let Some(response) = virtual_dns.receive_query(payload) {

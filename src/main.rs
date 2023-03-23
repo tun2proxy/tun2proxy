@@ -12,13 +12,25 @@ struct Args {
     #[arg(short, long, value_name = "name", default_value = "tun0")]
     tun: String,
 
-    /// The proxy URL in the form proto://[username[:password]@]host:port
+    /// Proxy URL in the form proto://[username[:password]@]host:port
     #[arg(short, long, value_parser = Proxy::from_url, value_name = "URL")]
     proxy: Proxy,
 
-    /// Enable virtual DNS feature
-    #[arg(short = 'd', long = "dns")]
-    virtual_dns: bool,
+    /// DNS handling
+    #[arg(
+        short,
+        long,
+        value_name = "method",
+        value_enum,
+        default_value = "virtual"
+    )]
+    dns: ArgDns,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+enum ArgDns {
+    Virtual,
+    None,
 }
 
 fn main() {
@@ -31,7 +43,7 @@ fn main() {
     log::info!("Proxy {proxy_type} server: {addr}");
 
     let mut options = Options::new();
-    if args.virtual_dns {
+    if args.dns == ArgDns::Virtual {
         options = options.with_virtual_dns();
     }
 

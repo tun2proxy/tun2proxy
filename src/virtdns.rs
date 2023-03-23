@@ -34,7 +34,7 @@ pub struct VirtualDns {
 impl Default for VirtualDns {
     fn default() -> Self {
         let start_addr = Ipv4Addr::from_str("198.18.0.0").unwrap();
-        let cidr = Ipv4Cidr::new(start_addr.into(), 28);
+        let cidr = Ipv4Cidr::new(start_addr.into(), 15);
 
         Self {
             next_addr: start_addr.into(),
