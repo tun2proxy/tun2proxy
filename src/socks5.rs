@@ -3,8 +3,10 @@ use crate::tun2proxy::{
     Connection, ConnectionManager, Credentials, DestinationHost, IncomingDataEvent,
     IncomingDirection, OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
+use smoltcp::wire::IpProtocol;
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr};
+use std::rc::Rc;
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -60,11 +62,11 @@ pub(crate) struct SocksConnection {
     client_outbuf: VecDeque<u8>,
     server_outbuf: VecDeque<u8>,
     data_buf: VecDeque<u8>,
-    manager: std::rc::Rc<dyn ConnectionManager>,
+    manager: Rc<dyn ConnectionManager>,
 }
 
 impl SocksConnection {
-    pub fn new(connection: &Connection, manager: std::rc::Rc<dyn ConnectionManager>) -> Self {
+    pub fn new(connection: &Connection, manager: Rc<dyn ConnectionManager>) -> Self {
         let mut result = Self {
             connection: connection.clone(),
             state: SocksState::ServerHello,
@@ -291,26 +293,24 @@ impl TcpProxy for SocksConnection {
 }
 
 pub struct Socks5Manager {
-    server: std::net::SocketAddr,
+    server: SocketAddr,
     credentials: Option<Credentials>,
 }
 
 impl ConnectionManager for Socks5Manager {
     fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == smoltcp::wire::IpProtocol::Tcp.into()
+        connection.proto == IpProtocol::Tcp.into()
     }
 
     fn new_connection(
         &self,
         connection: &Connection,
-        manager: std::rc::Rc<dyn ConnectionManager>,
-    ) -> Option<std::boxed::Box<dyn TcpProxy>> {
-        if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
+        manager: Rc<dyn ConnectionManager>,
+    ) -> Option<Box<dyn TcpProxy>> {
+        if connection.proto != IpProtocol::Tcp.into() {
             return None;
         }
-        Some(std::boxed::Box::new(SocksConnection::new(
-            connection, manager,
-        )))
+        Some(Box::new(SocksConnection::new(connection, manager)))
     }
 
     fn close_connection(&self, _: &Connection) {}
@@ -325,8 +325,8 @@ impl ConnectionManager for Socks5Manager {
 }
 
 impl Socks5Manager {
-    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> std::rc::Rc<Self> {
-        std::rc::Rc::new(Self {
+    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> Rc<Self> {
+        Rc::new(Self {
             server,
             credentials,
         })

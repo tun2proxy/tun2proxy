@@ -4,8 +4,10 @@ use crate::tun2proxy::{
     OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
 use base64::Engine;
+use smoltcp::wire::IpProtocol;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::rc::Rc;
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -27,7 +29,7 @@ pub struct HttpConnection {
 }
 
 impl HttpConnection {
-    fn new(connection: &Connection, manager: std::rc::Rc<dyn ConnectionManager>) -> Self {
+    fn new(connection: &Connection, manager: Rc<dyn ConnectionManager>) -> Self {
         let mut server_outbuf: VecDeque<u8> = VecDeque::new();
         {
             let credentials = manager.get_credentials();
@@ -163,26 +165,24 @@ impl TcpProxy for HttpConnection {
 }
 
 pub struct HttpManager {
-    server: std::net::SocketAddr,
+    server: SocketAddr,
     credentials: Option<Credentials>,
 }
 
 impl ConnectionManager for HttpManager {
     fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == smoltcp::wire::IpProtocol::Tcp.into()
+        connection.proto == IpProtocol::Tcp.into()
     }
 
     fn new_connection(
         &self,
         connection: &Connection,
-        manager: std::rc::Rc<dyn ConnectionManager>,
-    ) -> Option<std::boxed::Box<dyn TcpProxy>> {
-        if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
+        manager: Rc<dyn ConnectionManager>,
+    ) -> Option<Box<dyn TcpProxy>> {
+        if connection.proto != IpProtocol::Tcp.into() {
             return None;
         }
-        Some(std::boxed::Box::new(HttpConnection::new(
-            connection, manager,
-        )))
+        Some(Box::new(HttpConnection::new(connection, manager)))
     }
 
     fn close_connection(&self, _: &Connection) {}
@@ -197,8 +197,8 @@ impl ConnectionManager for HttpManager {
 }
 
 impl HttpManager {
-    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> std::rc::Rc<Self> {
-        std::rc::Rc::new(Self {
+    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> Rc<Self> {
+        Rc::new(Self {
             server,
             credentials,
         })

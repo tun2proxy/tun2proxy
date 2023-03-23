@@ -12,15 +12,17 @@ use smoltcp::phy::{Device, Medium, RxToken, TunTapInterface, TxToken};
 use smoltcp::socket::tcp;
 use smoltcp::time::Instant;
 use smoltcp::wire::{
-    IpAddress, IpCidr, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet, TcpPacket, UdpPacket,
+    IpAddress, IpCidr, IpProtocol, Ipv4Address, Ipv4Packet, Ipv6Address, Ipv6Packet, TcpPacket,
+    UdpPacket,
 };
 use std::collections::{HashMap, HashSet};
-use std::convert::From;
+use std::convert::{From, TryFrom};
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::net::Shutdown::Both;
 use std::net::{IpAddr, Shutdown, SocketAddr};
 use std::os::unix::io::AsRawFd;
+use std::rc::Rc;
 
 #[derive(Hash, Clone, Eq, PartialEq)]
 pub enum DestinationHost {
@@ -43,17 +45,18 @@ pub(crate) struct Destination {
     pub(crate) port: u16,
 }
 
-impl From<Destination> for SocketAddr {
-    fn from(value: Destination) -> Self {
-        SocketAddr::new(
+impl TryFrom<Destination> for SocketAddr {
+    type Error = Error;
+    fn try_from(value: Destination) -> Result<Self, Self::Error> {
+        Ok(SocketAddr::new(
             match value.host {
                 DestinationHost::Address(addr) => addr,
-                DestinationHost::Hostname(_) => {
-                    panic!("Failed to convert hostname destination into socket address")
+                DestinationHost::Hostname(e) => {
+                    return Err(e.into());
                 }
             },
             value.port,
-        )
+        ))
     }
 }
 
@@ -94,8 +97,8 @@ impl Display for Destination {
 }
 
 #[derive(Hash, Clone, Eq, PartialEq)]
-pub struct Connection {
-    pub(crate) src: std::net::SocketAddr,
+pub(crate) struct Connection {
+    pub(crate) src: SocketAddr,
     pub(crate) dst: Destination,
     pub(crate) proto: u8,
 }
@@ -145,7 +148,7 @@ fn get_transport_info(
     transport_offset: usize,
     packet: &[u8],
 ) -> Option<((u16, u16), bool, usize, usize)> {
-    if proto == smoltcp::wire::IpProtocol::Udp.into() {
+    if proto == IpProtocol::Udp.into() {
         match UdpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
@@ -155,7 +158,7 @@ fn get_transport_info(
             )),
             Err(_) => None,
         }
-    } else if proto == smoltcp::wire::IpProtocol::Tcp.into() {
+    } else if proto == IpProtocol::Tcp.into() {
         match TcpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
@@ -230,7 +233,7 @@ struct ConnectionState {
     smoltcp_handle: SocketHandle,
     mio_stream: TcpStream,
     token: Token,
-    handler: std::boxed::Box<dyn TcpProxy>,
+    handler: Box<dyn TcpProxy>,
     smoltcp_socket_state: u8,
 }
 
@@ -261,8 +264,8 @@ pub(crate) trait ConnectionManager {
     fn new_connection(
         &self,
         connection: &Connection,
-        manager: std::rc::Rc<dyn ConnectionManager>,
-    ) -> Option<std::boxed::Box<dyn TcpProxy>>;
+        manager: Rc<dyn ConnectionManager>,
+    ) -> Option<Box<dyn TcpProxy>>;
     fn close_connection(&self, connection: &Connection);
     fn get_server(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<Credentials>;
@@ -283,15 +286,15 @@ impl Options {
         self
     }
 }
+const TCP_TOKEN: Token = Token(0);
+const UDP_TOKEN: Token = Token(1);
 
 pub(crate) struct TunToProxy<'a> {
     tun: TunTapInterface,
     poll: Poll,
-    tun_token: Token,
-    udp_token: Token,
     iface: Interface,
     connections: HashMap<Connection, ConnectionState>,
-    connection_managers: Vec<std::rc::Rc<dyn ConnectionManager>>,
+    connection_managers: Vec<Rc<dyn ConnectionManager>>,
     next_token: usize,
     token_to_connection: HashMap<Token, Connection>,
     sockets: SocketSet<'a>,
@@ -302,13 +305,12 @@ pub(crate) struct TunToProxy<'a> {
 
 impl<'a> TunToProxy<'a> {
     pub(crate) fn new(interface: &str, options: Options) -> Self {
-        let tun_token = Token(0);
         let tun = TunTapInterface::new(interface, Medium::Ip).unwrap();
         let poll = Poll::new().unwrap();
         poll.registry()
             .register(
                 &mut SourceFd(&tun.as_raw_fd()),
-                tun_token,
+                TCP_TOKEN,
                 Interest::READABLE,
             )
             .unwrap();
@@ -337,8 +339,6 @@ impl<'a> TunToProxy<'a> {
         Self {
             tun,
             poll,
-            tun_token,
-            udp_token: Token(1),
             iface,
             connections: Default::default(),
             next_token: 2,
@@ -351,7 +351,7 @@ impl<'a> TunToProxy<'a> {
         }
     }
 
-    pub(crate) fn add_connection_manager(&mut self, manager: std::rc::Rc<dyn ConnectionManager>) {
+    pub(crate) fn add_connection_manager(&mut self, manager: Rc<dyn ConnectionManager>) {
         self.connection_managers.push(manager);
     }
 
@@ -383,10 +383,7 @@ impl<'a> TunToProxy<'a> {
         info!("CLOSE {}", connection);
     }
 
-    fn get_connection_manager(
-        &self,
-        connection: &Connection,
-    ) -> Option<std::rc::Rc<dyn ConnectionManager>> {
+    fn get_connection_manager(&self, connection: &Connection) -> Option<Rc<dyn ConnectionManager>> {
         for manager in self.connection_managers.iter() {
             if manager.handles_connection(connection) {
                 return Some(manager.clone());
@@ -450,7 +447,7 @@ impl<'a> TunToProxy<'a> {
                     }
                 }
             };
-            if resolved_conn.proto == smoltcp::wire::IpProtocol::Tcp.into() {
+            if resolved_conn.proto == IpProtocol::Tcp.into() {
                 let cm = self.get_connection_manager(&resolved_conn);
                 if cm.is_none() {
                     return;
@@ -466,10 +463,8 @@ impl<'a> TunToProxy<'a> {
                                 smoltcp::socket::tcp::SocketBuffer::new(vec![0; 4096]),
                             );
                             socket.set_ack_delay(None);
-                            let dst = connection.dst;
-                            socket
-                                .listen(<Destination as Into<SocketAddr>>::into(dst))
-                                .unwrap();
+                            let dst = SocketAddr::try_from(connection.dst).unwrap();
+                            socket.listen(dst).unwrap();
                             let handle = self.sockets.add(socket);
 
                             let client = TcpStream::connect(server).unwrap();
@@ -520,7 +515,7 @@ impl<'a> TunToProxy<'a> {
                 // The connection handler builds up the connection or encapsulates the data.
                 // Therefore, we now expect it to write data to the server.
                 self.write_to_server(&resolved_conn);
-            } else if resolved_conn.proto == smoltcp::wire::IpProtocol::Udp.into() {
+            } else if resolved_conn.proto == IpProtocol::Udp.into() {
                 if let Some(virtual_dns) = &mut self.options.virtdns {
                     let payload = &frame[_payload_offset.._payload_offset + _payload_size];
                     if let Some(response) = virtual_dns.receive_query(payload) {
@@ -533,10 +528,8 @@ impl<'a> TunToProxy<'a> {
                             vec![0; 4096],
                         );
                         let mut socket = smoltcp::socket::udp::Socket::new(rx_buffer, tx_buffer);
-                        let dst = resolved_conn.dst.clone();
-                        socket
-                            .bind(<Destination as Into<SocketAddr>>::into(dst))
-                            .unwrap();
+                        let dst = SocketAddr::try_from(connection.dst).unwrap();
+                        socket.bind(dst).unwrap();
                         socket
                             .send_slice(response.as_slice(), resolved_conn.src.into())
                             .expect("failed to send DNS response");
@@ -700,18 +693,16 @@ impl<'a> TunToProxy<'a> {
 
     fn udp_event(&mut self, _event: &Event) {}
 
-    pub(crate) fn run(&mut self) {
+    pub(crate) fn run(&mut self) -> Result<(), Error> {
         let mut events = Events::with_capacity(1024);
 
         loop {
-            self.poll.poll(&mut events, None).unwrap();
+            self.poll.poll(&mut events, None)?;
             for event in events.iter() {
-                if event.token() == self.tun_token {
-                    self.tun_event(event);
-                } else if event.token() == self.udp_token {
-                    self.udp_event(event);
-                } else {
-                    self.mio_socket_event(event);
+                match event.token() {
+                    TCP_TOKEN => self.tun_event(event),
+                    UDP_TOKEN => self.udp_event(event),
+                    _ => self.mio_socket_event(event),
                 }
             }
             self.send_to_smoltcp();
