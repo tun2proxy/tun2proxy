@@ -13,10 +13,11 @@ struct Args {
     tun: String,
 
     /// The proxy URL in the form proto://[username[:password]@]host:port
-    #[arg(short, long = "proxy", value_parser = Proxy::from_url, value_name = "URL")]
+    #[arg(short, long, value_parser = Proxy::from_url, value_name = "URL")]
     proxy: Proxy,
 
-    #[arg(short, long = "dns")]
+    /// Enable virtual DNS feature
+    #[arg(short = 'd', long = "dns")]
     virtual_dns: bool,
 }
 

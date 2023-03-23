@@ -48,15 +48,13 @@ pub(crate) struct Destination {
 impl TryFrom<Destination> for SocketAddr {
     type Error = Error;
     fn try_from(value: Destination) -> Result<Self, Self::Error> {
-        Ok(SocketAddr::new(
-            match value.host {
-                DestinationHost::Address(addr) => addr,
-                Hostname(e) => {
-                    return Err(e.into());
-                }
-            },
-            value.port,
-        ))
+        let ip = match value.host {
+            DestinationHost::Address(addr) => addr,
+            Hostname(e) => {
+                return Err(e.into());
+            }
+        };
+        Ok(SocketAddr::new(ip, value.port))
     }
 }
 
