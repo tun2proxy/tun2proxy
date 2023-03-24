@@ -3,10 +3,6 @@ pub struct Error {
     message: String,
 }
 
-pub fn s2e(s: &str) -> Error {
-    Error::from(s)
-}
-
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
         From::<String>::from(err.to_string())
