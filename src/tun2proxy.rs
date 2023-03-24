@@ -253,7 +253,7 @@ pub(crate) trait ConnectionManager {
     fn get_credentials(&self) -> &Option<Credentials>;
 }
 
-#[derive(Default, Clone, Debug)]
+#[derive(Default)]
 pub struct Options {
     virtdns: Option<VirtualDns>,
 }
@@ -423,11 +423,12 @@ impl<'a> TunToProxy<'a> {
         if let Some((connection, first_packet, _payload_offset, _payload_size)) =
             connection_tuple(frame)
         {
-            let resolved_conn = match &self.options.virtdns {
+            let resolved_conn = match &mut self.options.virtdns {
                 None => connection.clone(),
                 Some(virt_dns) => {
                     let ip = SocketAddr::try_from(connection.dst.clone()).unwrap().ip();
-                    match virt_dns.ip_to_name(&ip) {
+                    virt_dns.touch_ip(&ip);
+                    match virt_dns.resolve_ip(&ip) {
                         None => connection.clone(),
                         Some(name) => connection.to_named(name.clone()),
                     }
@@ -564,6 +565,10 @@ impl<'a> TunToProxy<'a> {
                 {
                     let socket = self.sockets.get_mut::<tcp::Socket>(socket_handle);
                     if socket.may_send() {
+                        if let Some(virtdns) = &mut self.options.virtdns {
+                            // Unwrapping is fine because every smoltcp socket is bound to an.
+                            virtdns.touch_ip(&IpAddr::from(socket.local_endpoint().unwrap().addr));
+                        }
                         consumed = socket.send_slice(event.buffer).unwrap();
                         state
                             .handler
