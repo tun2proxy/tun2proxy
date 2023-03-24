@@ -76,8 +76,8 @@ impl std::fmt::Display for ProxyType {
     }
 }
 
-pub fn main_entry(tun: &str, proxy: Proxy, options: Options) {
-    let mut ttp = TunToProxy::new(tun, options);
+pub fn main_entry(tun: &str, proxy: Proxy, options: Options) -> Result<(), Error> {
+    let mut ttp = TunToProxy::new(tun, options)?;
     match proxy.proxy_type {
         ProxyType::Socks5 => {
             ttp.add_connection_manager(Socks5Manager::new(proxy.addr, proxy.credentials));
@@ -86,7 +86,5 @@ pub fn main_entry(tun: &str, proxy: Proxy, options: Options) {
             ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials));
         }
     }
-    if let Err(e) = ttp.run() {
-        log::error!("{e}");
-    }
+    ttp.run()
 }

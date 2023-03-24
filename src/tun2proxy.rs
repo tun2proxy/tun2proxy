@@ -17,7 +17,7 @@ use std::convert::{From, TryFrom};
 use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::net::Shutdown::Both;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 use std::str::FromStr;
@@ -286,45 +286,29 @@ pub(crate) struct TunToProxy<'a> {
 }
 
 impl<'a> TunToProxy<'a> {
-    pub(crate) fn new(interface: &str, options: Options) -> Self {
-        let tun = TunTapInterface::new(interface, Medium::Ip).unwrap();
-        let poll = Poll::new().unwrap();
-        poll.registry()
-            .register(
-                &mut SourceFd(&tun.as_raw_fd()),
-                TCP_TOKEN,
-                Interest::READABLE,
-            )
-            .unwrap();
+    pub(crate) fn new(interface: &str, options: Options) -> Result<Self, Error> {
+        let tun = TunTapInterface::new(interface, Medium::Ip)?;
+        let poll = Poll::new()?;
+        poll.registry().register(
+            &mut SourceFd(&tun.as_raw_fd()),
+            TCP_TOKEN,
+            Interest::READABLE,
+        )?;
 
         let config = Config::new();
         let mut virt = VirtualTunDevice::new(tun.capabilities());
+        let gateway4: Ipv4Addr = std::net::Ipv4Addr::from_str("0.0.0.1")?;
+        let gateway6: Ipv6Addr = std::net::Ipv6Addr::from_str("::1")?;
         let mut iface = Interface::new(config, &mut virt);
         iface.update_ip_addrs(|ip_addrs| {
-            ip_addrs
-                .push(IpCidr::new(
-                    std::net::Ipv4Addr::from_str("0.0.0.1").unwrap().into(),
-                    0,
-                ))
-                .unwrap();
-            ip_addrs
-                .push(IpCidr::new(
-                    std::net::Ipv6Addr::from_str("::1").unwrap().into(),
-                    0,
-                ))
-                .unwrap()
+            ip_addrs.push(IpCidr::new(gateway4.into(), 0)).unwrap();
+            ip_addrs.push(IpCidr::new(gateway6.into(), 0)).unwrap()
         });
-        iface
-            .routes_mut()
-            .add_default_ipv4_route(std::net::Ipv4Addr::from_str("0.0.0.1").unwrap().into())
-            .unwrap();
-        iface
-            .routes_mut()
-            .add_default_ipv6_route(std::net::Ipv6Addr::from_str("::1").unwrap().into())
-            .unwrap();
+        iface.routes_mut().add_default_ipv4_route(gateway4.into())?;
+        iface.routes_mut().add_default_ipv6_route(gateway6.into())?;
         iface.set_any_ip(true);
 
-        Self {
+        let tun = Self {
             tun,
             poll,
             iface,
@@ -336,7 +320,8 @@ impl<'a> TunToProxy<'a> {
             device: virt,
             options,
             write_sockets: Default::default(),
-        }
+        };
+        Ok(tun)
     }
 
     pub(crate) fn add_connection_manager(&mut self, manager: Rc<dyn ConnectionManager>) {

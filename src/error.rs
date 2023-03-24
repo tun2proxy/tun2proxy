@@ -15,6 +15,22 @@ impl From<std::io::Error> for Error {
     }
 }
 
+impl From<std::net::AddrParseError> for Error {
+    fn from(err: std::net::AddrParseError) -> Self {
+        Self {
+            message: err.to_string(),
+        }
+    }
+}
+
+impl From<smoltcp::iface::RouteTableFull> for Error {
+    fn from(err: smoltcp::iface::RouteTableFull) -> Self {
+        Self {
+            message: format!("{err:?}"),
+        }
+    }
+}
+
 impl From<&str> for Error {
     fn from(err: &str) -> Self {
         Self {

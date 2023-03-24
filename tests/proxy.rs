@@ -146,7 +146,7 @@ mod tests {
                         }
                         Ok(Fork::Child) => {
                             prctl::set_death_signal(signal::SIGKILL as isize).unwrap(); // 9 == SIGKILL
-                            main_entry(
+                            let _ = main_entry(
                                 TUN_TEST_DEVICE,
                                 test.proxy,
                                 Options::new().with_virtual_dns(),

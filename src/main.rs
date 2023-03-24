@@ -47,5 +47,7 @@ fn main() {
         options = options.with_virtual_dns();
     }
 
-    main_entry(&args.tun, args.proxy, options);
+    if let Err(e) = main_entry(&args.tun, args.proxy, options) {
+        log::error!("{e}");
+    }
 }
