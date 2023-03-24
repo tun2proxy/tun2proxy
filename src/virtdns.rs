@@ -203,7 +203,9 @@ impl VirtualDns {
         }
 
         if let Some(ip) = self.name_to_ip.get(&name) {
-            return Some(*ip);
+            let result = Some(*ip);
+            self.touch_ip(&ip.clone());
+            return result;
         }
 
         let started_at = self.next_addr;
