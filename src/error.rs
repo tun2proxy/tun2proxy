@@ -9,33 +9,49 @@ pub fn s2e(s: &str) -> Error {
 
 impl From<std::io::Error> for Error {
     fn from(err: std::io::Error) -> Self {
-        Self {
-            message: err.to_string(),
-        }
+        From::<String>::from(err.to_string())
     }
 }
 
 impl From<std::net::AddrParseError> for Error {
     fn from(err: std::net::AddrParseError) -> Self {
-        Self {
-            message: err.to_string(),
-        }
+        From::<String>::from(err.to_string())
     }
 }
 
 impl From<smoltcp::iface::RouteTableFull> for Error {
     fn from(err: smoltcp::iface::RouteTableFull) -> Self {
-        Self {
-            message: format!("{err:?}"),
-        }
+        From::<String>::from(format!("{err:?}"))
+    }
+}
+
+impl From<smoltcp::socket::tcp::RecvError> for Error {
+    fn from(err: smoltcp::socket::tcp::RecvError) -> Self {
+        From::<String>::from(format!("{err:?}"))
+    }
+}
+
+impl From<smoltcp::socket::tcp::ListenError> for Error {
+    fn from(err: smoltcp::socket::tcp::ListenError) -> Self {
+        From::<String>::from(format!("{err:?}"))
+    }
+}
+
+impl From<smoltcp::socket::udp::BindError> for Error {
+    fn from(err: smoltcp::socket::udp::BindError) -> Self {
+        From::<String>::from(format!("{err:?}"))
+    }
+}
+
+impl From<smoltcp::socket::tcp::SendError> for Error {
+    fn from(err: smoltcp::socket::tcp::SendError) -> Self {
+        From::<String>::from(format!("{err:?}"))
     }
 }
 
 impl From<&str> for Error {
     fn from(err: &str) -> Self {
-        Self {
-            message: err.to_string(),
-        }
+        From::<String>::from(err.to_string())
     }
 }
 
@@ -47,9 +63,7 @@ impl From<String> for Error {
 
 impl From<&String> for Error {
     fn from(err: &String) -> Self {
-        Self {
-            message: err.to_string(),
-        }
+        From::<String>::from(err.to_string())
     }
 }
 

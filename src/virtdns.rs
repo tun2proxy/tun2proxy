@@ -133,7 +133,7 @@ impl VirtualDns {
         Some(response)
     }
 
-    fn increment_ip(addr: IpAddr) -> IpAddr {
+    fn increment_ip(addr: IpAddr) -> Option<IpAddr> {
         let mut ip_bytes = match addr as IpAddr {
             IpAddr::V4(ip) => Vec::<u8>::from(ip.octets()),
             IpAddr::V6(ip) => Vec::<u8>::from(ip.octets()),
@@ -151,13 +151,14 @@ impl VirtualDns {
                 ip_bytes[i] = 0;
             }
         }
-        if addr.is_ipv4() {
-            let bytes: [u8; 4] = ip_bytes.as_slice().try_into().unwrap();
+        let addr = if addr.is_ipv4() {
+            let bytes: [u8; 4] = ip_bytes.as_slice().try_into().ok()?;
             IpAddr::V4(Ipv4Addr::from(bytes))
         } else {
-            let bytes: [u8; 16] = ip_bytes.as_slice().try_into().unwrap();
+            let bytes: [u8; 16] = ip_bytes.as_slice().try_into().ok()?;
             IpAddr::V6(Ipv6Addr::from(bytes))
-        }
+        };
+        Some(addr)
     }
 
     pub fn ip_to_name(&self, addr: &IpAddr) -> Option<&String> {
@@ -168,7 +169,7 @@ impl VirtualDns {
         let now = Instant::now();
         while let Some((ip, expiry)) = self.expiry.front() {
             if now > *expiry {
-                let name = self.ip_to_name.remove(ip).unwrap();
+                let name = self.ip_to_name.remove(ip)?;
                 self.name_to_ip.remove(&name);
                 self.expiry.pop_front();
             } else {
@@ -194,7 +195,7 @@ impl VirtualDns {
                 ));
                 return Some(self.next_addr);
             }
-            self.next_addr = Self::increment_ip(self.next_addr);
+            self.next_addr = Self::increment_ip(self.next_addr)?;
             if self.next_addr == self.broadcast_addr {
                 // Wrap around.
                 self.next_addr = self.network_addr;
