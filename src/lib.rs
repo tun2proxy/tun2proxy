@@ -1,4 +1,4 @@
-use crate::error::{s2e, Error};
+use crate::error::Error;
 use crate::tun2proxy::{Credentials, Options};
 use crate::{http::HttpManager, socks5::Socks5Manager, tun2proxy::TunToProxy};
 use std::net::{SocketAddr, ToSocketAddrs};
@@ -20,21 +20,21 @@ pub struct Proxy {
 impl Proxy {
     pub fn from_url(s: &str) -> Result<Proxy, Error> {
         let e = format!("`{s}` is not a valid proxy URL");
-        let url = url::Url::parse(s).map_err(|_| s2e(&e))?;
+        let url = url::Url::parse(s).map_err(|_| Error::from(&e))?;
         let e = format!("`{s}` does not contain a host");
-        let host = url.host_str().ok_or(s2e(&e))?;
+        let host = url.host_str().ok_or(Error::from(e))?;
 
         let mut url_host = String::from(host);
         let e = format!("`{s}` does not contain a port");
-        let port = url.port().ok_or(s2e(&e))?;
+        let port = url.port().ok_or(Error::from(&e))?;
         url_host.push(':');
         url_host.push_str(port.to_string().as_str());
 
         let e = format!("`{host}` could not be resolved");
-        let mut addr_iter = url_host.to_socket_addrs().map_err(|_| s2e(&e))?;
+        let mut addr_iter = url_host.to_socket_addrs().map_err(|_| Error::from(&e))?;
 
         let e = format!("`{host}` does not resolve to a usable IP address");
-        let addr = addr_iter.next().ok_or(s2e(&e))?;
+        let addr = addr_iter.next().ok_or(Error::from(&e))?;
 
         let credentials = if url.username() == "" && url.password().is_none() {
             None
@@ -51,7 +51,7 @@ impl Proxy {
             "http" => Some(ProxyType::Http),
             _ => None,
         }
-        .ok_or(s2e(&format!("`{scheme}` is an invalid proxy type")))?;
+        .ok_or(Error::from(&format!("`{scheme}` is an invalid proxy type")))?;
 
         Ok(Proxy {
             proxy_type,
@@ -76,8 +76,8 @@ impl std::fmt::Display for ProxyType {
     }
 }
 
-pub fn main_entry(tun: &str, proxy: Proxy, options: Options) {
-    let mut ttp = TunToProxy::new(tun, options);
+pub fn main_entry(tun: &str, proxy: Proxy, options: Options) -> Result<(), Error> {
+    let mut ttp = TunToProxy::new(tun, options)?;
     match proxy.proxy_type {
         ProxyType::Socks5 => {
             ttp.add_connection_manager(Socks5Manager::new(proxy.addr, proxy.credentials));
@@ -86,7 +86,5 @@ pub fn main_entry(tun: &str, proxy: Proxy, options: Options) {
             ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials));
         }
     }
-    if let Err(e) = ttp.run() {
-        log::error!("{e}");
-    }
+    ttp.run()
 }

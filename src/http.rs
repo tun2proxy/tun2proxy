@@ -62,19 +62,16 @@ impl HttpConnection {
     }
 
     fn state_change(&mut self) -> Result<(), Error> {
+        let http_len = "HTTP/1.1 200".len();
         match self.state {
-            HttpState::ExpectStatusCode if self.server_inbuf.len() >= "HTTP/1.1 200 ".len() => {
-                let status_line: Vec<u8> = self
-                    .server_inbuf
-                    .range(0.."HTTP/1.1 200 ".len())
-                    .copied()
-                    .collect();
+            HttpState::ExpectStatusCode if self.server_inbuf.len() > http_len => {
+                let status_line: Vec<u8> =
+                    self.server_inbuf.range(0..http_len + 1).copied().collect();
                 let slice = &status_line.as_slice()[0.."HTTP/1.1 2".len()];
                 if slice != b"HTTP/1.1 2" && slice != b"HTTP/1.0 2"
-                    || self.server_inbuf["HTTP/1.1 200 ".len() - 1] != b' '
+                    || self.server_inbuf[http_len] != b' '
                 {
-                    let status_str =
-                        String::from_utf8_lossy(&status_line.as_slice()[0.."HTTP/1.1 200".len()]);
+                    let status_str = String::from_utf8_lossy(&status_line.as_slice()[0..http_len]);
                     let e =
                         format!("Expected success status code. Server replied with {status_str}.");
                     return Err(e.into());
