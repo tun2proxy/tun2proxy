@@ -673,15 +673,23 @@ impl<'a> TunToProxy<'a> {
         let mut events = Events::with_capacity(1024);
 
         loop {
-            self.poll.poll(&mut events, None)?;
-            for event in events.iter() {
-                match event.token() {
-                    TCP_TOKEN => self.tun_event(event)?,
-                    UDP_TOKEN => self.udp_event(event),
-                    _ => self.mio_socket_event(event)?,
+            match self.poll.poll(&mut events, None) {
+                Ok(()) => {
+                    for event in events.iter() {
+                        match event.token() {
+                            TCP_TOKEN => self.tun_event(event)?,
+                            UDP_TOKEN => self.udp_event(event),
+                            _ => self.mio_socket_event(event)?,
+                        }
+                    }
+                    self.send_to_smoltcp()?;
+                }
+                Err(e) => {
+                    if e.kind() != std::io::ErrorKind::Interrupted {
+                        return Err(e.into())
+                    }
                 }
             }
-            self.send_to_smoltcp()?;
         }
     }
 }
