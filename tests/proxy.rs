@@ -132,7 +132,7 @@ mod tests {
         for potential_test in tests() {
             match potential_test {
                 Ok(test) => {
-                    if filter(&test) {
+                    if !filter(&test) {
                         continue;
                     }
 
