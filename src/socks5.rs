@@ -299,7 +299,7 @@ pub struct Socks5Manager {
 
 impl ConnectionManager for Socks5Manager {
     fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == IpProtocol::Tcp.into()
+        connection.proto == IpProtocol::Tcp
     }
 
     fn new_connection(
@@ -307,7 +307,7 @@ impl ConnectionManager for Socks5Manager {
         connection: &Connection,
         manager: Rc<dyn ConnectionManager>,
     ) -> Option<Box<dyn TcpProxy>> {
-        if connection.proto != IpProtocol::Tcp.into() {
+        if connection.proto != IpProtocol::Tcp {
             return None;
         }
         Some(Box::new(SocksConnection::new(connection, manager)))

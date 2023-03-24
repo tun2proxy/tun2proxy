@@ -168,7 +168,7 @@ pub struct HttpManager {
 
 impl ConnectionManager for HttpManager {
     fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == IpProtocol::Tcp.into()
+        connection.proto == IpProtocol::Tcp
     }
 
     fn new_connection(
@@ -176,7 +176,7 @@ impl ConnectionManager for HttpManager {
         connection: &Connection,
         manager: Rc<dyn ConnectionManager>,
     ) -> Option<Box<dyn TcpProxy>> {
-        if connection.proto != IpProtocol::Tcp.into() {
+        if connection.proto != IpProtocol::Tcp {
             return None;
         }
         Some(Box::new(HttpConnection::new(connection, manager)))

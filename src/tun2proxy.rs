@@ -82,7 +82,7 @@ impl Display for Destination {
 pub(crate) struct Connection {
     pub(crate) src: SocketAddr,
     pub(crate) dst: Destination,
-    pub(crate) proto: u8,
+    pub(crate) proto: IpProtocol,
 }
 
 impl Connection {
@@ -126,11 +126,11 @@ pub(crate) type IncomingDataEvent<'a> = DataEvent<'a, IncomingDirection>;
 pub(crate) type OutgoingDataEvent<'a> = DataEvent<'a, OutgoingDirection>;
 
 fn get_transport_info(
-    proto: u8,
+    proto: IpProtocol,
     transport_offset: usize,
     packet: &[u8],
 ) -> Option<((u16, u16), bool, usize, usize)> {
-    if proto == IpProtocol::Udp.into() {
+    if proto == IpProtocol::Udp {
         match UdpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
@@ -140,7 +140,7 @@ fn get_transport_info(
             )),
             Err(_) => None,
         }
-    } else if proto == IpProtocol::Tcp.into() {
+    } else if proto == IpProtocol::Tcp {
         match TcpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
@@ -157,7 +157,7 @@ fn get_transport_info(
 
 fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
     if let Ok(packet) = Ipv4Packet::new_checked(frame) {
-        let proto: u8 = packet.next_header().into();
+        let proto = packet.next_header();
 
         let mut a: [u8; 4] = Default::default();
         a.copy_from_slice(packet.src_addr().as_bytes());
@@ -184,7 +184,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
     match Ipv6Packet::new_checked(frame) {
         Ok(packet) => {
             // TODO: Support extension headers.
-            let proto: u8 = packet.next_header().into();
+            let proto = packet.next_header();
 
             let mut a: [u8; 16] = Default::default();
             a.copy_from_slice(packet.src_addr().as_bytes());
@@ -419,7 +419,7 @@ impl<'a> TunToProxy<'a> {
                     }
                 }
             };
-            if resolved_conn.proto == IpProtocol::Tcp.into() {
+            if resolved_conn.proto == IpProtocol::Tcp {
                 let cm = self.get_connection_manager(&resolved_conn);
                 if cm.is_none() {
                     return Ok(());
@@ -484,8 +484,7 @@ impl<'a> TunToProxy<'a> {
                 // The connection handler builds up the connection or encapsulates the data.
                 // Therefore, we now expect it to write data to the server.
                 self.write_to_server(&resolved_conn);
-            } else if resolved_conn.proto == IpProtocol::Udp.into() && resolved_conn.dst.port == 53
-            {
+            } else if resolved_conn.proto == IpProtocol::Udp && resolved_conn.dst.port == 53 {
                 if let Some(virtual_dns) = &mut self.options.virtdns {
                     let payload = &frame[_payload_offset.._payload_offset + _payload_size];
                     if let Some(response) = virtual_dns.receive_query(payload) {
