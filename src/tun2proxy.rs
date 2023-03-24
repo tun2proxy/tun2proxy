@@ -686,7 +686,7 @@ impl<'a> TunToProxy<'a> {
                 }
                 Err(e) => {
                     if e.kind() != std::io::ErrorKind::Interrupted {
-                        return Err(e.into())
+                        return Err(e.into());
                     }
                 }
             }
