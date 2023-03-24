@@ -13,6 +13,7 @@ hashlink = "0.8"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 smoltcp = { version = "0.9", git = "https://github.com/smoltcp-rs/smoltcp.git", features = ["std"] }
+thiserror = "1.0"
 url = "2.3"
 
 [dev-dependencies]

@@ -1,76 +1,50 @@
-#[derive(Debug)]
-pub struct Error {
-    message: String,
-}
+#[derive(thiserror::Error, Debug)]
+pub enum Error {
+    #[error("std::io::Error {0}")]
+    IoError(#[from] std::io::Error),
 
-impl From<std::io::Error> for Error {
-    fn from(err: std::io::Error) -> Self {
-        From::<String>::from(err.to_string())
-    }
-}
+    #[error("std::net::AddrParseError {0}")]
+    AddrParseError(#[from] std::net::AddrParseError),
 
-impl From<std::net::AddrParseError> for Error {
-    fn from(err: std::net::AddrParseError) -> Self {
-        From::<String>::from(err.to_string())
-    }
-}
+    #[error("smoltcp::iface::RouteTableFull {0:?}")]
+    RouteTableFull(#[from] smoltcp::iface::RouteTableFull),
 
-impl From<smoltcp::iface::RouteTableFull> for Error {
-    fn from(err: smoltcp::iface::RouteTableFull) -> Self {
-        From::<String>::from(format!("{err:?}"))
-    }
-}
+    #[error("smoltcp::socket::tcp::RecvError {0:?}")]
+    RecvError(#[from] smoltcp::socket::tcp::RecvError),
 
-impl From<smoltcp::socket::tcp::RecvError> for Error {
-    fn from(err: smoltcp::socket::tcp::RecvError) -> Self {
-        From::<String>::from(format!("{err:?}"))
-    }
-}
+    #[error("smoltcp::socket::tcp::ListenError {0:?}")]
+    ListenError(#[from] smoltcp::socket::tcp::ListenError),
 
-impl From<smoltcp::socket::tcp::ListenError> for Error {
-    fn from(err: smoltcp::socket::tcp::ListenError) -> Self {
-        From::<String>::from(format!("{err:?}"))
-    }
-}
+    #[error("smoltcp::socket::udp::BindError {0:?}")]
+    BindError(#[from] smoltcp::socket::udp::BindError),
 
-impl From<smoltcp::socket::udp::BindError> for Error {
-    fn from(err: smoltcp::socket::udp::BindError) -> Self {
-        From::<String>::from(format!("{err:?}"))
-    }
-}
+    #[error("smoltcp::socket::tcp::SendError {0:?}")]
+    SendError(#[from] smoltcp::socket::tcp::SendError),
 
-impl From<smoltcp::socket::tcp::SendError> for Error {
-    fn from(err: smoltcp::socket::tcp::SendError) -> Self {
-        From::<String>::from(format!("{err:?}"))
-    }
+    #[error("&str {0}")]
+    Str(String),
+
+    #[error("String {0}")]
+    String(String),
+
+    #[error("&String {0}")]
+    RefString(String),
 }
 
 impl From<&str> for Error {
     fn from(err: &str) -> Self {
-        From::<String>::from(err.to_string())
+        Self::Str(err.to_string())
     }
 }
 
 impl From<String> for Error {
     fn from(err: String) -> Self {
-        Self { message: err }
+        Self::String(err)
     }
 }
 
 impl From<&String> for Error {
     fn from(err: &String) -> Self {
-        From::<String>::from(err.to_string())
-    }
-}
-
-impl std::fmt::Display for Error {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{}", self.message)
-    }
-}
-
-impl std::error::Error for Error {
-    fn description(&self) -> &str {
-        &self.message
+        Self::RefString(err.to_string())
     }
 }
