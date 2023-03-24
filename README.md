@@ -30,6 +30,10 @@ sudo ip route add "$PROXY_IP" $(ip route | grep '^default' | cut -d ' ' -f 2-)
 sudo ip route add 128.0.0.0/1 dev tun0
 sudo ip route add 0.0.0.0/1 dev tun0
 
+# If you wish to also route IPv6 traffic through the proxy, these two commands will do.
+sudo ip route add ::/1 dev tun0
+sudo ip route add 8000::/1 dev tun0
+
 ./target/release/tun2proxy --tun tun0 --proxy "$PROXY_TYPE://$PROXY_IP:$PROXY_PORT"
 ```
 
@@ -66,6 +70,27 @@ Options:
 Currently, tun2proxy supports two proxy protocols: HTTP and SOCKS5. A proxy is supplied to the `--proxy` argument in the
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is
 supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogously to curl's `--proxy` argument.
+
+## Configuration Tips
+### DNS
+When DNS resolution is performed by a service on your machine or through a server in your local network, DNS resolution
+will not be performed through the tunnel interface, since the routes to localhost or your local network are more
+specific than `0.0.0.0/1` and `128.0.0.0/1`.
+In this case, it may be advisable to update your `/etc/resolv.conf` file to use a nameserver address that is routed
+through the tunnel interface. When virtual DNS is working correctly, you will see log messages like
+`DNS query: example.org` for hostnames which your machine is connecting to after having resolved them through DNS.
+
+Note that software like the `NetworkManager` may change the `/etc/resolv.conf` file automatically at any time, which
+will result in DNS leaks. A hacky solution to prevent this consists in making the file immutable as follows:
+`sudo chattr +i "$(realpath /etc/resolv.conf)"`.
+
+### IPv6
+Some proxy servers might not support IPv6. When using virtual DNS, this is not a problem as DNS names are resolved by
+the proxy server. When DNS names are resolved to IPv6 addresses locally, this becomes a problem as the proxy will be
+asked to open connections to IPv6 destinations. In such a case, you can disable IPv6 on your machine. This can be done
+either through `sysctl -w net.ipv6.conf.all.disable_ipv6=1` and `sysctl -w net.ipv6.conf.default.disable_ipv6=1`
+or through `ip -6 route del default`, which causes the `libc` resolver (and other software) to not issue DNS AAAA
+requests for IPv6 addresses.
 
 ## TODO
 - Improve handling of half-open connections
