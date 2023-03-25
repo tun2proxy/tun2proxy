@@ -28,6 +28,12 @@ enum SocksAddressType {
     Ipv6 = 4,
 }
 
+#[derive(Copy, Clone)]
+pub enum SocksVersion {
+    V4 = 4,
+    V5 = 5,
+}
+
 #[allow(dead_code)]
 enum SocksAuthentication {
     None = 0,
@@ -63,10 +69,15 @@ pub(crate) struct SocksConnection {
     server_outbuf: VecDeque<u8>,
     data_buf: VecDeque<u8>,
     manager: Rc<dyn ConnectionManager>,
+    version: SocksVersion,
 }
 
 impl SocksConnection {
-    pub fn new(connection: &Connection, manager: Rc<dyn ConnectionManager>) -> Self {
+    pub fn new(
+        connection: &Connection,
+        manager: Rc<dyn ConnectionManager>,
+        version: SocksVersion,
+    ) -> Result<Self, Error> {
         let mut result = Self {
             connection: connection.clone(),
             state: SocksState::ServerHello,
@@ -76,35 +87,92 @@ impl SocksConnection {
             server_outbuf: Default::default(),
             data_buf: Default::default(),
             manager,
+            version,
         };
-        result.send_client_hello();
-        result
+        result.send_client_hello()?;
+        Ok(result)
     }
 
-    fn send_client_hello(&mut self) {
+    fn send_client_hello(&mut self) -> Result<(), Error> {
         let credentials = self.manager.get_credentials();
-        if credentials.is_some() {
-            self.server_outbuf
-                .extend(&[5u8, 1, SocksAuthentication::Password as u8]);
-        } else {
-            self.server_outbuf
-                .extend(&[5u8, 1, SocksAuthentication::None as u8]);
+        match self.version {
+            SocksVersion::V4 => {
+                self.server_outbuf.extend(&[
+                    4u8,
+                    1,
+                    (self.connection.dst.port >> 8) as u8,
+                    (self.connection.dst.port & 0xff) as u8,
+                ]);
+                let mut ip_vec = Vec::<u8>::new();
+                let mut name_vec = Vec::<u8>::new();
+                match &self.connection.dst.host {
+                    DestinationHost::Address(dst_ip) => {
+                        match dst_ip {
+                            IpAddr::V4(ip) => ip_vec.extend(ip.octets().as_ref()),
+                            IpAddr::V6(_) => return Err("SOCKS4 does not support IPv6".into()),
+                        };
+                    }
+                    DestinationHost::Hostname(host) => {
+                        ip_vec.extend(&[0, 0, 0, host.len() as u8]);
+                        name_vec.extend(host.as_bytes());
+                        name_vec.push(0);
+                    }
+                }
+                self.server_outbuf.extend(ip_vec);
+                if let Some(credentials) = credentials {
+                    self.server_outbuf.extend(&credentials.username);
+                    if !credentials.password.is_empty() {
+                        self.server_outbuf.push_back(b':');
+                        self.server_outbuf.extend(&credentials.password);
+                    }
+                }
+                self.server_outbuf.push_back(0);
+                self.server_outbuf.extend(name_vec);
+            }
+
+            SocksVersion::V5 => {
+                if credentials.is_some() {
+                    self.server_outbuf
+                        .extend(&[5u8, 1, SocksAuthentication::Password as u8]);
+                } else {
+                    self.server_outbuf
+                        .extend(&[5u8, 1, SocksAuthentication::None as u8]);
+                }
+            }
         }
         self.state = SocksState::ServerHello;
+        Ok(())
     }
 
-    fn receive_server_hello(&mut self) -> Result<(), Error> {
+    fn receive_server_hello_socks4(&mut self) -> Result<(), Error> {
+        if self.server_inbuf.len() < 8 {
+            return Ok(());
+        }
+
+        if self.server_inbuf[1] != 0x5a {
+            return Err("SOCKS4 server replied with an unexpected reply code.".into());
+        }
+
+        self.server_inbuf.drain(0..8);
+        self.server_outbuf.append(&mut self.data_buf);
+        self.data_buf.clear();
+
+        self.state = SocksState::Established;
+        self.state_change()
+    }
+
+    fn receive_server_hello_socks5(&mut self) -> Result<(), Error> {
         if self.server_inbuf.len() < 2 {
             return Ok(());
         }
         if self.server_inbuf[0] != 5 {
-            return Err("SOCKS server replied with an unexpected version.".into());
+            return Err("SOCKS5 server replied with an unexpected version.".into());
         }
 
         if self.server_inbuf[1] != 0 && self.manager.get_credentials().is_none()
             || self.server_inbuf[1] != 2 && self.manager.get_credentials().is_some()
         {
-            return Err("SOCKS server requires an unsupported authentication method.".into());
+            return Err("SOCKS5 server requires an unsupported authentication method.".into());
         }
 
         self.server_inbuf.drain(0..2);
@@ -115,6 +183,13 @@ impl SocksConnection {
             self.state = SocksState::SendRequest;
         }
         self.state_change()
+    }
+
+    fn receive_server_hello(&mut self) -> Result<(), Error> {
+        match self.version {
+            SocksVersion::V4 => self.receive_server_hello_socks4(),
+            SocksVersion::V5 => self.receive_server_hello_socks5(),
+        }
     }
 
     fn send_auth_data(&mut self) -> Result<(), Error> {
@@ -152,18 +227,18 @@ impl SocksConnection {
         let atyp = self.server_inbuf[3];
 
         if ver != 5 {
-            return Err("SOCKS server replied with an unexpected version.".into());
+            return Err("SOCKS5 server replied with an unexpected version.".into());
         }
 
         if rep != 0 {
-            return Err("SOCKS connection unsuccessful.".into());
+            return Err("SOCKS5 connection unsuccessful.".into());
         }
 
         if atyp != SocksAddressType::Ipv4 as u8
             && atyp != SocksAddressType::Ipv6 as u8
             && atyp != SocksAddressType::DomainName as u8
         {
-            return Err("SOCKS server replied with unrecognized address type.".into());
+            return Err("SOCKS5 server replied with unrecognized address type.".into());
         }
 
         if atyp == SocksAddressType::DomainName as u8 && self.server_inbuf.len() < 5 {
@@ -221,6 +296,14 @@ impl SocksConnection {
         self.state_change()
     }
 
+    fn relay_traffic(&mut self) -> Result<(), Error> {
+        self.client_outbuf.extend(self.server_inbuf.iter());
+        self.server_outbuf.extend(self.client_inbuf.iter());
+        self.server_inbuf.clear();
+        self.client_inbuf.clear();
+        Ok(())
+    }
+
     pub fn state_change(&mut self) -> Result<(), Error> {
         match self.state {
             SocksState::ServerHello => self.receive_server_hello(),
@@ -233,13 +316,7 @@ impl SocksConnection {
 
             SocksState::ReceiveResponse => self.receive_connection_status(),
 
-            SocksState::Established => {
-                self.client_outbuf.extend(self.server_inbuf.iter());
-                self.server_outbuf.extend(self.client_inbuf.iter());
-                self.server_inbuf.clear();
-                self.client_inbuf.clear();
-                Ok(())
-            }
+            SocksState::Established => self.relay_traffic(),
 
             _ => Ok(()),
         }
@@ -292,12 +369,13 @@ impl TcpProxy for SocksConnection {
     }
 }
 
-pub struct Socks5Manager {
+pub struct SocksManager {
     server: SocketAddr,
     credentials: Option<Credentials>,
+    version: SocksVersion,
 }
 
-impl ConnectionManager for Socks5Manager {
+impl ConnectionManager for SocksManager {
     fn handles_connection(&self, connection: &Connection) -> bool {
         connection.proto == IpProtocol::Tcp
     }
@@ -306,11 +384,15 @@ impl ConnectionManager for Socks5Manager {
         &self,
         connection: &Connection,
         manager: Rc<dyn ConnectionManager>,
-    ) -> Option<Box<dyn TcpProxy>> {
+    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
         if connection.proto != IpProtocol::Tcp {
-            return None;
+            return Ok(None);
         }
-        Some(Box::new(SocksConnection::new(connection, manager)))
+        Ok(Some(Box::new(SocksConnection::new(
+            connection,
+            manager,
+            self.version,
+        )?)))
     }
 
     fn close_connection(&self, _: &Connection) {}
@@ -324,11 +406,16 @@ impl ConnectionManager for Socks5Manager {
     }
 }
 
-impl Socks5Manager {
-    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> Rc<Self> {
+impl SocksManager {
+    pub fn new(
+        server: SocketAddr,
+        version: SocksVersion,
+        credentials: Option<Credentials>,
+    ) -> Rc<Self> {
         Rc::new(Self {
             server,
             credentials,
+            version,
         })
     }
 }

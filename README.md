@@ -1,5 +1,5 @@
 # tun2proxy
-Tunnel TCP traffic through SOCKS5 or HTTP on Linux.
+Tunnel TCP traffic through SOCKS or HTTP on Linux.
 
 **Error handling incomplete and too restrictive.**
 
@@ -12,7 +12,7 @@ cargo build --release
 ## Setup
 A standard setup, which would route all traffic from your system through the tunnel interface, could look as follows:
 ```shell
-# The proxy type can be either SOCKS5 or HTTP.
+# The proxy type can be either SOCKS4, SOCKS5 or HTTP.
 PROXY_TYPE=SOCKS5
 PROXY_IP=1.2.3.4
 PROXY_PORT=1080
@@ -67,7 +67,7 @@ Options:
   -h, --help          Print help
   -V, --version       Print version
 ```
-Currently, tun2proxy supports two proxy protocols: HTTP and SOCKS5. A proxy is supplied to the `--proxy` argument in the
+Currently, tun2proxy supports HTTP, SOCKS4/SOCKS4a and SOCKS5. A proxy is supplied to the `--proxy` argument in the
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is
 supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogously to curl's `--proxy` argument.
 
@@ -96,5 +96,4 @@ requests for IPv6 addresses.
 - Improve handling of half-open connections
 - Increase error robustness (reduce `unwrap` and `expect` usage)
 - UDP support for SOCKS
-- SOCKS4/SOCKS4a support
 - Native support for proxying DNS over TCP or TLS
