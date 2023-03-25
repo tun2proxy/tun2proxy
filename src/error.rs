@@ -4,7 +4,7 @@ pub enum Error {
     Nul(#[from] std::ffi::NulError),
 
     #[error("ctrlc::Error {0:?}")]
-    Send(#[from] ctrlc::Error),
+    InterruptHandler(#[from] ctrlc::Error),
 
     #[error("std::io::Error {0}")]
     Io(#[from] std::io::Error),
@@ -25,7 +25,7 @@ pub enum Error {
     Bind(#[from] smoltcp::socket::udp::BindError),
 
     #[error("smoltcp::socket::tcp::SendError {0:?}")]
-    SontrolHandler(#[from] smoltcp::socket::tcp::SendError),
+    Send(#[from] smoltcp::socket::tcp::SendError),
 
     #[error("&str {0}")]
     Str(String),
