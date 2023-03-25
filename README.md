@@ -1,7 +1,5 @@
 # tun2proxy
-Tunnel TCP traffic through SOCKS or HTTP on Linux.
-
-**Error handling incomplete and too restrictive.**
+A tunnel interface for HTTP and SOCKS proxies on Linux based on [smoltcp](https://github.com/smoltcp-rs/smoltcp).
 
 ## Build
 Clone the repository and `cd` into the project folder. Then run the following:
@@ -10,6 +8,12 @@ cargo build --release
 ```
 
 ## Setup
+## Automated Setup
+Using `--setup auto`, you can have tun2proxy configure your system to automatically route all traffic through the
+specified proxy. This requires running the tool as root and will roughly perform the steps outlined in the section
+describing the manual setup, except that a bind mount is used to overlay the `/etc/resolv.conf` file.
+
+## Manual Setup
 A standard setup, which would route all traffic from your system through the tunnel interface, could look as follows:
 ```shell
 # The proxy type can be either SOCKS4, SOCKS5 or HTTP.

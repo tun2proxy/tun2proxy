@@ -1,11 +1,11 @@
 use crate::error::Error;
 use smoltcp::wire::IpCidr;
-use std::ffi::CString;
+use std::ffi::{CString, OsStr};
 use std::io::{BufRead, Write};
 use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::os::fd::FromRawFd;
-use std::process::Command;
+use std::process::{Command, Output};
 use std::ptr::null;
 use std::str::FromStr;
 
@@ -26,6 +26,43 @@ pub fn get_default_cidrs() -> [IpCidr; 4] {
     ]
 }
 
+fn run_iproute<I, S>(args: I, error: &str, require_success: bool) -> Result<Output, Error>
+where
+    I: IntoIterator<Item = S>,
+    S: AsRef<OsStr>,
+{
+    let mut command = Command::new("");
+    for (i, arg) in args.into_iter().enumerate() {
+        if i == 0 {
+            command = Command::new(arg);
+        } else {
+            command.arg(arg);
+        }
+    }
+
+    let e = Error::from(error);
+    let output = command.output().map_err(|_| e)?;
+    if !require_success || output.status.success() {
+        Ok(output)
+    } else {
+        let mut args: Vec<&str> = command.get_args().map(|x| x.to_str().unwrap()).collect();
+        let program = command.get_program().to_str().unwrap();
+        let mut cmdline = Vec::<&str>::new();
+        cmdline.push(program);
+        cmdline.append(&mut args);
+        let command = cmdline.as_slice().join(" ");
+        match String::from_utf8(output.stderr.clone()) {
+            Ok(output) => Err(format!("Command `{}` failed: {}", command, output).into()),
+            Err(_) => Err(format!(
+                "Command `{:?}` failed with exit code {}",
+                command,
+                output.status.code().unwrap()
+            )
+            .into()),
+        }
+    }
+}
+
 impl Setup {
     pub fn new(
         tun: impl Into<String>,
@@ -43,16 +80,12 @@ impl Setup {
 
     fn clone_default_route(&mut self) -> Result<(), Error> {
         let route_show_args = if self.proxy_addr.is_ipv6() {
-            Vec::from(["-6", "route", "show"])
+            ["ip", "-6", "route", "show"]
         } else {
-            Vec::from(["-4", "route", "show"])
+            ["ip", "-4", "route", "show"]
         };
 
-        let e = Error::from("failed to get routing table");
-        let routes = Command::new("ip")
-            .args(route_show_args.as_slice())
-            .output()
-            .map_err(|_| e)?;
+        let routes = run_iproute(route_show_args, "failed to get routing table", true)?;
 
         // Equivalent of `ip route | grep '^default' | cut -d ' ' -f 2-`
         let mut default_route_args = Vec::<String>::new();
@@ -72,14 +105,14 @@ impl Setup {
             }
         }
 
-        let e = Error::from("failed to clone default route for proxy");
-        let mut proxy_route = vec!["route".to_string(), "add".to_string()];
+        let mut proxy_route = vec!["ip".into(), "route".into(), "add".into()];
         proxy_route.push(self.proxy_addr.to_string());
-        proxy_route.extend(default_route_args.clone());
-        Command::new("ip")
-            .args(proxy_route)
-            .output()
-            .map_err(|_| e)?;
+        proxy_route.extend(default_route_args.into_iter());
+        run_iproute(
+            proxy_route,
+            "failed to clone default route for proxy",
+            false,
+        )?;
         Ok(())
     }
 
@@ -115,31 +148,35 @@ impl Setup {
 
     fn add_tunnel_routes(&self) -> Result<(), Error> {
         for route in &self.routes {
-            let e = Error::from(format!(
-                "failed to set up routing of {} through {}",
-                route, self.tun
-            ));
-            Command::new("ip")
-                .args([
+            run_iproute(
+                [
+                    "ip",
                     "route",
                     "add",
                     route.to_string().as_str(),
                     "dev",
                     self.tun.as_str(),
-                ])
-                .output()
-                .map_err(|_| e)?;
+                ],
+                "failed to add route",
+                true,
+            )?;
         }
         Ok(())
     }
 
     fn shutdown(&self) {
-        Self::shutdown_with_args(&self.tun);
+        if !self.set_up {
+            return;
+        }
+        Self::shutdown_with_args(&self.tun, self.proxy_addr);
     }
 
-    fn shutdown_with_args(tun_name: &str) {
+    fn shutdown_with_args(tun_name: &str, proxy_ip: IpAddr) {
         log::info!("Restoring network configuration");
         let _ = Command::new("ip").args(["link", "del", tun_name]).output();
+        let _ = Command::new("ip")
+            .args(["route", "del", proxy_ip.to_string().as_str()])
+            .output();
         unsafe {
             let umount_path = CString::new("/etc/resolv.conf").unwrap();
             libc::umount(umount_path.as_ptr());
@@ -147,32 +184,40 @@ impl Setup {
     }
 
     pub fn setup(&mut self) -> Result<(), Error> {
-        self.set_up = true;
-
         unsafe {
             if libc::getuid() != 0 {
                 return Err("Automatic setup requires root privileges".into());
             }
         }
 
+        run_iproute(
+            [
+                "ip",
+                "tuntap",
+                "add",
+                "name",
+                self.tun.as_str(),
+                "mode",
+                "tun",
+            ],
+            "failed to create tunnel device",
+            true,
+        )?;
+
+        self.set_up = true;
         let tun_name = self.tun.clone();
+        let proxy_ip = self.proxy_addr;
         // TODO: This is not optimal.
         ctrlc::set_handler(move || {
-            Self::shutdown_with_args(&tun_name);
+            Self::shutdown_with_args(&tun_name, proxy_ip);
             std::process::exit(0);
         })?;
 
-        let e = Error::from("failed to create tunnel device");
-        Command::new("ip")
-            .args(["tuntap", "add", "name", self.tun.as_str(), "mode", "tun"])
-            .output()
-            .map_err(|_| e)?;
-
-        let e = Error::from("failed to bring up tunnel device");
-        Command::new("ip")
-            .args(["link", "set", self.tun.as_str(), "up"])
-            .output()
-            .map_err(|_| e)?;
+        run_iproute(
+            ["ip", "link", "set", self.tun.as_str(), "up"],
+            "failed to bring up tunnel device",
+            true,
+        )?;
 
         self.clone_default_route()?;
         Self::setup_resolv_conf()?;
