@@ -85,7 +85,9 @@ impl VirtualDns {
             return None;
         }
 
-        log::info!("DNS query: {}", qname);
+        if qtype == DnsRecordType::A as u16 {
+            log::info!("DNS query: {}", qname);
+        }
 
         let mut response = Vec::<u8>::new();
         response.extend(&data[0..offset + 4]);
