@@ -145,8 +145,14 @@ impl Setup {
 
     pub fn setup(&mut self) -> Result<(), Error> {
         self.set_up = true;
-        let tun_name = self.tun.clone();
 
+        unsafe {
+            if libc::getuid() != 0 {
+                return Err("Automatic setup requires root privileges".into());
+            }
+        }
+
+        let tun_name = self.tun.clone();
         // TODO: This is not optimal.
         ctrlc::set_handler(move || {
             Self::shutdown(tun_name.clone());
