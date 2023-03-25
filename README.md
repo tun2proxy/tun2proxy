@@ -68,11 +68,12 @@ Tunnel interface to proxy.
 Usage: tun2proxy [OPTIONS] --proxy <URL>
 
 Options:
-  -t, --tun <name>    Name of the tun interface [default: tun0]
-  -p, --proxy <URL>   Proxy URL in the form proto://[username[:password]@]host:port
-  -d, --dns <method>  DNS handling [default: virtual] [possible values: virtual, none]
-  -h, --help          Print help
-  -V, --version       Print version
+  -t, --tun <name>      Name of the tun interface [default: tun0]
+  -p, --proxy <URL>     Proxy URL in the form proto://[username[:password]@]host:port
+  -d, --dns <method>    DNS handling [default: virtual] [possible values: virtual, none]
+  -s, --setup <method>  Routing and system setup [possible values: auto]
+  -h, --help            Print help
+  -V, --version         Print version
 ```
 Currently, tun2proxy supports HTTP, SOCKS4/SOCKS4a and SOCKS5. A proxy is supplied to the `--proxy` argument in the
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is

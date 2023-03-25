@@ -28,9 +28,9 @@ struct Args {
     )]
     dns: ArgDns,
 
-    /// Setup
+    /// Routing and system setup
     #[arg(short, long, value_name = "method", value_enum)]
-    setup: ArgSetup,
+    setup: Option<ArgSetup>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
@@ -59,7 +59,7 @@ fn main() -> ExitCode {
     }
 
     let mut setup: Setup;
-    if args.setup == ArgSetup::Auto {
+    if args.setup == Some(ArgSetup::Auto) {
         setup = Setup::new(&args.tun, &args.proxy.addr.ip(), get_default_cidrs());
         if let Err(e) = setup.setup() {
             log::error!("{e}");
