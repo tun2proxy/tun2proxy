@@ -1,7 +1,7 @@
 use hashlink::linked_hash_map::RawEntryMut;
 use hashlink::LruCache;
 use smoltcp::wire::Ipv4Cidr;
-use std::collections::{HashMap, LinkedList};
+use std::collections::HashMap;
 use std::convert::{TryFrom, TryInto};
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 use std::str::FromStr;
@@ -188,19 +188,19 @@ impl VirtualDns {
     fn allocate_ip(&mut self, name: String) -> Option<IpAddr> {
         let now = Instant::now();
 
-        // Building the to_remove list seems to be a bit clunky.
-        // But removing inside the loop does not immediately work due to borrow rules.
-        // TODO: Is there a better solution?
-        let mut to_remove = LinkedList::<IpAddr>::new();
-        for (ip, entry) in self.lru_cache.iter() {
+        loop {
+            let p = self.lru_cache.iter().next();
+            if p.is_none() {
+                break;
+            }
+            let (ip, entry) = p.unwrap();
             if now > entry.expiry {
-                to_remove.push_back(*ip);
-                self.name_to_ip.remove(&entry.name);
+                let name = entry.name.clone();
+                self.lru_cache.remove(&ip.clone());
+                self.name_to_ip.remove(&name);
                 continue;
             }
-        }
-        for ip in to_remove {
-            self.lru_cache.remove(&ip);
+            break;
         }
 
         if let Some(ip) = self.name_to_ip.get(&name) {
