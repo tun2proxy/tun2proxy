@@ -1,6 +1,8 @@
 use clap::Parser;
 use env_logger::Env;
+use std::process::exit;
 
+use tun2proxy::setup::{get_default_cidrs, Setup};
 use tun2proxy::Options;
 use tun2proxy::{main_entry, Proxy};
 
@@ -25,12 +27,21 @@ struct Args {
         default_value = "virtual"
     )]
     dns: ArgDns,
+
+    /// Setup
+    #[arg(short, long, value_name = "method", value_enum)]
+    setup: ArgSetup,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 enum ArgDns {
     Virtual,
     None,
+}
+
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+enum ArgSetup {
+    Auto,
 }
 
 fn main() {
@@ -47,7 +58,17 @@ fn main() {
         options = options.with_virtual_dns();
     }
 
+    let mut setup: Setup;
+    if args.setup == ArgSetup::Auto {
+        setup = Setup::new(&args.tun, &args.proxy.addr.ip(), get_default_cidrs());
+        if let Err(e) = setup.setup() {
+            log::error!("{e}");
+            exit(1);
+        }
+    }
+
     if let Err(e) = main_entry(&args.tun, args.proxy, options) {
         log::error!("{e}");
+        exit(1);
     }
 }

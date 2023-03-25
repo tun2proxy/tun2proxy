@@ -7,9 +7,11 @@ version = "0.1.1"
 [dependencies]
 base64 = { version = "0.21" }
 clap = { version = "4.1", features = ["derive"] }
+ctrlc = "3.2"
 dotenvy = "0.15"
 env_logger = "0.10"
 hashlink = "0.8"
+libc = "0.2"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 smoltcp = { version = "0.9", git = "https://github.com/smoltcp-rs/smoltcp.git", features = ["std"] }

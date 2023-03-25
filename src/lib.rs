@@ -5,6 +5,7 @@ use std::net::{SocketAddr, ToSocketAddrs};
 
 mod error;
 mod http;
+pub mod setup;
 mod socks5;
 mod tun2proxy;
 mod virtdevice;

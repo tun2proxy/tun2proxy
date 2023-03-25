@@ -1,5 +1,11 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
+    #[error("std::ffi::NulError {0:?}")]
+    Nul(#[from] std::ffi::NulError),
+
+    #[error("ctrlc::Error {0:?}")]
+    Send(#[from] ctrlc::Error),
+
     #[error("std::io::Error {0}")]
     Io(#[from] std::io::Error),
 
@@ -19,7 +25,7 @@ pub enum Error {
     Bind(#[from] smoltcp::socket::udp::BindError),
 
     #[error("smoltcp::socket::tcp::SendError {0:?}")]
-    Send(#[from] smoltcp::socket::tcp::SendError),
+    SontrolHandler(#[from] smoltcp::socket::tcp::SendError),
 
     #[error("&str {0}")]
     Str(String),
