@@ -34,6 +34,9 @@ sudo ip route add 0.0.0.0/1 dev tun0
 sudo ip route add ::/1 dev tun0
 sudo ip route add 8000::/1 dev tun0
 
+# Make sure that DNS queries are routed through the tunnel.
+sudo sh -c "echo nameserver 198.18.0.1 > /etc/resolv.conf"
+
 ./target/release/tun2proxy --tun tun0 --proxy "$PROXY_TYPE://$PROXY_IP:$PROXY_PORT"
 ```
 
