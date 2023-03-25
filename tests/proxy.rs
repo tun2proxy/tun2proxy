@@ -167,7 +167,7 @@ mod tests {
     }
 
     fn require_var(var: &str) {
-        env::var(var).unwrap_or_else(|_| panic!("{}", "{var} environment variable required"));
+        env::var(var).unwrap_or_else(|_| panic!("{} environment variable required", var));
     }
 
     #[serial]
