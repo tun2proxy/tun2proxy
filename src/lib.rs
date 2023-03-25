@@ -1,6 +1,7 @@
 use crate::error::{s2e, Error};
+use crate::socks5::SocksVersion;
 use crate::tun2proxy::{Credentials, Options};
-use crate::{http::HttpManager, socks5::Socks5Manager, tun2proxy::TunToProxy};
+use crate::{http::HttpManager, socks5::SocksManager, tun2proxy::TunToProxy};
 use std::net::{SocketAddr, ToSocketAddrs};
 
 pub mod error;
@@ -47,6 +48,7 @@ impl Proxy {
         let scheme = url.scheme();
 
         let proxy_type = match url.scheme().to_ascii_lowercase().as_str() {
+            "socks4" => Some(ProxyType::Socks4),
             "socks5" => Some(ProxyType::Socks5),
             "http" => Some(ProxyType::Http),
             _ => None,
@@ -63,6 +65,7 @@ impl Proxy {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug)]
 pub enum ProxyType {
+    Socks4,
     Socks5,
     Http,
 }
@@ -70,6 +73,7 @@ pub enum ProxyType {
 impl std::fmt::Display for ProxyType {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            ProxyType::Socks4 => write!(f, "socks4"),
             ProxyType::Socks5 => write!(f, "socks5"),
             ProxyType::Http => write!(f, "http"),
         }
@@ -79,8 +83,19 @@ impl std::fmt::Display for ProxyType {
 pub fn main_entry(tun: &str, proxy: Proxy, options: Options) {
     let mut ttp = TunToProxy::new(tun, options);
     match proxy.proxy_type {
+        ProxyType::Socks4 => {
+            ttp.add_connection_manager(SocksManager::new(
+                proxy.addr,
+                SocksVersion::V4,
+                proxy.credentials,
+            ));
+        }
         ProxyType::Socks5 => {
-            ttp.add_connection_manager(Socks5Manager::new(proxy.addr, proxy.credentials));
+            ttp.add_connection_manager(SocksManager::new(
+                proxy.addr,
+                SocksVersion::V5,
+                proxy.credentials,
+            ));
         }
         ProxyType::Http => {
             ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials));

@@ -247,7 +247,7 @@ pub(crate) trait ConnectionManager {
         &self,
         connection: &Connection,
         manager: Rc<dyn ConnectionManager>,
-    ) -> Option<Box<dyn TcpProxy>>;
+    ) -> Result<Option<Box<dyn TcpProxy>>, Error>;
     fn close_connection(&self, connection: &Connection);
     fn get_server(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<Credentials>;
@@ -441,8 +441,9 @@ impl<'a> TunToProxy<'a> {
                 let server = cm.unwrap().get_server();
                 if first_packet {
                     for manager in self.connection_managers.iter_mut() {
-                        if let Some(handler) =
-                            manager.new_connection(&resolved_conn, manager.clone())
+                        if let Some(handler) = manager
+                            .new_connection(&resolved_conn, manager.clone())
+                            .unwrap()
                         {
                             let mut socket = tcp::Socket::new(
                                 tcp::SocketBuffer::new(vec![0; 4096]),

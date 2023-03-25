@@ -178,11 +178,11 @@ impl ConnectionManager for HttpManager {
         &self,
         connection: &Connection,
         manager: Rc<dyn ConnectionManager>,
-    ) -> Option<Box<dyn TcpProxy>> {
+    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
         if connection.proto != IpProtocol::Tcp.into() {
-            return None;
+            return Ok(None);
         }
-        Some(Box::new(HttpConnection::new(connection, manager)))
+        Ok(Some(Box::new(HttpConnection::new(connection, manager))))
     }
 
     fn close_connection(&self, _: &Connection) {}

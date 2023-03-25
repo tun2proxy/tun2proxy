@@ -205,7 +205,7 @@ impl VirtualDns {
         }
     }
 
-    /// Parse a DNS qname at a specific offset and return the name along with its size.
+    /// Parse a non-root DNS qname at a specific offset and return the name along with its size.
     /// DNS packet parsing should be continued after the name.
     fn parse_qname(data: &[u8], mut offset: usize) -> Option<(String, usize)> {
         // Since we only parse qnames and qnames can't point anywhere,
@@ -222,8 +222,14 @@ impl VirtualDns {
             }
             let label_len = data[offset];
             if label_len == 0 {
+                if qname.is_empty() {
+                    return None;
+                }
                 offset += 1;
                 break;
+            }
+            if !qname.is_empty() {
+                qname.push('.');
             }
             for _ in 0..label_len {
                 offset += 1;
@@ -232,7 +238,6 @@ impl VirtualDns {
                 }
                 qname.push(data[offset] as char);
             }
-            qname.push('.');
             offset += 1;
         }
 

@@ -35,8 +35,12 @@ mod tests {
         Ok(Test { proxy })
     }
 
-    fn tests() -> [Result<Test, String>; 2] {
-        [test_from_env("SOCKS5_SERVER"), test_from_env("HTTP_SERVER")]
+    fn tests() -> [Result<Test, String>; 3] {
+        [
+            test_from_env("SOCKS4_SERVER"),
+            test_from_env("SOCKS5_SERVER"),
+            test_from_env("HTTP_SERVER"),
+        ]
     }
 
     #[cfg(test)]
@@ -132,7 +136,7 @@ mod tests {
         for potential_test in tests() {
             match potential_test {
                 Ok(test) => {
-                    if filter(&test) {
+                    if !filter(&test) {
                         continue;
                     }
 
@@ -168,6 +172,16 @@ mod tests {
 
     #[serial]
     #[test_log::test]
+    fn test_socks4() {
+        require_var("SOCKS4_SERVER");
+        run_test(
+            |test| test.proxy.proxy_type == ProxyType::Socks4,
+            request_ip_host_http,
+        )
+    }
+
+    #[serial]
+    #[test_log::test]
     fn test_socks5() {
         require_var("SOCKS5_SERVER");
         run_test(
@@ -183,6 +197,16 @@ mod tests {
         run_test(
             |test| test.proxy.proxy_type == ProxyType::Http,
             request_ip_host_http,
+        )
+    }
+
+    #[serial]
+    #[test_log::test]
+    fn test_socks4_dns() {
+        require_var("SOCKS4_SERVER");
+        run_test(
+            |test| test.proxy.proxy_type == ProxyType::Socks4,
+            request_example_https,
         )
     }
 
