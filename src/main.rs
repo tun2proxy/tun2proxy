@@ -1,6 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
-use std::process::exit;
+use std::process::ExitCode;
 
 use tun2proxy::setup::{get_default_cidrs, Setup};
 use tun2proxy::Options;
@@ -44,7 +44,7 @@ enum ArgSetup {
     Auto,
 }
 
-fn main() {
+fn main() -> ExitCode {
     dotenvy::dotenv().ok();
     env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = Args::parse();
@@ -63,12 +63,13 @@ fn main() {
         setup = Setup::new(&args.tun, &args.proxy.addr.ip(), get_default_cidrs());
         if let Err(e) = setup.setup() {
             log::error!("{e}");
-            exit(1);
+            return ExitCode::FAILURE;
         }
     }
 
     if let Err(e) = main_entry(&args.tun, args.proxy, options) {
         log::error!("{e}");
-        exit(1);
+        return ExitCode::FAILURE;
     }
+    ExitCode::SUCCESS
 }

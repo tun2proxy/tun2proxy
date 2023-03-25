@@ -95,7 +95,7 @@ impl Setup {
             let mut f = std::fs::File::from_raw_fd(fd);
             f.write_all("nameserver 198.18.0.1\n".as_bytes())?;
             mem::forget(f);
-            if libc::fchmod(fd, 0o644) == -1 {
+            if libc::fchmod(fd, 0o444) == -1 {
                 return Err("Failed to change ownership of /etc/resolv.conf".into());
             }
             let fd_path = format!("/proc/self/fd/{}", fd);
@@ -133,10 +133,13 @@ impl Setup {
         Ok(())
     }
 
-    fn shutdown(tun_name: String) {
-        let _ = Command::new("ip")
-            .args(["link", "del", tun_name.as_str()])
-            .output();
+    fn shutdown(&self) {
+        Self::shutdown_with_args(&self.tun);
+    }
+
+    fn shutdown_with_args(tun_name: &str) {
+        log::info!("Restoring network configuration");
+        let _ = Command::new("ip").args(["link", "del", tun_name]).output();
         unsafe {
             let umount_path = CString::new("/etc/resolv.conf").unwrap();
             libc::umount(umount_path.as_ptr());
@@ -155,7 +158,7 @@ impl Setup {
         let tun_name = self.tun.clone();
         // TODO: This is not optimal.
         ctrlc::set_handler(move || {
-            Self::shutdown(tun_name.clone());
+            Self::shutdown_with_args(&tun_name);
             std::process::exit(0);
         })?;
 
@@ -176,5 +179,11 @@ impl Setup {
         self.add_tunnel_routes()?;
 
         Ok(())
+    }
+}
+
+impl Drop for Setup {
+    fn drop(&mut self) {
+        self.shutdown();
     }
 }
