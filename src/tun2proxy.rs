@@ -14,7 +14,6 @@ use smoltcp::time::Instant;
 use smoltcp::wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket};
 use std::collections::{HashMap, HashSet};
 use std::convert::{From, TryFrom};
-use std::fmt::{Display, Formatter};
 use std::io::{Read, Write};
 use std::net::Shutdown::Both;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
@@ -28,11 +27,14 @@ pub enum DestinationHost {
     Hostname(String),
 }
 
-impl ToString for DestinationHost {
-    fn to_string(&self) -> String {
+impl std::fmt::Display for DestinationHost {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            DestinationHost::Address(addr) => addr.to_string(),
-            Hostname(name) => name.clone(),
+            DestinationHost::Address(addr) => match addr {
+                IpAddr::V4(_) => addr.fmt(f),
+                IpAddr::V6(_) => write!(f, "[{}]", addr),
+            },
+            Hostname(name) => name.fmt(f),
         }
     }
 }
@@ -65,16 +67,9 @@ impl From<SocketAddr> for Destination {
     }
 }
 
-impl Display for Destination {
-    fn fmt(&self, f: &mut Formatter<'_>) -> std::fmt::Result {
-        let host_part = match self.host {
-            DestinationHost::Address(addr) => match addr {
-                IpAddr::V4(_) => addr.to_string(),
-                IpAddr::V6(_) => format!("[{addr}]"),
-            },
-            Hostname(_) => self.host.to_string(),
-        };
-        write!(f, "{}:{}", host_part, self.port)
+impl std::fmt::Display for Destination {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}:{}", self.host, self.port)
     }
 }
 
@@ -93,8 +88,8 @@ impl Connection {
     }
 }
 
-impl Display for Connection {
-    fn fmt(&self, f: &mut Formatter) -> std::fmt::Result {
+impl std::fmt::Display for Connection {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{} -> {}", self.src, self.dst)
     }
 }

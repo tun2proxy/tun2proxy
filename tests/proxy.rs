@@ -6,7 +6,6 @@ mod tests {
     use std::io::BufRead;
     use std::net::SocketAddr;
     use std::process::Command;
-    use std::string::ToString;
 
     use fork::Fork;
     use nix::sys::signal;
