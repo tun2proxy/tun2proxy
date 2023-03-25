@@ -12,8 +12,7 @@ mod tests {
     use nix::unistd::Pid;
     use serial_test::serial;
 
-    use tun2proxy::tun2proxy::Options;
-    use tun2proxy::{main_entry, Proxy, ProxyType};
+    use tun2proxy::{main_entry, Options, Proxy, ProxyType};
 
     static TUN_TEST_DEVICE: &str = "tun0";
     static ALL_ROUTES: [&str; 4] = ["0.0.0.0/1", "128.0.0.0/1", "::/1", "8000::/1"];

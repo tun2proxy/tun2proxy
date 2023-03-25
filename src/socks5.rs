@@ -1,8 +1,9 @@
 use crate::error::Error;
 use crate::tun2proxy::{
-    Connection, ConnectionManager, Credentials, DestinationHost, IncomingDataEvent,
-    IncomingDirection, OutgoingDataEvent, OutgoingDirection, TcpProxy,
+    Connection, ConnectionManager, DestinationHost, IncomingDataEvent, IncomingDirection,
+    OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
+use crate::Credentials;
 use smoltcp::wire::IpProtocol;
 use std::collections::VecDeque;
 use std::net::{IpAddr, SocketAddr};

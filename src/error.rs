@@ -1,25 +1,25 @@
 #[derive(thiserror::Error, Debug)]
 pub enum Error {
     #[error("std::io::Error {0}")]
-    IoError(#[from] std::io::Error),
+    Io(#[from] std::io::Error),
 
     #[error("std::net::AddrParseError {0}")]
-    AddrParseError(#[from] std::net::AddrParseError),
+    AddrParse(#[from] std::net::AddrParseError),
 
     #[error("smoltcp::iface::RouteTableFull {0:?}")]
     RouteTableFull(#[from] smoltcp::iface::RouteTableFull),
 
     #[error("smoltcp::socket::tcp::RecvError {0:?}")]
-    RecvError(#[from] smoltcp::socket::tcp::RecvError),
+    Recv(#[from] smoltcp::socket::tcp::RecvError),
 
     #[error("smoltcp::socket::tcp::ListenError {0:?}")]
-    ListenError(#[from] smoltcp::socket::tcp::ListenError),
+    Listen(#[from] smoltcp::socket::tcp::ListenError),
 
     #[error("smoltcp::socket::udp::BindError {0:?}")]
-    BindError(#[from] smoltcp::socket::udp::BindError),
+    Bind(#[from] smoltcp::socket::udp::BindError),
 
     #[error("smoltcp::socket::tcp::SendError {0:?}")]
-    SendError(#[from] smoltcp::socket::tcp::SendError),
+    Send(#[from] smoltcp::socket::tcp::SendError),
 
     #[error("&str {0}")]
     Str(String),

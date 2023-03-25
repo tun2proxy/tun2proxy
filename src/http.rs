@@ -1,8 +1,9 @@
 use crate::error::Error;
 use crate::tun2proxy::{
-    Connection, ConnectionManager, Credentials, IncomingDataEvent, IncomingDirection,
-    OutgoingDataEvent, OutgoingDirection, TcpProxy,
+    Connection, ConnectionManager, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
+    OutgoingDirection, TcpProxy,
 };
+use crate::Credentials;
 use base64::Engine;
 use smoltcp::wire::IpProtocol;
 use std::collections::VecDeque;
@@ -161,7 +162,7 @@ impl TcpProxy for HttpConnection {
     }
 }
 
-pub struct HttpManager {
+pub(crate) struct HttpManager {
     server: SocketAddr,
     credentials: Option<Credentials>,
 }

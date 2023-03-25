@@ -1,7 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
 
-use tun2proxy::tun2proxy::Options;
+use tun2proxy::Options;
 use tun2proxy::{main_entry, Proxy};
 
 /// Tunnel interface to proxy

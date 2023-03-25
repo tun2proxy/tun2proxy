@@ -1,15 +1,14 @@
 use crate::error::Error;
 use crate::socks5::SocksVersion;
-use crate::tun2proxy::{Credentials, Options};
 use crate::{http::HttpManager, socks5::SocksManager, tun2proxy::TunToProxy};
 use std::net::{SocketAddr, ToSocketAddrs};
 
-pub mod error;
-pub mod http;
-pub mod socks5;
-pub mod tun2proxy;
-pub mod virtdevice;
-pub mod virtdns;
+mod error;
+mod http;
+mod socks5;
+mod tun2proxy;
+mod virtdevice;
+mod virtdns;
 
 #[derive(Clone, Debug)]
 pub struct Proxy {
@@ -76,6 +75,37 @@ impl std::fmt::Display for ProxyType {
             ProxyType::Socks4 => write!(f, "socks4"),
             ProxyType::Socks5 => write!(f, "socks5"),
             ProxyType::Http => write!(f, "http"),
+        }
+    }
+}
+
+#[derive(Default)]
+pub struct Options {
+    virtdns: Option<virtdns::VirtualDns>,
+}
+
+impl Options {
+    pub fn new() -> Self {
+        Default::default()
+    }
+
+    pub fn with_virtual_dns(mut self) -> Self {
+        self.virtdns = Some(virtdns::VirtualDns::new());
+        self
+    }
+}
+
+#[derive(Default, Clone, Debug)]
+pub struct Credentials {
+    pub(crate) username: Vec<u8>,
+    pub(crate) password: Vec<u8>,
+}
+
+impl Credentials {
+    pub fn new(username: &str, password: &str) -> Self {
+        Self {
+            username: username.as_bytes().to_vec(),
+            password: password.as_bytes().to_vec(),
         }
     }
 }

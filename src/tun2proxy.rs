@@ -1,7 +1,6 @@
 use crate::error::Error;
-use crate::tun2proxy::DestinationHost::Hostname;
 use crate::virtdevice::VirtualTunDevice;
-use crate::virtdns::VirtualDns;
+use crate::{Credentials, Options};
 use log::{error, info};
 use mio::event::Event;
 use mio::net::TcpStream;
@@ -22,7 +21,7 @@ use std::rc::Rc;
 use std::str::FromStr;
 
 #[derive(Hash, Clone, Eq, PartialEq)]
-pub enum DestinationHost {
+pub(crate) enum DestinationHost {
     Address(IpAddr),
     Hostname(String),
 }
@@ -31,7 +30,7 @@ impl std::fmt::Display for DestinationHost {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             DestinationHost::Address(addr) => addr.fmt(f),
-            Hostname(name) => name.fmt(f),
+            DestinationHost::Hostname(name) => name.fmt(f),
         }
     }
 }
@@ -47,7 +46,7 @@ impl TryFrom<Destination> for SocketAddr {
     fn try_from(value: Destination) -> Result<Self, Self::Error> {
         let ip = match value.host {
             DestinationHost::Address(addr) => addr,
-            Hostname(e) => {
+            DestinationHost::Hostname(e) => {
                 return Err(e.into());
             }
         };
@@ -84,7 +83,7 @@ pub(crate) struct Connection {
 impl Connection {
     fn to_named(&self, name: String) -> Self {
         let mut result = self.clone();
-        result.dst.host = Hostname(name);
+        result.dst.host = DestinationHost::Hostname(name);
         result
     }
 }
@@ -215,21 +214,6 @@ struct ConnectionState {
     smoltcp_socket_state: u8,
 }
 
-#[derive(Default, Clone, Debug)]
-pub struct Credentials {
-    pub(crate) username: Vec<u8>,
-    pub(crate) password: Vec<u8>,
-}
-
-impl Credentials {
-    pub fn new(username: &str, password: &str) -> Self {
-        Self {
-            username: username.as_bytes().to_vec(),
-            password: password.as_bytes().to_vec(),
-        }
-    }
-}
-
 pub(crate) trait TcpProxy {
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error>;
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
@@ -249,21 +233,6 @@ pub(crate) trait ConnectionManager {
     fn get_credentials(&self) -> &Option<Credentials>;
 }
 
-#[derive(Default)]
-pub struct Options {
-    virtdns: Option<VirtualDns>,
-}
-
-impl Options {
-    pub fn new() -> Self {
-        Default::default()
-    }
-
-    pub fn with_virtual_dns(mut self) -> Self {
-        self.virtdns = Some(VirtualDns::new());
-        self
-    }
-}
 const TCP_TOKEN: Token = Token(0);
 const UDP_TOKEN: Token = Token(1);
 
