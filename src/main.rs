@@ -33,8 +33,8 @@ struct Args {
     #[arg(short, long, value_name = "method", value_enum)]
     setup: Option<ArgSetup>,
 
-    /// Proxy IP as used in routing setup
-    #[arg(long, value_name = "ip")]
+    /// Public proxy IP used in routing setup
+    #[arg(long, value_name = "IP")]
     setup_ip: Option<IpAddr>,
 }
 

@@ -72,6 +72,7 @@ Options:
   -p, --proxy <URL>     Proxy URL in the form proto://[username[:password]@]host:port
   -d, --dns <method>    DNS handling [default: virtual] [possible values: virtual, none]
   -s, --setup <method>  Routing and system setup [possible values: auto]
+      --setup-ip <IP>   Public proxy IP used in routing setup
   -h, --help            Print help
   -V, --version         Print version
 ```
