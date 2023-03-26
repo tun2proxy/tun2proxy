@@ -13,6 +13,18 @@ Using `--setup auto`, you can have tun2proxy configure your system to automatica
 specified proxy. This requires running the tool as root and will roughly perform the steps outlined in the section
 describing the manual setup, except that a bind mount is used to overlay the `/etc/resolv.conf` file.
 
+You would then run the tool as follows:
+```bash
+./target/release/tun2proxy --setup auto --proxy "socks5://1.2.3.4:1080"
+```
+
+Apart from SOCKS5, SOCKS4 and HTTP are supported.
+
+Note that if your proxy is a non-global IP address (e.g. because the proxy is provided by some tunneling tool running
+locally), you will additionally need to provide the public IP address of the server through which the traffic is
+actually tunneled. In such a case, the tool will tell you to specify the address through `--setup-ip <address>` if you
+wish to make use of the automated setup feature.
+
 ## Manual Setup
 A standard setup, which would route all traffic from your system through the tunnel interface, could look as follows:
 ```shell
