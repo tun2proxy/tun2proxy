@@ -1,5 +1,6 @@
 use clap::Parser;
 use env_logger::Env;
+use std::net::IpAddr;
 use std::process::ExitCode;
 
 use tun2proxy::setup::{get_default_cidrs, Setup};
@@ -31,6 +32,10 @@ struct Args {
     /// Routing and system setup
     #[arg(short, long, value_name = "method", value_enum)]
     setup: Option<ArgSetup>,
+
+    /// Proxy IP as used in routing setup
+    #[arg(long, value_name = "ip")]
+    setup_ip: Option<IpAddr>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
@@ -60,7 +65,11 @@ fn main() -> ExitCode {
 
     let mut setup: Setup;
     if args.setup == Some(ArgSetup::Auto) {
-        setup = Setup::new(&args.tun, &args.proxy.addr.ip(), get_default_cidrs());
+        let bypass_tun_ip = match args.setup_ip {
+            Some(addr) => addr,
+            None => args.proxy.addr.ip(),
+        };
+        setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs());
         if let Err(e) = setup.setup() {
             log::error!("{e}");
             return ExitCode::FAILURE;

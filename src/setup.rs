@@ -63,6 +63,72 @@ where
     }
 }
 
+fn ipv4_addr_is_shared(addr: &Ipv4Addr) -> bool {
+    addr.octets()[0] == 100 && (addr.octets()[1] & 0b1100_0000 == 0b0100_0000)
+}
+
+fn ipv4_addr_is_benchmarking(addr: &Ipv4Addr) -> bool {
+    addr.octets()[0] == 198 && (addr.octets()[1] & 0xfe) == 18
+}
+
+fn ipv4_addr_is_reserved(addr: &Ipv4Addr) -> bool {
+    addr.octets()[0] & 240 == 240 && !addr.is_broadcast()
+}
+
+fn ipv4_addr_is_global(addr: &Ipv4Addr) -> bool {
+    !(addr.octets()[0] == 0 // "This network"
+        || addr.is_private()
+        || ipv4_addr_is_shared(addr)
+        || addr.is_loopback()
+        || addr.is_link_local()
+        // addresses reserved for future protocols (`192.0.0.0/24`)
+        ||(addr.octets()[0] == 192 && addr.octets()[1] == 0 && addr.octets()[2] == 0)
+        || addr.is_documentation()
+        || ipv4_addr_is_benchmarking(addr)
+        || ipv4_addr_is_reserved(addr)
+        || addr.is_broadcast())
+}
+
+fn ipv6_addr_is_documentation(addr: &Ipv6Addr) -> bool {
+    (addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8)
+}
+
+fn ipv6_addr_is_unique_local(addr: &Ipv6Addr) -> bool {
+    (addr.segments()[0] & 0xfe00) == 0xfc00
+}
+
+fn ipv6_addr_is_unicast_link_local(addr: &Ipv6Addr) -> bool {
+    (addr.segments()[0] & 0xffc0) == 0xfe80
+}
+
+fn ipv6_addr_is_global(addr: &Ipv6Addr) -> bool {
+    !(addr.is_unspecified()
+        || addr.is_loopback()
+        // IPv4-mapped Address (`::ffff:0:0/96`)
+        || matches!(addr.segments(), [0, 0, 0, 0, 0, 0xffff, _, _])
+        // IPv4-IPv6 Translat. (`64:ff9b:1::/48`)
+        || matches!(addr.segments(), [0x64, 0xff9b, 1, _, _, _, _, _])
+        // Discard-Only Address Block (`100::/64`)
+        || matches!(addr.segments(), [0x100, 0, 0, 0, _, _, _, _])
+        // IETF Protocol Assignments (`2001::/23`)
+        || (matches!(addr.segments(), [0x2001, b, _, _, _, _, _, _] if b < 0x200)
+        && !(
+        // Port Control Protocol Anycast (`2001:1::1`)
+        u128::from_be_bytes(addr.octets()) == 0x2001_0001_0000_0000_0000_0000_0000_0001
+            // Traversal Using Relays around NAT Anycast (`2001:1::2`)
+            || u128::from_be_bytes(addr.octets()) == 0x2001_0001_0000_0000_0000_0000_0000_0002
+            // AMT (`2001:3::/32`)
+            || matches!(addr.segments(), [0x2001, 3, _, _, _, _, _, _])
+            // AS112-v6 (`2001:4:112::/48`)
+            || matches!(addr.segments(), [0x2001, 4, 0x112, _, _, _, _, _])
+            // ORCHIDv2 (`2001:20::/28`)
+            || matches!(addr.segments(), [0x2001, b, _, _, _, _, _, _] if (0x20..=0x2F).contains(&b))
+    ))
+        || ipv6_addr_is_documentation(addr)
+        || ipv6_addr_is_unique_local(addr)
+        || ipv6_addr_is_unicast_link_local(addr))
+}
+
 impl Setup {
     pub fn new(
         tun: impl Into<String>,
@@ -188,6 +254,16 @@ impl Setup {
             if libc::getuid() != 0 {
                 return Err("Automatic setup requires root privileges".into());
             }
+        }
+
+        let global = match self.proxy_addr {
+            IpAddr::V4(addr) => ipv4_addr_is_global(&addr),
+            IpAddr::V6(addr) => ipv6_addr_is_global(&addr),
+        };
+
+        if !global {
+            return Err(format!("The proxy address {} is not a global address. Please specify the setup IP address manually", self.proxy_addr)
+            .into());
         }
 
         run_iproute(
