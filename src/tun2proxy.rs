@@ -543,6 +543,10 @@ impl<'a> TunToProxy<'a> {
                     }
                 }
                 let socket = self.sockets.get_mut::<tcp::Socket>(socket_handle);
+                // Closing and removing the connection here may work in practice but is actually not
+                // correct. Only the write end was closed but we could still read from it!
+                // TODO: Fix and test half-open connection scenarios as mentioned in the README.
+                // TODO: Investigate how half-closed connections from the other end are handled.
                 if socket_state & WRITE_CLOSED != 0 && consumed == buflen {
                     socket.close();
                     self.expect_smoltcp_send()?;
@@ -581,6 +585,9 @@ impl<'a> TunToProxy<'a> {
     fn mio_socket_event(&mut self, event: &Event) -> Result<(), Error> {
         let e = "connection not found";
         let conn_ref = self.token_to_connection.get(&event.token());
+        // We may have closed the connection in an earlier iteration over the poll
+        // events, e.g. because an event through the tunnel interface indicated that the connection
+        // should be closed.
         if conn_ref.is_none() {
             log::trace!("{e}");
             return Ok(());
