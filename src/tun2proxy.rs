@@ -389,9 +389,10 @@ impl<'a> TunToProxy<'a> {
                 if resolved_conn.proto == IpProtocol::Tcp {
                     let cm = self.get_connection_manager(&resolved_conn);
                     if cm.is_none() {
+                        log::trace!("no connect manager");
                         return Ok(());
                     }
-                    let server = cm.ok_or("no connect manager")?.get_server();
+                    let server = cm.unwrap().get_server();
                     if first_packet {
                         for manager in self.connection_managers.iter_mut() {
                             if let Some(handler) =
@@ -581,6 +582,7 @@ impl<'a> TunToProxy<'a> {
         let e = "connection not found";
         let conn_ref = self.token_to_connection.get(&event.token());
         if conn_ref.is_none() {
+            log::trace!("{e}");
             return Ok(());
         }
         let connection = conn_ref.unwrap().clone();

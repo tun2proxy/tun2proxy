@@ -11,8 +11,7 @@ pub struct VirtualTunDevice {
 
 impl VirtualTunDevice {
     pub fn inject_packet(&mut self, buffer: &[u8]) {
-        let vec = Vec::from(buffer);
-        self.inbuf.push(vec);
+        self.inbuf.push(buffer.to_vec());
     }
 
     pub fn exfiltrate_packet(&mut self) -> Option<Vec<u8>> {
