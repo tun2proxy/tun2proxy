@@ -580,7 +580,10 @@ impl<'a> TunToProxy<'a> {
     fn mio_socket_event(&mut self, event: &Event) -> Result<(), Error> {
         let e = "connection not found";
         let conn_ref = self.token_to_connection.get(&event.token());
-        let connection = conn_ref.ok_or(e)?.clone();
+        if conn_ref.is_none() {
+            return Ok(());
+        }
+        let connection = conn_ref.unwrap().clone();
 
         (|| -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {
