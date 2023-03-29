@@ -253,9 +253,7 @@ impl Setup {
             "failed to bring up tunnel device",
             true,
         )?;
-
-        // If the proxy address is a private address, we assume that there already is a more
-        // specific route to that address than the default route.
+        
         let delete_proxy_route = self.route_proxy_address()?;
         self.delete_proxy_route = delete_proxy_route;
         ctrlc::set_handler(move || {
