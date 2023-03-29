@@ -253,7 +253,7 @@ impl Setup {
             "failed to bring up tunnel device",
             true,
         )?;
-        
+
         let delete_proxy_route = self.route_proxy_address()?;
         self.delete_proxy_route = delete_proxy_route;
         ctrlc::set_handler(move || {
