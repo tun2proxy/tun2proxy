@@ -12,9 +12,11 @@ use std::str::FromStr;
 #[derive(Clone)]
 pub struct Setup {
     routes: Vec<IpCidr>,
-    proxy_addr: IpAddr,
+    tunnel_bypass_addr: IpAddr,
+    allow_private: bool,
     tun: String,
     set_up: bool,
+    delete_proxy_route: bool,
 }
 
 pub fn get_default_cidrs() -> [IpCidr; 4] {
@@ -63,89 +65,26 @@ where
     }
 }
 
-fn ipv4_addr_is_shared(addr: &Ipv4Addr) -> bool {
-    addr.octets()[0] == 100 && (addr.octets()[1] & 0b1100_0000 == 0b0100_0000)
-}
-
-fn ipv4_addr_is_benchmarking(addr: &Ipv4Addr) -> bool {
-    addr.octets()[0] == 198 && (addr.octets()[1] & 0xfe) == 18
-}
-
-fn ipv4_addr_is_reserved(addr: &Ipv4Addr) -> bool {
-    addr.octets()[0] & 240 == 240 && !addr.is_broadcast()
-}
-
-fn ipv4_addr_is_global(addr: &Ipv4Addr) -> bool {
-    !(addr.octets()[0] == 0 // "This network"
-        || addr.is_private()
-        || ipv4_addr_is_shared(addr)
-        || addr.is_loopback()
-        || addr.is_link_local()
-        // addresses reserved for future protocols (`192.0.0.0/24`)
-        ||(addr.octets()[0] == 192 && addr.octets()[1] == 0 && addr.octets()[2] == 0)
-        || addr.is_documentation()
-        || ipv4_addr_is_benchmarking(addr)
-        || ipv4_addr_is_reserved(addr)
-        || addr.is_broadcast())
-}
-
-fn ipv6_addr_is_documentation(addr: &Ipv6Addr) -> bool {
-    (addr.segments()[0] == 0x2001) && (addr.segments()[1] == 0xdb8)
-}
-
-fn ipv6_addr_is_unique_local(addr: &Ipv6Addr) -> bool {
-    (addr.segments()[0] & 0xfe00) == 0xfc00
-}
-
-fn ipv6_addr_is_unicast_link_local(addr: &Ipv6Addr) -> bool {
-    (addr.segments()[0] & 0xffc0) == 0xfe80
-}
-
-fn ipv6_addr_is_global(addr: &Ipv6Addr) -> bool {
-    !(addr.is_unspecified()
-        || addr.is_loopback()
-        // IPv4-mapped Address (`::ffff:0:0/96`)
-        || matches!(addr.segments(), [0, 0, 0, 0, 0, 0xffff, _, _])
-        // IPv4-IPv6 Translat. (`64:ff9b:1::/48`)
-        || matches!(addr.segments(), [0x64, 0xff9b, 1, _, _, _, _, _])
-        // Discard-Only Address Block (`100::/64`)
-        || matches!(addr.segments(), [0x100, 0, 0, 0, _, _, _, _])
-        // IETF Protocol Assignments (`2001::/23`)
-        || (matches!(addr.segments(), [0x2001, b, _, _, _, _, _, _] if b < 0x200)
-        && !(
-        // Port Control Protocol Anycast (`2001:1::1`)
-        u128::from_be_bytes(addr.octets()) == 0x2001_0001_0000_0000_0000_0000_0000_0001
-            // Traversal Using Relays around NAT Anycast (`2001:1::2`)
-            || u128::from_be_bytes(addr.octets()) == 0x2001_0001_0000_0000_0000_0000_0000_0002
-            // AMT (`2001:3::/32`)
-            || matches!(addr.segments(), [0x2001, 3, _, _, _, _, _, _])
-            // AS112-v6 (`2001:4:112::/48`)
-            || matches!(addr.segments(), [0x2001, 4, 0x112, _, _, _, _, _])
-            // ORCHIDv2 (`2001:20::/28`)
-            || matches!(addr.segments(), [0x2001, b, _, _, _, _, _, _] if (0x20..=0x2F).contains(&b))
-    ))
-        || ipv6_addr_is_documentation(addr)
-        || ipv6_addr_is_unique_local(addr)
-        || ipv6_addr_is_unicast_link_local(addr))
-}
-
 impl Setup {
     pub fn new(
         tun: impl Into<String>,
-        proxy_addr: &IpAddr,
+        tunnel_bypass_addr: &IpAddr,
         routes: impl IntoIterator<Item = IpCidr>,
+        allow_private: bool,
     ) -> Self {
         let routes_cidr = routes.into_iter().collect();
         Self {
             tun: tun.into(),
-            proxy_addr: *proxy_addr,
+            tunnel_bypass_addr: *tunnel_bypass_addr,
+            allow_private,
             routes: routes_cidr,
             set_up: false,
+            delete_proxy_route: false,
         }
     }
 
-    fn clone_default_route(&mut self) -> Result<(), Error> {
-        let route_show_args = if self.proxy_addr.is_ipv6() {
+    fn route_proxy_address(&mut self) -> Result<bool, Error> {
+        let route_show_args = if self.tunnel_bypass_addr.is_ipv6() {
             ["ip", "-6", "route", "show"]
         } else {
             ["ip", "-4", "route", "show"]
@@ -153,33 +92,58 @@ impl Setup {
 
         let routes = run_iproute(route_show_args, "failed to get routing table", true)?;
 
-        // Equivalent of `ip route | grep '^default' | cut -d ' ' -f 2-`
-        let mut default_route_args = Vec::<String>::new();
-        for result in routes.stdout.lines() {
-            let line = result.unwrap();
-            let split = line.split_whitespace();
-            for (i, route_component) in split.enumerate() {
-                if i == 0 && route_component != "default" {
-                    break;
-                } else if i == 0 {
-                    continue;
-                }
-                default_route_args.push(String::from(route_component));
-            }
-            if !default_route_args.is_empty() {
+        let mut route_info = Vec::<(IpCidr, Vec<String>)>::new();
+
+        for line in routes.stdout.lines() {
+            if line.is_err() {
                 break;
             }
+            let line = line.unwrap();
+            if line.starts_with([' ', '\t']) {
+                continue;
+            }
+
+            let mut split = line.split_whitespace();
+            let mut dst_str = split.next().unwrap();
+            if dst_str == "default" {
+                dst_str = if self.tunnel_bypass_addr.is_ipv6() {
+                    "::/0"
+                } else {
+                    "0.0.0.0/0"
+                }
+            }
+
+            let (addr_str, prefix_len_str) = dst_str.split_once(['/']).unwrap();
+
+            let cidr: IpCidr = IpCidr::new(
+                std::net::IpAddr::from_str(addr_str).unwrap().into(),
+                u8::from_str(prefix_len_str).unwrap(),
+            );
+            let route_components: Vec<String> = split.map(String::from).collect();
+            route_info.push((cidr, route_components))
         }
 
-        let mut proxy_route = vec!["ip".into(), "route".into(), "add".into()];
-        proxy_route.push(self.proxy_addr.to_string());
-        proxy_route.extend(default_route_args.into_iter());
-        run_iproute(
-            proxy_route,
-            "failed to clone default route for proxy",
-            false,
-        )?;
-        Ok(())
+        // Sort routes by prefix length, the most specific route comes first.
+        route_info.sort_by(|entry1, entry2| entry2.0.prefix_len().cmp(&entry1.0.prefix_len()));
+
+        for (cidr, route_components) in route_info {
+            if !cidr.contains_addr(&smoltcp::wire::IpAddress::from(self.tunnel_bypass_addr)) {
+                continue;
+            }
+
+            // The IP address is routed through a more specific route than the default route.
+            // In this case, there is nothing to do.
+            if cidr.prefix_len() != 0 {
+                break;
+            }
+
+            let mut proxy_route = vec!["ip".into(), "route".into(), "add".into()];
+            proxy_route.push(self.tunnel_bypass_addr.to_string());
+            proxy_route.extend(route_components.into_iter());
+            run_iproute(proxy_route, "failed to clone route for proxy", false)?;
+            return Ok(true);
+        }
+        Ok(false)
     }
 
     fn setup_resolv_conf() -> Result<(), Error> {
@@ -234,15 +198,17 @@ impl Setup {
         if !self.set_up {
             return;
         }
-        Self::shutdown_with_args(&self.tun, self.proxy_addr);
+        Self::shutdown_with_args(&self.tun, self.tunnel_bypass_addr, self.delete_proxy_route);
     }
 
-    fn shutdown_with_args(tun_name: &str, proxy_ip: IpAddr) {
+    fn shutdown_with_args(tun_name: &str, proxy_ip: IpAddr, delete_proxy_route: bool) {
         log::info!("Restoring network configuration");
         let _ = Command::new("ip").args(["link", "del", tun_name]).output();
-        let _ = Command::new("ip")
-            .args(["route", "del", proxy_ip.to_string().as_str()])
-            .output();
+        if delete_proxy_route {
+            let _ = Command::new("ip")
+                .args(["route", "del", proxy_ip.to_string().as_str()])
+                .output();
+        }
         unsafe {
             let umount_path = CString::new("/etc/resolv.conf").unwrap();
             libc::umount(umount_path.as_ptr());
@@ -256,14 +222,12 @@ impl Setup {
             }
         }
 
-        let global = match self.proxy_addr {
-            IpAddr::V4(addr) => ipv4_addr_is_global(&addr),
-            IpAddr::V6(addr) => ipv6_addr_is_global(&addr),
-        };
-
-        if !global {
-            return Err(format!("The proxy address {} is not a global address. Please specify the setup IP address manually", self.proxy_addr)
-            .into());
+        if self.tunnel_bypass_addr.is_loopback() && !self.allow_private {
+            log::warn!(
+                "The proxy address {} is a loopback address. You may need to manually \
+                provide --setup-ip to specify the server IP bypassing the tunnel",
+                self.tunnel_bypass_addr
+            )
         }
 
         run_iproute(
@@ -282,12 +246,7 @@ impl Setup {
 
         self.set_up = true;
         let tun_name = self.tun.clone();
-        let proxy_ip = self.proxy_addr;
-        // TODO: This is not optimal.
-        ctrlc::set_handler(move || {
-            Self::shutdown_with_args(&tun_name, proxy_ip);
-            std::process::exit(0);
-        })?;
+        let proxy_ip = self.tunnel_bypass_addr;
 
         run_iproute(
             ["ip", "link", "set", self.tun.as_str(), "up"],
@@ -295,7 +254,14 @@ impl Setup {
             true,
         )?;
 
-        self.clone_default_route()?;
+        // If the proxy address is a private address, we assume that there already is a more
+        // specific route to that address than the default route.
+        let delete_proxy_route = self.route_proxy_address()?;
+        self.delete_proxy_route = delete_proxy_route;
+        ctrlc::set_handler(move || {
+            Self::shutdown_with_args(&tun_name, proxy_ip, delete_proxy_route);
+            std::process::exit(0);
+        })?;
         Self::setup_resolv_conf()?;
         self.add_tunnel_routes()?;
 

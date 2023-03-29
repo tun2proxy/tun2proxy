@@ -69,7 +69,12 @@ fn main() -> ExitCode {
             Some(addr) => addr,
             None => args.proxy.addr.ip(),
         };
-        setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs());
+        setup = Setup::new(
+            &args.tun,
+            &bypass_tun_ip,
+            get_default_cidrs(),
+            args.setup_ip.is_some(),
+        );
         if let Err(e) = setup.setup() {
             log::error!("{e}");
             return ExitCode::FAILURE;
