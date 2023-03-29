@@ -22,6 +22,5 @@ jobs:
           command: test
           args: --no-run
       - env:
-          SOCKS5_SERVER: ${{ secrets.SOCKS5_SERVER }}
-          HTTP_SERVER: ${{ secrets.HTTP_SERVER }}
-        run: sudo -E /home/runner/.cargo/bin/cargo test
+          DOTENV: ${{ secrets.DOTENV }}
+        run: echo "$DOTENV" > .env && sudo -E /home/runner/.cargo/bin/cargo test
