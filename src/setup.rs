@@ -4,7 +4,7 @@ use std::ffi::{CString, OsStr};
 use std::io::{BufRead, Write};
 use std::mem;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::os::fd::FromRawFd;
+use std::os::unix::io::FromRawFd;
 use std::process::{Command, Output};
 use std::ptr::null;
 use std::str::FromStr;
