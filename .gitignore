@@ -1,4 +1,9 @@
+build/
+tmp/
 .*
+*.secret
+*.iml
 !/.github
 /target
 Cargo.lock
+manual-test.sh

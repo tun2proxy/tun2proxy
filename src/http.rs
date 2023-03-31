@@ -1,9 +1,14 @@
+use crate::error::Error;
 use crate::tun2proxy::{
     Connection, ConnectionManager, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
-    OutgoingDirection, ProxyError, TcpProxy,
+    OutgoingDirection, TcpProxy,
 };
+use crate::Credentials;
+use base64::Engine;
+use smoltcp::wire::IpProtocol;
 use std::collections::VecDeque;
 use std::net::SocketAddr;
+use std::rc::Rc;
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -25,49 +30,52 @@ pub struct HttpConnection {
 }
 
 impl HttpConnection {
-    fn new(connection: &Connection) -> Self {
-        let mut result = Self {
+    fn new(connection: &Connection, manager: Rc<dyn ConnectionManager>) -> Self {
+        let mut server_outbuf: VecDeque<u8> = VecDeque::new();
+        {
+            let credentials = manager.get_credentials();
+            server_outbuf.extend(b"CONNECT ".iter());
+            server_outbuf.extend(connection.dst.to_string().as_bytes());
+            server_outbuf.extend(b" HTTP/1.1\r\nHost: ".iter());
+            server_outbuf.extend(connection.dst.to_string().as_bytes());
+            server_outbuf.extend(b"\r\n".iter());
+            if let Some(credentials) = credentials {
+                server_outbuf.extend(b"Proxy-Authorization: Basic ");
+                let mut auth_plain = credentials.username.clone();
+                auth_plain.extend(b":".iter());
+                auth_plain.extend(&credentials.password);
+                let auth_b64 = base64::engine::general_purpose::STANDARD.encode(auth_plain);
+                server_outbuf.extend(auth_b64.as_bytes().iter());
+                server_outbuf.extend(b"\r\n".iter());
+            }
+            server_outbuf.extend(b"\r\n".iter());
+        }
+
+        Self {
             state: HttpState::ExpectStatusCode,
             client_inbuf: Default::default(),
             server_inbuf: Default::default(),
             client_outbuf: Default::default(),
-            server_outbuf: Default::default(),
+            server_outbuf,
             data_buf: Default::default(),
             crlf_state: Default::default(),
-        };
-
-        result.server_outbuf.extend(b"CONNECT ".iter());
-        result
-            .server_outbuf
-            .extend(connection.dst.to_string().as_bytes());
-        result.server_outbuf.extend(b" HTTP/1.1\r\nHost: ".iter());
-        result
-            .server_outbuf
-            .extend(connection.dst.to_string().as_bytes());
-        result.server_outbuf.extend(b"\r\n\r\n".iter());
-
-        result
+        }
     }
 
-    fn state_change(&mut self) -> Result<(), ProxyError> {
+    fn state_change(&mut self) -> Result<(), Error> {
+        let http_len = "HTTP/1.1 200".len();
         match self.state {
-            HttpState::ExpectStatusCode if self.server_inbuf.len() >= "HTTP/1.1 200 ".len() => {
-                let status_line: Vec<u8> = self
-                    .server_inbuf
-                    .range(0.."HTTP/1.1 200 ".len())
-                    .copied()
-                    .collect();
+            HttpState::ExpectStatusCode if self.server_inbuf.len() > http_len => {
+                let status_line: Vec<u8> =
+                    self.server_inbuf.range(0..http_len + 1).copied().collect();
                 let slice = &status_line.as_slice()[0.."HTTP/1.1 2".len()];
                 if slice != b"HTTP/1.1 2" && slice != b"HTTP/1.0 2"
-                    || self.server_inbuf["HTTP/1.1 200 ".len() - 1] != b' '
+                    || self.server_inbuf[http_len] != b' '
                 {
-                    let status_str =
-                        String::from_utf8_lossy(&status_line.as_slice()[0.."HTTP/1.1 200".len()]);
-                    return Err(ProxyError::new(
-                        "Expected success status code. Server replied with ".to_owned()
-                            + &*status_str
-                            + ".",
-                    ));
+                    let status_str = String::from_utf8_lossy(&status_line.as_slice()[0..http_len]);
+                    let e =
+                        format!("Expected success status code. Server replied with {status_str}.");
+                    return Err(e.into());
                 }
                 self.state = HttpState::ExpectResponse;
                 return self.state_change();
@@ -109,7 +117,7 @@ impl HttpConnection {
 }
 
 impl TcpProxy for HttpConnection {
-    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), ProxyError> {
+    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
         let direction = event.direction;
         let buffer = event.buffer;
         match direction {
@@ -154,31 +162,43 @@ impl TcpProxy for HttpConnection {
     }
 }
 
-pub struct HttpManager {
-    server: std::net::SocketAddr,
+pub(crate) struct HttpManager {
+    server: SocketAddr,
+    credentials: Option<Credentials>,
 }
 
 impl ConnectionManager for HttpManager {
     fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == smoltcp::wire::IpProtocol::Tcp.into()
+        connection.proto == IpProtocol::Tcp
     }
 
-    fn new_connection(&mut self, connection: &Connection) -> Option<std::boxed::Box<dyn TcpProxy>> {
-        if connection.proto != smoltcp::wire::IpProtocol::Tcp.into() {
-            return None;
+    fn new_connection(
+        &self,
+        connection: &Connection,
+        manager: Rc<dyn ConnectionManager>,
+    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
+        if connection.proto != IpProtocol::Tcp {
+            return Ok(None);
         }
-        Some(std::boxed::Box::new(HttpConnection::new(connection)))
+        Ok(Some(Box::new(HttpConnection::new(connection, manager))))
     }
 
-    fn close_connection(&mut self, _: &Connection) {}
+    fn close_connection(&self, _: &Connection) {}
 
     fn get_server(&self) -> SocketAddr {
         self.server
     }
+
+    fn get_credentials(&self) -> &Option<Credentials> {
+        &self.credentials
+    }
 }
 
 impl HttpManager {
-    pub fn new(server: SocketAddr) -> Self {
-        Self { server }
+    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> Rc<Self> {
+        Rc::new(Self {
+            server,
+            credentials,
+        })
     }
 }

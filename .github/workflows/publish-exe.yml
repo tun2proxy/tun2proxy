@@ -1,0 +1,33 @@
+on:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+name: Build and publish executable
+
+jobs:
+  build_publish:
+    name: Build and publish executable
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - uses: actions-rs/cargo@v1
+        with:
+          command: build
+          args: --release --target x86_64-unknown-linux-gnu
+      - name: Rename
+        run: mkdir build && mv target/x86_64-unknown-linux-gnu/release/tun2proxy build/tun2proxy-x86_64
+      - name: Publish
+        uses: softprops/action-gh-release@v1
+        with:
+          name: Automated build of ${{ github.sha }}
+          files: build/*
+          draft: false
+          prerelease: true
+          body: This is an automated build of commit ${{ github.sha }}.
+          tag_name: r${{ github.sha }}

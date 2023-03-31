@@ -1,6 +1,6 @@
 on: [push, pull_request]
 
-name: Code Formatting
+name: Build and Formatting Tests
 
 jobs:
   check:

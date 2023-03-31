@@ -5,11 +5,18 @@ name = "tun2proxy"
 version = "0.1.1"
 
 [dependencies]
+base64 = { version = "0.21" }
 clap = { version = "4.1", features = ["derive"] }
+ctrlc = "3.2"
+dotenvy = "0.15"
 env_logger = "0.10"
+hashlink = "0.8"
+libc = "0.2"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
-smoltcp = { version = "0.9", features = ["std"] }
+smoltcp = { version = "0.9", git = "https://github.com/smoltcp-rs/smoltcp.git", features = ["std"] }
+thiserror = "1.0"
+url = "2.3"
 
 [dev-dependencies]
 ctor = "0.1"
@@ -18,3 +25,4 @@ nix = { version = "0.26", features = ["process", "signal"] }
 prctl = "1.0"
 reqwest = { version = "0.11", default-features = false, features = ["blocking", "json", "rustls-tls"] }
 serial_test = "1.0"
+test-log = "0.2"
