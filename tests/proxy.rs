@@ -64,28 +64,29 @@ mod tests {
                         continue;
                     }
 
+                    let mut setup = Setup::new(
+                        TUN_TEST_DEVICE,
+                        &test.proxy.addr.ip(),
+                        get_default_cidrs(),
+                        false,
+                    );
+                    setup.configure().unwrap();
+
                     match fork::fork() {
                         Ok(Fork::Parent(child)) => {
                             test_function();
                             signal::kill(Pid::from_raw(child), signal::SIGINT)
                                 .expect("failed to kill child");
-                            nix::sys::wait::waitpid(Pid::from_raw(child), None)
-                                .expect("failed to wait for child");
+                            setup.restore().unwrap();
                         }
                         Ok(Fork::Child) => {
-                            prctl::set_death_signal(signal::SIGKILL as isize).unwrap(); // 9 == SIGKILL
-
-                            let _setup = Setup::new(
-                                TUN_TEST_DEVICE,
-                                &test.proxy.addr.ip(),
-                                get_default_cidrs(),
-                                false,
-                            );
+                            prctl::set_death_signal(signal::SIGINT as isize).unwrap();
                             let _ = main_entry(
                                 TUN_TEST_DEVICE,
-                                test.proxy,
+                                &test.proxy,
                                 Options::new().with_virtual_dns(),
                             );
+                            std::process::exit(0);
                         }
                         Err(_) => panic!(),
                     }

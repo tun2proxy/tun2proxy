@@ -1,13 +1,18 @@
 use crate::error::Error;
 use smoltcp::wire::IpCidr;
-use std::ffi::{CString, OsStr};
-use std::io::{BufRead, Write};
-use std::mem;
+use std::convert::TryFrom;
+
+use std::ffi::OsStr;
+use std::io::BufRead;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::os::unix::io::FromRawFd;
+
+use std::os::fd::RawFd;
+
 use std::process::{Command, Output};
-use std::ptr::null;
+
 use std::str::FromStr;
+
+use fork::Fork;
 
 #[derive(Clone)]
 pub struct Setup {
@@ -17,6 +22,7 @@ pub struct Setup {
     tun: String,
     set_up: bool,
     delete_proxy_route: bool,
+    child: libc::pid_t,
 }
 
 pub fn get_default_cidrs() -> [IpCidr; 4] {
@@ -54,7 +60,13 @@ where
         cmdline.append(&mut args);
         let command = cmdline.as_slice().join(" ");
         match String::from_utf8(output.stderr.clone()) {
-            Ok(output) => Err(format!("Command `{}` failed: {}", command, output).into()),
+            Ok(output) => Err(format!(
+                "[{}] Command `{}` failed: {}",
+                nix::unistd::getpid(),
+                command,
+                output
+            )
+            .into()),
             Err(_) => Err(format!(
                 "Command `{:?}` failed with exit code {}",
                 command,
@@ -80,6 +92,7 @@ impl Setup {
             routes: routes_cidr,
             set_up: false,
             delete_proxy_route: false,
+            child: 0,
         }
     }
 
@@ -113,7 +126,17 @@ impl Setup {
                 }
             }
 
-            let (addr_str, prefix_len_str) = dst_str.split_once(['/']).unwrap();
+            let (addr_str, prefix_len_str) = match dst_str.split_once(['/']) {
+                None => (
+                    dst_str,
+                    if self.tunnel_bypass_addr.is_ipv6() {
+                        "128"
+                    } else {
+                        "32"
+                    },
+                ),
+                Some((addr_str, prefix_len_str)) => (addr_str, prefix_len_str),
+            };
 
             let cidr: IpCidr = IpCidr::new(
                 std::net::IpAddr::from_str(addr_str).unwrap().into(),
@@ -147,32 +170,29 @@ impl Setup {
     }
 
     fn setup_resolv_conf() -> Result<(), Error> {
-        unsafe {
-            let fd = libc::open(
-                CString::new("/tmp/tun2proxy-resolv.conf")?.as_ptr(),
-                libc::O_RDWR | libc::O_CLOEXEC | libc::O_CREAT,
-            );
-            if fd == -1 {
-                return Err("Failed to create temporary file".into());
+        let fd = nix::fcntl::open(
+            "/tmp/tun2proxy-resolv.conf",
+            nix::fcntl::OFlag::O_RDWR | nix::fcntl::OFlag::O_CLOEXEC | nix::fcntl::OFlag::O_CREAT,
+            nix::sys::stat::Mode::from_bits(0o644_u32).unwrap(),
+        )?;
+        let data = "nameserver 198.18.0.1\n".as_bytes();
+        let mut written = 0;
+        loop {
+            if written >= data.len() {
+                break;
             }
-            let mut f = std::fs::File::from_raw_fd(fd);
-            f.write_all("nameserver 198.18.0.1\n".as_bytes())?;
-            mem::forget(f);
-            if libc::fchmod(fd, 0o444) == -1 {
-                return Err("Failed to change ownership of /etc/resolv.conf".into());
-            }
-            let fd_path = format!("/proc/self/fd/{}", fd);
-            if libc::mount(
-                CString::new(fd_path)?.as_ptr(),
-                CString::new("/etc/resolv.conf")?.as_ptr(),
-                CString::new("resolvconf")?.as_ptr(),
-                libc::MS_BIND,
-                null(),
-            ) == -1
-            {
-                return Err("Failed to mount /etc/resolv.conf".into());
-            }
+            written += nix::unistd::write(fd, &data[written..])?;
         }
+        nix::sys::stat::fchmod(fd, nix::sys::stat::Mode::from_bits(0o444_u32).unwrap())?;
+        let source = format!("/proc/self/fd/{}", fd);
+        nix::mount::mount(
+            source.as_str().into(),
+            "/etc/resolv.conf",
+            "".into(),
+            nix::mount::MsFlags::MS_BIND,
+            "".into(),
+        )?;
+        nix::unistd::close(fd)?;
         Ok(())
     }
 
@@ -194,32 +214,114 @@ impl Setup {
         Ok(())
     }
 
-    fn shutdown(&self) {
-        if !self.set_up {
-            return;
-        }
-        Self::shutdown_with_args(&self.tun, self.tunnel_bypass_addr, self.delete_proxy_route);
-    }
-
-    fn shutdown_with_args(tun_name: &str, proxy_ip: IpAddr, delete_proxy_route: bool) {
-        log::info!("Restoring network configuration");
-        let _ = Command::new("ip").args(["link", "del", tun_name]).output();
-        if delete_proxy_route {
+    fn shutdown(&mut self) -> Result<(), Error> {
+        self.set_up = false;
+        log::info!(
+            "[{}] Restoring network configuration",
+            nix::unistd::getpid()
+        );
+        let _ = Command::new("ip")
+            .args(["link", "del", self.tun.as_str()])
+            .output();
+        if self.delete_proxy_route {
             let _ = Command::new("ip")
-                .args(["route", "del", proxy_ip.to_string().as_str()])
+                .args(["route", "del", self.tunnel_bypass_addr.to_string().as_str()])
                 .output();
         }
-        unsafe {
-            let umount_path = CString::new("/etc/resolv.conf").unwrap();
-            libc::umount(umount_path.as_ptr());
-        }
+        nix::mount::umount("/etc/resolv.conf")?;
+        Ok(())
     }
 
-    pub fn setup(&mut self) -> Result<(), Error> {
-        unsafe {
-            if libc::getuid() != 0 {
-                return Err("Automatic setup requires root privileges".into());
+    fn setup_and_handle_signals(&mut self, read_from_child: RawFd, write_to_parent: RawFd) {
+        if let Err(e) = (|| -> Result<(), Error> {
+            nix::unistd::close(read_from_child)?;
+            run_iproute(
+                [
+                    "ip",
+                    "tuntap",
+                    "add",
+                    "name",
+                    self.tun.as_str(),
+                    "mode",
+                    "tun",
+                ],
+                "failed to create tunnel device",
+                true,
+            )?;
+
+            self.set_up = true;
+            let _tun_name = self.tun.clone();
+            let _proxy_ip = self.tunnel_bypass_addr;
+
+            run_iproute(
+                ["ip", "link", "set", self.tun.as_str(), "up"],
+                "failed to bring up tunnel device",
+                true,
+            )?;
+
+            let delete_proxy_route = self.route_proxy_address()?;
+            self.delete_proxy_route = delete_proxy_route;
+            Self::setup_resolv_conf()?;
+            self.add_tunnel_routes()?;
+
+            // Signal to child that we are done setting up everything.
+            if nix::unistd::write(write_to_parent, &[1])? != 1 {
+                return Err("Failed to write to pipe".into());
             }
+            nix::unistd::close(write_to_parent)?;
+
+            // Now wait for the termination signals.
+            let mut mask = nix::sys::signal::SigSet::empty();
+            mask.add(nix::sys::signal::SIGINT);
+            mask.add(nix::sys::signal::SIGTERM);
+            mask.add(nix::sys::signal::SIGQUIT);
+            mask.thread_block().unwrap();
+
+            let mut fd = nix::sys::signalfd::SignalFd::new(&mask).unwrap();
+            loop {
+                let res = fd.read_signal().unwrap().unwrap();
+                let signo = nix::sys::signal::Signal::try_from(res.ssi_signo as i32).unwrap();
+                if signo == nix::sys::signal::SIGINT
+                    || signo == nix::sys::signal::SIGTERM
+                    || signo == nix::sys::signal::SIGQUIT
+                {
+                    break;
+                }
+            }
+
+            self.shutdown()?;
+            Ok(())
+        })() {
+            log::error!("{e}");
+            self.shutdown().unwrap();
+        };
+    }
+
+    pub fn drop_privileges(&self) -> Result<(), Error> {
+        let gid_str = match std::env::var("SUDO_GID") {
+            Ok(uid_str) => uid_str,
+            _ => String::from("65535"),
+        };
+        let gid = gid_str.parse::<u32>()?;
+        nix::unistd::setgid(nix::unistd::Gid::from_raw(gid))?;
+
+        let uid_str = match std::env::var("SUDO_UID") {
+            Ok(uid_str) => uid_str,
+            _ => String::from("65535"),
+        };
+        let uid = uid_str.parse::<u32>()?;
+        nix::unistd::setuid(nix::unistd::Uid::from_raw(uid))?;
+
+        Ok(())
+    }
+
+    pub fn configure(&mut self) -> Result<(), Error> {
+        log::info!(
+            "[{}] Setting up network configuration",
+            nix::unistd::getpid()
+        );
+        if nix::unistd::getuid() != 0.into() {
+            return Err("Automatic setup requires root privileges".into());
         }
 
         if self.tunnel_bypass_addr.is_loopback() && !self.allow_private {
@@ -230,45 +332,34 @@ impl Setup {
             )
         }
 
-        run_iproute(
-            [
-                "ip",
-                "tuntap",
-                "add",
-                "name",
-                self.tun.as_str(),
-                "mode",
-                "tun",
-            ],
-            "failed to create tunnel device",
-            true,
-        )?;
+        let (read_from_child, write_to_parent) = nix::unistd::pipe()?;
+        match fork::fork() {
+            Ok(Fork::Child) => {
+                prctl::set_death_signal(nix::sys::signal::SIGINT as isize).unwrap();
+                self.setup_and_handle_signals(read_from_child, write_to_parent);
+                std::process::exit(0);
+            }
+            Ok(Fork::Parent(child)) => {
+                self.child = child;
+                nix::unistd::close(write_to_parent)?;
+                let mut buf = [0];
+                if nix::unistd::read(read_from_child, &mut buf)? != 1 {
+                    return Err("Failed to read from pipe".into());
+                }
+                nix::unistd::close(read_from_child)?;
 
-        self.set_up = true;
-        let tun_name = self.tun.clone();
-        let proxy_ip = self.tunnel_bypass_addr;
-
-        run_iproute(
-            ["ip", "link", "set", self.tun.as_str(), "up"],
-            "failed to bring up tunnel device",
-            true,
-        )?;
-
-        let delete_proxy_route = self.route_proxy_address()?;
-        self.delete_proxy_route = delete_proxy_route;
-        ctrlc::set_handler(move || {
-            Self::shutdown_with_args(&tun_name, proxy_ip, delete_proxy_route);
-            std::process::exit(0);
-        })?;
-        Self::setup_resolv_conf()?;
-        self.add_tunnel_routes()?;
-
-        Ok(())
+                Ok(())
+            }
+            _ => Err("Failed to fork".into()),
+        }
     }
-}
 
-impl Drop for Setup {
-    fn drop(&mut self) {
-        self.shutdown();
+    pub fn restore(&mut self) -> Result<(), Error> {
+        nix::sys::signal::kill(
+            nix::unistd::Pid::from_raw(self.child),
+            nix::sys::signal::SIGINT,
+        )?;
+        nix::sys::wait::waitpid(nix::unistd::Pid::from_raw(self.child), None)?;
+        Ok(())
     }
 }
