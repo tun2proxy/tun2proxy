@@ -89,7 +89,7 @@ fn main() -> ExitCode {
         Ok(())
     })() {
         log::error!("{e}");
-        std::process::exit(1);
+        return ExitCode::FAILURE;
     };
 
     ExitCode::SUCCESS

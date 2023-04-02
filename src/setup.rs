@@ -298,19 +298,10 @@ impl Setup {
     }
 
     pub fn drop_privileges(&self) -> Result<(), Error> {
-        let gid_str = match std::env::var("SUDO_GID") {
-            Ok(uid_str) => uid_str,
-            _ => String::from("65535"),
-        };
-        let gid = gid_str.parse::<u32>()?;
-        nix::unistd::setgid(nix::unistd::Gid::from_raw(gid))?;
-
-        let uid_str = match std::env::var("SUDO_UID") {
-            Ok(uid_str) => uid_str,
-            _ => String::from("65535"),
-        };
-        let uid = uid_str.parse::<u32>()?;
-        nix::unistd::setuid(nix::unistd::Uid::from_raw(uid))?;
+        // 65534 is usually the nobody user. Even in cases it is not, it is safer to use this ID
+        // than running with UID and GID 0.
+        nix::unistd::setgid(nix::unistd::Gid::from_raw(65534))?;
+        nix::unistd::setuid(nix::unistd::Uid::from_raw(65534))?;
 
         Ok(())
     }
