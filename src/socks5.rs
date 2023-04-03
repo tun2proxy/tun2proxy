@@ -372,14 +372,14 @@ impl TcpProxy for SocksConnection {
     fn have_data(&mut self, dir: Direction) -> bool {
         match dir {
             Direction::Incoming(incoming) => match incoming {
-                IncomingDirection::FromServer => self.server_inbuf.len() > 0,
+                IncomingDirection::FromServer => !self.server_inbuf.is_empty(),
                 IncomingDirection::FromClient => {
-                    self.client_inbuf.len() > 0 || self.data_buf.len() > 0
+                    !self.client_inbuf.is_empty() || !self.data_buf.is_empty()
                 }
             },
             Direction::Outgoing(outgoing) => match outgoing {
-                OutgoingDirection::ToServer => self.server_outbuf.len() > 0,
-                OutgoingDirection::ToClient => self.client_outbuf.len() > 0,
+                OutgoingDirection::ToServer => !self.server_outbuf.is_empty(),
+                OutgoingDirection::ToClient => !self.client_outbuf.is_empty(),
             },
         }
     }
