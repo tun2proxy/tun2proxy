@@ -481,8 +481,8 @@ impl<'a> TunToProxy<'a> {
                                 manager.new_connection(&resolved_conn, manager.clone())?
                             {
                                 let mut socket = tcp::Socket::new(
-                                    tcp::SocketBuffer::new(vec![0; 4096]),
-                                    tcp::SocketBuffer::new(vec![0; 4096]),
+                                    tcp::SocketBuffer::new(vec![0; 1024 * 128]),
+                                    tcp::SocketBuffer::new(vec![0; 1024 * 128]),
                                 );
                                 socket.set_ack_delay(None);
                                 let dst = SocketAddr::try_from(dst)?;
