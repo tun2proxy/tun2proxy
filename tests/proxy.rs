@@ -3,6 +3,8 @@ mod tests {
     extern crate reqwest;
 
     use std::env;
+    use std::net::IpAddr;
+    use std::str::FromStr;
 
     use fork::Fork;
     use nix::sys::signal;
@@ -64,28 +66,30 @@ mod tests {
                         continue;
                     }
 
+                    let bypass_ip = match env::var("BYPASS_IP") {
+                        Err(_) => test.proxy.addr.ip(),
+                        Ok(ip_str) => IpAddr::from_str(ip_str.as_str()).unwrap(),
+                    };
+
+                    let mut setup =
+                        Setup::new(TUN_TEST_DEVICE, &bypass_ip, get_default_cidrs(), false);
+                    setup.configure().unwrap();
+
                     match fork::fork() {
                         Ok(Fork::Parent(child)) => {
                             test_function();
                             signal::kill(Pid::from_raw(child), signal::SIGINT)
                                 .expect("failed to kill child");
-                            nix::sys::wait::waitpid(Pid::from_raw(child), None)
-                                .expect("failed to wait for child");
+                            setup.restore().unwrap();
                         }
                         Ok(Fork::Child) => {
-                            prctl::set_death_signal(signal::SIGKILL as isize).unwrap(); // 9 == SIGKILL
-
-                            let _setup = Setup::new(
-                                TUN_TEST_DEVICE,
-                                &test.proxy.addr.ip(),
-                                get_default_cidrs(),
-                                false,
-                            );
+                            prctl::set_death_signal(signal::SIGINT as isize).unwrap();
                             let _ = main_entry(
                                 TUN_TEST_DEVICE,
-                                test.proxy,
+                                &test.proxy,
                                 Options::new().with_virtual_dns(),
                             );
+                            std::process::exit(0);
                         }
                         Err(_) => panic!(),
                     }

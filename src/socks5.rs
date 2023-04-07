@@ -1,7 +1,7 @@
 use crate::error::Error;
 use crate::tun2proxy::{
-    Connection, ConnectionManager, DestinationHost, IncomingDataEvent, IncomingDirection,
-    OutgoingDataEvent, OutgoingDirection, TcpProxy,
+    Connection, ConnectionManager, DestinationHost, Direction, IncomingDataEvent,
+    IncomingDirection, OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
 use crate::Credentials;
 use smoltcp::wire::IpProtocol;
@@ -367,6 +367,21 @@ impl TcpProxy for SocksConnection {
 
     fn connection_established(&self) -> bool {
         self.state == SocksState::Established
+    }
+
+    fn have_data(&mut self, dir: Direction) -> bool {
+        match dir {
+            Direction::Incoming(incoming) => match incoming {
+                IncomingDirection::FromServer => !self.server_inbuf.is_empty(),
+                IncomingDirection::FromClient => {
+                    !self.client_inbuf.is_empty() || !self.data_buf.is_empty()
+                }
+            },
+            Direction::Outgoing(outgoing) => match outgoing {
+                OutgoingDirection::ToServer => !self.server_outbuf.is_empty(),
+                OutgoingDirection::ToClient => !self.client_outbuf.is_empty(),
+            },
+        }
     }
 }
 

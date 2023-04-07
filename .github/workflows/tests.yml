@@ -21,6 +21,22 @@ jobs:
         with:
           command: test
           args: --no-run
-      - env:
+      - name: Populate .env
+        env:
           DOTENV: ${{ secrets.DOTENV }}
-        run: echo "$DOTENV" > .env && sudo -E /home/runner/.cargo/bin/cargo test
+        run: echo "$DOTENV" > .env
+      - name: Set up runner SSH key
+        run: >-
+          set -o allexport &&
+          source .env &&
+          set +o allexport &&
+          mkdir ~/.ssh &&
+          echo "$TEST_SERVER_PRIVATE_SSH_KEY" > ~/.ssh/id_rsa && chmod 600 ~/.ssh/id_rsa
+      - name: Run tests
+        run: >-
+          set -o allexport &&
+          source .env &&
+          set +o allexport &&
+          ssh -N -oStrictHostKeyChecking=no -oUserKnownHostsFile=/dev/null -D 1080 "$TEST_SERVER_SSH_DST" &
+          while ! nc -z 127.0.0.1 1080; do sleep 1; done &&
+          sudo -E /home/runner/.cargo/bin/cargo test

@@ -35,6 +35,12 @@ pub enum Error {
 
     #[error("&String {0}")]
     RefString(String),
+
+    #[error("nix::errno::Errno {0:?}")]
+    OSError(#[from] nix::errno::Errno),
+
+    #[error("std::num::ParseIntError {0:?}")]
+    IntParseError(#[from] std::num::ParseIntError),
 }
 
 impl From<&str> for Error {

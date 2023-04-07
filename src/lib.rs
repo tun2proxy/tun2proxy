@@ -111,25 +111,25 @@ impl Credentials {
     }
 }
 
-pub fn main_entry(tun: &str, proxy: Proxy, options: Options) -> Result<(), Error> {
+pub fn main_entry(tun: &str, proxy: &Proxy, options: Options) -> Result<(), Error> {
     let mut ttp = TunToProxy::new(tun, options)?;
     match proxy.proxy_type {
         ProxyType::Socks4 => {
             ttp.add_connection_manager(SocksManager::new(
                 proxy.addr,
                 SocksVersion::V4,
-                proxy.credentials,
+                proxy.credentials.clone(),
             ));
         }
         ProxyType::Socks5 => {
             ttp.add_connection_manager(SocksManager::new(
                 proxy.addr,
                 SocksVersion::V5,
-                proxy.credentials,
+                proxy.credentials.clone(),
             ));
         }
         ProxyType::Http => {
-            ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials));
+            ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials.clone()));
         }
     }
     ttp.run()
