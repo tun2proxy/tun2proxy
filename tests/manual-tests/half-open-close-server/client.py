@@ -1,8 +1,11 @@
 import socket
+import sys
 import time
 
 with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
-    s.connect(('116.203.215.166', 1337))
+    ip, port = sys.argv[1].split(':', 1)
+    port = int(port)
+    s.connect((ip, port))
     while True:
         data = s.recv(1024)
         if not data:
