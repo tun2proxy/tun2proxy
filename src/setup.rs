@@ -173,7 +173,7 @@ impl Setup {
         let fd = nix::fcntl::open(
             "/tmp/tun2proxy-resolv.conf",
             nix::fcntl::OFlag::O_RDWR | nix::fcntl::OFlag::O_CLOEXEC | nix::fcntl::OFlag::O_CREAT,
-            nix::sys::stat::Mode::from_bits(0o644_u32).unwrap(),
+            nix::sys::stat::Mode::from_bits(0o644).unwrap(),
         )?;
         let data = "nameserver 198.18.0.1\n".as_bytes();
         let mut written = 0;
@@ -183,7 +183,7 @@ impl Setup {
             }
             written += nix::unistd::write(fd, &data[written..])?;
         }
-        nix::sys::stat::fchmod(fd, nix::sys::stat::Mode::from_bits(0o444_u32).unwrap())?;
+        nix::sys::stat::fchmod(fd, nix::sys::stat::Mode::from_bits(0o444).unwrap())?;
         let source = format!("/proc/self/fd/{}", fd);
         nix::mount::mount(
             source.as_str().into(),
