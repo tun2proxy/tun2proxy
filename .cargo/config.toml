@@ -1,4 +1,4 @@
-[registries.cratees-io]
+[registries.crates-io]
 protocol = "sparse"
 
 [build]

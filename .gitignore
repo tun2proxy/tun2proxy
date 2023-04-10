@@ -4,6 +4,7 @@ tmp/
 *.secret
 *.iml
 !/.github
+!/.cargo
 /target
 Cargo.lock
 manual-test.sh
