@@ -132,8 +132,8 @@ fn get_transport_info(
     transport_offset: usize,
     packet: &[u8],
 ) -> Option<((u16, u16), bool, usize, usize)> {
-    if proto == IpProtocol::Udp {
-        match UdpPacket::new_checked(packet) {
+    match proto {
+        IpProtocol::Udp => match UdpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
                 false,
@@ -141,9 +141,8 @@ fn get_transport_info(
                 packet.len() - 8,
             )),
             Err(_) => None,
-        }
-    } else if proto == IpProtocol::Tcp {
-        match TcpPacket::new_checked(packet) {
+        },
+        IpProtocol::Tcp => match TcpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
                 result.syn() && !result.ack(),
@@ -151,9 +150,8 @@ fn get_transport_info(
                 packet.len(),
             )),
             Err(_) => None,
-        }
-    } else {
-        None
+        },
+        _ => None,
     }
 }
 
@@ -271,7 +269,14 @@ impl<'a> TunToProxy<'a> {
             Interest::READABLE,
         )?;
 
-        let config = Config::new();
+        // Create interface
+        let mut config = match tun.capabilities().medium {
+            Medium::Ethernet => {
+                Config::new(EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into())
+            }
+            Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
+            Medium::Ieee802154 => todo!(),
+        };
         let mut virt = VirtualTunDevice::new(tun.capabilities());
         let gateway4: Ipv4Addr = Ipv4Addr::from_str("0.0.0.1")?;
         let gateway6: Ipv6Addr = Ipv6Addr::from_str("::1")?;
