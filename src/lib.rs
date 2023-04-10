@@ -18,6 +18,11 @@ pub struct Proxy {
     pub credentials: Option<Credentials>,
 }
 
+pub enum NetworkInterface {
+    Named(String),
+    Fd(std::os::fd::RawFd),
+}
+
 impl Proxy {
     pub fn from_url(s: &str) -> Result<Proxy, Error> {
         let e = format!("`{s}` is not a valid proxy URL");
@@ -83,6 +88,7 @@ impl std::fmt::Display for ProxyType {
 #[derive(Default)]
 pub struct Options {
     virtdns: Option<virtdns::VirtualDns>,
+    mtu: Option<usize>,
 }
 
 impl Options {
@@ -92,6 +98,11 @@ impl Options {
 
     pub fn with_virtual_dns(mut self) -> Self {
         self.virtdns = Some(virtdns::VirtualDns::new());
+        self
+    }
+
+    pub fn with_mtu(mut self, mtu: usize) -> Self {
+        self.mtu = Some(mtu);
         self
     }
 }
@@ -111,8 +122,12 @@ impl Credentials {
     }
 }
 
-pub fn main_entry(tun: &str, proxy: &Proxy, options: Options) -> Result<(), Error> {
-    let mut ttp = TunToProxy::new(tun, options)?;
+pub fn main_entry(
+    interface: &NetworkInterface,
+    proxy: &Proxy,
+    options: Options,
+) -> Result<(), Error> {
+    let mut ttp = TunToProxy::new(interface, options)?;
     match proxy.proxy_type {
         ProxyType::Socks4 => {
             ttp.add_connection_manager(SocksManager::new(

@@ -1,6 +1,6 @@
 use crate::error::Error;
 use crate::virtdevice::VirtualTunDevice;
-use crate::{Credentials, Options};
+use crate::{Credentials, NetworkInterface, Options};
 use log::{error, info};
 use mio::event::Event;
 use mio::net::TcpStream;
@@ -260,8 +260,13 @@ pub(crate) struct TunToProxy<'a> {
 }
 
 impl<'a> TunToProxy<'a> {
-    pub(crate) fn new(interface: &str, options: Options) -> Result<Self, Error> {
-        let tun = TunTapInterface::new(interface, Medium::Ip)?;
+    pub(crate) fn new(interface: &NetworkInterface, options: Options) -> Result<Self, Error> {
+        let tun = match interface {
+            NetworkInterface::Named(name) => TunTapInterface::new(name.as_str(), Medium::Ip)?,
+            NetworkInterface::Fd(fd) => {
+                TunTapInterface::from_fd(*fd, Medium::Ip, options.mtu.unwrap_or(1500))?
+            }
+        };
         let poll = Poll::new()?;
         poll.registry().register(
             &mut SourceFd(&tun.as_raw_fd()),
