@@ -1,3 +1,5 @@
+#![cfg(target_os = "linux")]
+
 use crate::error::Error;
 use smoltcp::wire::IpCidr;
 use std::convert::TryFrom;
