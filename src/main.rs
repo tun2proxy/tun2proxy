@@ -19,6 +19,14 @@ struct Args {
     #[arg(short, long, value_name = "name", default_value = "tun0")]
     tun: String,
 
+    /// File descriptor of the tun interface
+    #[arg(long, value_name = "fd")]
+    tun_fd: Option<i32>,
+
+    /// MTU of the tun interface (only with tunnel file descriptor)
+    #[arg(long, value_name = "mtu", default_value = "1500")]
+    tun_mtu: usize,
+
     /// Proxy URL in the form proto://[username[:password]@]host:port
     #[arg(short, long, value_parser = Proxy::from_url, value_name = "URL")]
     proxy: Proxy,
@@ -67,6 +75,14 @@ fn main() -> ExitCode {
         options = options.with_virtual_dns();
     }
 
+    let interface = match args.tun_fd {
+        None => NetworkInterface::Named(args.tun.clone()),
+        Some(fd) => {
+            options = options.with_mtu(args.tun_mtu);
+            NetworkInterface::Fd(fd)
+        }
+    };
+
     if let Err(e) = (|| -> Result<(), Error> {
         #[cfg(target_os = "linux")]
         {
@@ -89,7 +105,6 @@ fn main() -> ExitCode {
             }
         }
 
-        let interface = NetworkInterface::Named(args.tun);
         main_entry(&interface, &args.proxy, options)?;
 
         Ok(())
