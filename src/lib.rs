@@ -3,6 +3,7 @@ use crate::socks5::SocksVersion;
 use crate::{http::HttpManager, socks5::SocksManager, tun2proxy::TunToProxy};
 use std::net::{SocketAddr, ToSocketAddrs};
 
+mod android;
 pub mod error;
 mod http;
 pub mod setup;
