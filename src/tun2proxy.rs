@@ -244,6 +244,9 @@ pub(crate) trait ConnectionManager {
 
 const TCP_TOKEN: Token = Token(0);
 const UDP_TOKEN: Token = Token(1);
+const EXIT_TOKEN: Token = Token(34255);
+
+const EXIT_LISTENER: &str = "127.0.0.1:34255";
 
 pub(crate) struct TunToProxy<'a> {
     tun: TunTapInterface,
@@ -257,6 +260,7 @@ pub(crate) struct TunToProxy<'a> {
     device: VirtualTunDevice,
     options: Options,
     write_sockets: HashSet<Token>,
+    _exit_listener: mio::net::TcpListener,
 }
 
 impl<'a> TunToProxy<'a> {
@@ -273,6 +277,10 @@ impl<'a> TunToProxy<'a> {
             TCP_TOKEN,
             Interest::READABLE,
         )?;
+
+        let mut _exit_listener = mio::net::TcpListener::bind(EXIT_LISTENER.parse()?)?;
+        poll.registry()
+            .register(&mut _exit_listener, EXIT_TOKEN, Interest::READABLE)?;
 
         let config = match tun.capabilities().medium {
             Medium::Ethernet => Config::new(
@@ -305,6 +313,7 @@ impl<'a> TunToProxy<'a> {
             device: virt,
             options,
             write_sockets: HashSet::default(),
+            _exit_listener,
         };
         Ok(tun)
     }
@@ -762,6 +771,10 @@ impl<'a> TunToProxy<'a> {
                 Ok(()) => {
                     for event in events.iter() {
                         match event.token() {
+                            EXIT_TOKEN => {
+                                log::info!("exiting...");
+                                return Ok(());
+                            }
                             TCP_TOKEN => self.tun_event(event)?,
                             UDP_TOKEN => self.udp_event(event),
                             _ => self.mio_socket_event(event)?,
@@ -773,10 +786,16 @@ impl<'a> TunToProxy<'a> {
                     if e.kind() != std::io::ErrorKind::Interrupted {
                         return Err(e.into());
                     } else {
-                        log::warn!("Poll interrupted")
+                        log::warn!("Poll interrupted: {e}")
                     }
                 }
             }
         }
+    }
+
+    pub(crate) fn shutdown() -> Result<(), Error> {
+        let addr: SocketAddr = EXIT_LISTENER.parse()?;
+        let _ = std::net::TcpStream::connect(addr)?;
+        Ok(())
     }
 }
