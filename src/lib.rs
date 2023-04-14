@@ -149,3 +149,7 @@ pub fn main_entry(
     }
     ttp.run()
 }
+
+pub fn shutdown() -> Result<(), Error> {
+    TunToProxy::shutdown()
+}
