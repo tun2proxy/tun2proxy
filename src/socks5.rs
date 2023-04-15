@@ -1,14 +1,16 @@
+use std::collections::VecDeque;
+use std::convert::TryFrom;
+use std::net::{IpAddr, SocketAddr};
+use std::rc::Rc;
+
+use smoltcp::wire::IpProtocol;
+
 use crate::error::Error;
 use crate::tun2proxy::{
     Connection, ConnectionManager, DestinationHost, Direction, IncomingDataEvent,
     IncomingDirection, OutgoingDataEvent, OutgoingDirection, TcpProxy,
 };
 use crate::Credentials;
-use smoltcp::wire::IpProtocol;
-use std::collections::VecDeque;
-use std::convert::TryFrom;
-use std::net::{IpAddr, SocketAddr};
-use std::rc::Rc;
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -48,10 +50,20 @@ impl From<SocksAddressType> for u8 {
     }
 }
 
-#[derive(Copy, Clone)]
+#[repr(u8)]
+#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum SocksVersion {
     V4 = 4,
     V5 = 5,
+}
+
+#[repr(u8)]
+#[derive(Copy, Clone, PartialEq, Debug)]
+#[allow(dead_code)]
+pub enum SocksCommand {
+    Connect = 1,
+    Bind = 2,
+    UdpAssociate = 3,
 }
 
 #[allow(dead_code)]
@@ -118,8 +130,8 @@ impl SocksConnection {
         match self.version {
             SocksVersion::V4 => {
                 self.server_outbuf.extend(&[
-                    4u8,
-                    1,
+                    self.version as u8,
+                    SocksCommand::Connect as u8,
                     (self.connection.dst.port >> 8) as u8,
                     (self.connection.dst.port & 0xff) as u8,
                 ]);
@@ -152,11 +164,17 @@ impl SocksConnection {
 
             SocksVersion::V5 => {
                 if credentials.is_some() {
-                    self.server_outbuf
-                        .extend(&[5u8, 1, SocksAuthentication::Password as u8]);
+                    self.server_outbuf.extend(&[
+                        self.version as u8,
+                        SocksCommand::Connect as u8,
+                        SocksAuthentication::Password as u8,
+                    ]);
                 } else {
-                    self.server_outbuf
-                        .extend(&[5u8, 1, SocksAuthentication::None as u8]);
+                    self.server_outbuf.extend(&[
+                        self.version as u8,
+                        SocksCommand::Connect as u8,
+                        SocksAuthentication::None as u8,
+                    ]);
                 }
             }
         }
