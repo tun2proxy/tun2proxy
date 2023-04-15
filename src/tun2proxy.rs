@@ -244,7 +244,7 @@ pub(crate) trait ConnectionManager {
 
 const TCP_TOKEN: Token = Token(0);
 const UDP_TOKEN: Token = Token(1);
-const EXIT_TOKEN: Token = Token(34255);
+const EXIT_TOKEN: Token = Token(2);
 
 const EXIT_LISTENER: &str = "127.0.0.1:34255";
 
@@ -306,7 +306,7 @@ impl<'a> TunToProxy<'a> {
             poll,
             iface,
             connections: HashMap::default(),
-            next_token: 2,
+            next_token: usize::from(EXIT_TOKEN) + 1,
             token_to_connection: HashMap::default(),
             connection_managers: Vec::default(),
             sockets: SocketSet::new([]),
@@ -316,6 +316,12 @@ impl<'a> TunToProxy<'a> {
             _exit_listener,
         };
         Ok(tun)
+    }
+
+    fn new_token(&mut self) -> Token {
+        let token = Token(self.next_token);
+        self.next_token += 1;
+        token
     }
 
     pub(crate) fn add_connection_manager(&mut self, manager: Rc<dyn ConnectionManager>) {
@@ -509,8 +515,7 @@ impl<'a> TunToProxy<'a> {
 
                                 let client = TcpStream::connect(server)?;
 
-                                let token = Token(self.next_token);
-                                self.next_token += 1;
+                                let token = self.new_token();
 
                                 let mut state = ConnectionState {
                                     smoltcp_handle: handle,
