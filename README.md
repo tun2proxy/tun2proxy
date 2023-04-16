@@ -15,7 +15,7 @@ describing the manual setup, except that a bind mount is used to overlay the `/e
 
 You would then run the tool as follows:
 ```bash
-./target/release/tun2proxy --setup auto --proxy "socks5://1.2.3.4:1080"
+sudo ./target/release/tun2proxy --setup auto --proxy "socks5://1.2.3.4:1080"
 ```
 
 Apart from SOCKS5, SOCKS4 and HTTP are supported.
