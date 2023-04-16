@@ -1,0 +1,5 @@
+[registries.crates-io]
+protocol = "sparse"
+
+[build]
+#target = ["x86_64-unknown-linux-gnu"]

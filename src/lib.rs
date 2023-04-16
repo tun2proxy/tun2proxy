@@ -1,12 +1,12 @@
 use crate::error::Error;
-use crate::socks5::SocksVersion;
-use crate::{http::HttpManager, socks5::SocksManager, tun2proxy::TunToProxy};
+use crate::socks::SocksVersion;
+use crate::{http::HttpManager, socks::SocksManager, tun2proxy::TunToProxy};
 use std::net::{SocketAddr, ToSocketAddrs};
 
 pub mod error;
 mod http;
 pub mod setup;
-mod socks5;
+mod socks;
 mod tun2proxy;
 mod virtdevice;
 mod virtdns;

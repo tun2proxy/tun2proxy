@@ -5,9 +5,11 @@ use std::net::IpAddr;
 use std::process::ExitCode;
 
 use tun2proxy::error::Error;
-use tun2proxy::setup::{get_default_cidrs, Setup};
 use tun2proxy::Options;
 use tun2proxy::{main_entry, Proxy};
+
+#[cfg(target_os = "linux")]
+use tun2proxy::setup::{get_default_cidrs, Setup};
 
 /// Tunnel interface to proxy
 #[derive(Parser)]
@@ -66,22 +68,25 @@ fn main() -> ExitCode {
     }
 
     if let Err(e) = (|| -> Result<(), Error> {
-        let mut setup: Setup;
-        if args.setup == Some(ArgSetup::Auto) {
-            let bypass_tun_ip = match args.setup_ip {
-                Some(addr) => addr,
-                None => args.proxy.addr.ip(),
-            };
-            setup = Setup::new(
-                &args.tun,
-                &bypass_tun_ip,
-                get_default_cidrs(),
-                args.setup_ip.is_some(),
-            );
+        #[cfg(target_os = "linux")]
+        {
+            let mut setup: Setup;
+            if args.setup == Some(ArgSetup::Auto) {
+                let bypass_tun_ip = match args.setup_ip {
+                    Some(addr) => addr,
+                    None => args.proxy.addr.ip(),
+                };
+                setup = Setup::new(
+                    &args.tun,
+                    &bypass_tun_ip,
+                    get_default_cidrs(),
+                    args.setup_ip.is_some(),
+                );
 
-            setup.configure()?;
+                setup.configure()?;
 
-            setup.drop_privileges()?;
+                setup.drop_privileges()?;
+            }
         }
 
         main_entry(&args.tun, &args.proxy, options)?;

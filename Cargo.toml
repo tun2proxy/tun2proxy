@@ -4,6 +4,9 @@ edition = "2018"
 name = "tun2proxy"
 version = "0.1.1"
 
+[lib]
+crate-type = ["cdylib", "lib"]
+
 [dependencies]
 base64 = { version = "0.21" }
 clap = { version = "4.1", features = ["derive"] }
