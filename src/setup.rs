@@ -8,7 +8,7 @@ use std::ffi::OsStr;
 use std::io::BufRead;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
 
-use std::os::fd::RawFd;
+use std::os::unix::io::RawFd;
 
 use std::process::{Command, Output};
 
