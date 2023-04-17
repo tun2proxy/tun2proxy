@@ -12,7 +12,7 @@ mod tests {
     use serial_test::serial;
 
     use tun2proxy::setup::{get_default_cidrs, Setup};
-    use tun2proxy::{main_entry, Options, Proxy, ProxyType};
+    use tun2proxy::{main_entry, NetworkInterface, Options, Proxy, ProxyType};
 
     #[derive(Clone, Debug)]
     struct Test {
@@ -85,7 +85,7 @@ mod tests {
                         Ok(Fork::Child) => {
                             prctl::set_death_signal(signal::SIGINT as isize).unwrap();
                             let _ = main_entry(
-                                TUN_TEST_DEVICE,
+                                &NetworkInterface::Named(TUN_TEST_DEVICE.into()),
                                 &test.proxy,
                                 Options::new().with_virtual_dns(),
                             );

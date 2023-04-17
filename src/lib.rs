@@ -3,6 +3,7 @@ use crate::socks::SocksVersion;
 use crate::{http::HttpManager, socks::SocksManager, tun2proxy::TunToProxy};
 use std::net::{SocketAddr, ToSocketAddrs};
 
+mod android;
 pub mod error;
 mod http;
 pub mod setup;
@@ -16,6 +17,11 @@ pub struct Proxy {
     pub proxy_type: ProxyType,
     pub addr: SocketAddr,
     pub credentials: Option<Credentials>,
+}
+
+pub enum NetworkInterface {
+    Named(String),
+    Fd(std::os::fd::RawFd),
 }
 
 impl Proxy {
@@ -83,6 +89,7 @@ impl std::fmt::Display for ProxyType {
 #[derive(Default)]
 pub struct Options {
     virtdns: Option<virtdns::VirtualDns>,
+    mtu: Option<usize>,
 }
 
 impl Options {
@@ -92,6 +99,11 @@ impl Options {
 
     pub fn with_virtual_dns(mut self) -> Self {
         self.virtdns = Some(virtdns::VirtualDns::new());
+        self
+    }
+
+    pub fn with_mtu(mut self, mtu: usize) -> Self {
+        self.mtu = Some(mtu);
         self
     }
 }
@@ -111,8 +123,12 @@ impl Credentials {
     }
 }
 
-pub fn main_entry(tun: &str, proxy: &Proxy, options: Options) -> Result<(), Error> {
-    let mut ttp = TunToProxy::new(tun, options)?;
+pub fn main_entry(
+    interface: &NetworkInterface,
+    proxy: &Proxy,
+    options: Options,
+) -> Result<(), Error> {
+    let mut ttp = TunToProxy::new(interface, options)?;
     match proxy.proxy_type {
         ProxyType::Socks4 => {
             ttp.add_connection_manager(SocksManager::new(
@@ -133,4 +149,8 @@ pub fn main_entry(tun: &str, proxy: &Proxy, options: Options) -> Result<(), Erro
         }
     }
     ttp.run()
+}
+
+pub fn shutdown() -> Result<(), Error> {
+    TunToProxy::shutdown()
 }

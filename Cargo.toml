@@ -20,9 +20,13 @@ log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 nix = { version = "0.26", features = ["process", "signal"] }
 prctl = "1.0"
-smoltcp = { version = "0.9", git = "https://github.com/smoltcp-rs/smoltcp.git", features = ["std"] }
+smoltcp = { version = "0.9", git = "https://github.com/smoltcp-rs/smoltcp", features = ["std"] }
 thiserror = "1.0"
 url = "2.3"
+
+[target.'cfg(target_os="android")'.dependencies]
+android_logger = "0.13"
+jni = { version = "0.21", default-features = false }
 
 [dev-dependencies]
 ctor = "0.1"
