@@ -20,6 +20,7 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};
 use std::os::unix::io::AsRawFd;
 use std::rc::Rc;
 use std::str::FromStr;
+use std::sync::{Arc, Mutex};
 
 #[derive(Hash, Clone, Eq, PartialEq, Debug)]
 pub(crate) enum DestinationHost {
@@ -246,7 +247,9 @@ const TCP_TOKEN: Token = Token(0);
 const UDP_TOKEN: Token = Token(1);
 const EXIT_TOKEN: Token = Token(2);
 
-const EXIT_LISTENER: &str = "127.0.0.1:34255";
+lazy_static::lazy_static! {
+    static ref EXIT_LISTENER_ADDR: Arc<Mutex<SocketAddr>> = Arc::new(Mutex::new(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(0, 0, 0, 0)), 0)));
+}
 
 pub(crate) struct TunToProxy<'a> {
     tun: TunTapInterface,
@@ -278,7 +281,8 @@ impl<'a> TunToProxy<'a> {
             Interest::READABLE,
         )?;
 
-        let mut _exit_listener = mio::net::TcpListener::bind(EXIT_LISTENER.parse()?)?;
+        let mut _exit_listener = mio::net::TcpListener::bind("127.0.0.1:0".parse()?)?;
+        *EXIT_LISTENER_ADDR.lock().unwrap() = _exit_listener.local_addr()?;
         poll.registry()
             .register(&mut _exit_listener, EXIT_TOKEN, Interest::READABLE)?;
 
@@ -799,7 +803,7 @@ impl<'a> TunToProxy<'a> {
     }
 
     pub(crate) fn shutdown() -> Result<(), Error> {
-        let addr: SocketAddr = EXIT_LISTENER.parse()?;
+        let addr = *EXIT_LISTENER_ADDR.lock().unwrap();
         let _ = std::net::TcpStream::connect(addr)?;
         Ok(())
     }

@@ -15,6 +15,7 @@ dotenvy = "0.15"
 env_logger = "0.10"
 fork = "0.1"
 hashlink = "0.8"
+lazy_static = "1.4"
 libc = "0.2"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
