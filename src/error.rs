@@ -27,6 +27,13 @@ pub enum Error {
     #[error("smoltcp::socket::tcp::SendError {0:?}")]
     Send(#[from] smoltcp::socket::tcp::SendError),
 
+    #[error("std::str::Utf8Error {0:?}")]
+    Utf8(#[from] std::str::Utf8Error),
+
+    #[cfg(target_os = "android")]
+    #[error("jni::errors::Error {0:?}")]
+    Jni(#[from] jni::errors::Error),
+
     #[error("&str {0}")]
     Str(String),
 
