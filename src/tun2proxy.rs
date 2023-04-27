@@ -350,6 +350,7 @@ impl<'a> TunToProxy<'a> {
         if let Some(mut conn) = self.connections.remove(connection) {
             let token = &conn.token;
             self.token_to_connection.remove(token);
+            self.sockets.remove(conn.smoltcp_handle);
             _ = self.poll.registry().deregister(&mut conn.mio_stream);
             info!("CLOSE {}", connection);
         }
