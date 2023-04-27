@@ -242,13 +242,11 @@ pub(crate) trait ConnectionManager {
     fn get_credentials(&self) -> &Option<Credentials>;
 }
 
-const TCP_TOKEN: Token = Token(0);
+const TUN_TOKEN: Token = Token(0);
 const UDP_TOKEN: Token = Token(1);
 const EXIT_TOKEN: Token = Token(2);
 
-const EXIT_LISTENER: &str = "127.0.0.1:34255";
-
-pub(crate) struct TunToProxy<'a> {
+pub struct TunToProxy<'a> {
     tun: TunTapInterface,
     poll: Poll,
     iface: Interface,
@@ -260,11 +258,12 @@ pub(crate) struct TunToProxy<'a> {
     device: VirtualTunDevice,
     options: Options,
     write_sockets: HashSet<Token>,
-    _exit_listener: mio::net::TcpListener,
+    _exit_receiver: mio::unix::pipe::Receiver,
+    exit_sender: mio::unix::pipe::Sender,
 }
 
 impl<'a> TunToProxy<'a> {
-    pub(crate) fn new(interface: &NetworkInterface, options: Options) -> Result<Self, Error> {
+    pub fn new(interface: &NetworkInterface, options: Options) -> Result<Self, Error> {
         let tun = match interface {
             NetworkInterface::Named(name) => TunTapInterface::new(name.as_str(), Medium::Ip)?,
             NetworkInterface::Fd(fd) => {
@@ -274,13 +273,13 @@ impl<'a> TunToProxy<'a> {
         let poll = Poll::new()?;
         poll.registry().register(
             &mut SourceFd(&tun.as_raw_fd()),
-            TCP_TOKEN,
+            TUN_TOKEN,
             Interest::READABLE,
         )?;
 
-        let mut _exit_listener = mio::net::TcpListener::bind(EXIT_LISTENER.parse()?)?;
+        let (exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;
         poll.registry()
-            .register(&mut _exit_listener, EXIT_TOKEN, Interest::READABLE)?;
+            .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
         let config = match tun.capabilities().medium {
             Medium::Ethernet => Config::new(
@@ -313,7 +312,8 @@ impl<'a> TunToProxy<'a> {
             device: virt,
             options,
             write_sockets: HashSet::default(),
-            _exit_listener,
+            _exit_receiver: exit_receiver,
+            exit_sender,
         };
         Ok(tun)
     }
@@ -769,7 +769,7 @@ impl<'a> TunToProxy<'a> {
 
     fn udp_event(&mut self, _event: &Event) {}
 
-    pub(crate) fn run(&mut self) -> Result<(), Error> {
+    pub fn run(&mut self) -> Result<(), Error> {
         let mut events = Events::with_capacity(1024);
         loop {
             match self.poll.poll(&mut events, None) {
@@ -780,7 +780,7 @@ impl<'a> TunToProxy<'a> {
                                 log::info!("exiting...");
                                 return Ok(());
                             }
-                            TCP_TOKEN => self.tun_event(event)?,
+                            TUN_TOKEN => self.tun_event(event)?,
                             UDP_TOKEN => self.udp_event(event),
                             _ => self.mio_socket_event(event)?,
                         }
@@ -798,9 +798,8 @@ impl<'a> TunToProxy<'a> {
         }
     }
 
-    pub(crate) fn shutdown() -> Result<(), Error> {
-        let addr: SocketAddr = EXIT_LISTENER.parse()?;
-        let _ = std::net::TcpStream::connect(addr)?;
+    pub fn shutdown(&mut self) -> Result<(), Error> {
+        self.exit_sender.write_all(&[1])?;
         Ok(())
     }
 }
