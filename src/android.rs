@@ -1,11 +1,14 @@
 #![cfg(target_os = "android")]
 
-use crate::{error::Error, main_entry, shutdown, NetworkInterface, Options, Proxy};
+use crate::tun2proxy::TunToProxy;
+use crate::{error::Error, tun_to_proxy, NetworkInterface, Options, Proxy};
 use jni::{
     objects::{JClass, JString},
     sys::{jboolean, jint},
     JNIEnv,
 };
+
+static mut TUN_TO_PROXY: Option<TunToProxy> = None;
 
 /// # Safety
 ///
@@ -42,7 +45,11 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
         let options = Options::new().with_virtual_dns().with_mtu(tun_mtu as usize);
 
         let interface = NetworkInterface::Fd(tun_fd);
-        _ = main_entry(&interface, &proxy, options)?;
+        let tun2proxy = tun_to_proxy(&interface, &proxy, options)?;
+        TUN_TO_PROXY = Some(tun2proxy);
+        if let Some(tun2proxy) = &mut TUN_TO_PROXY {
+            tun2proxy.run()?;
+        }
         Ok::<(), Error>(())
     };
     if let Err(error) = block() {
@@ -59,11 +66,19 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_stop(
     _env: JNIEnv,
     _clazz: JClass,
 ) -> jint {
-    if let Err(e) = shutdown() {
-        log::error!("failed to shutdown tun2proxy with error: {:?}", e);
-        1
-    } else {
-        0
+    match &mut TUN_TO_PROXY {
+        None => {
+            log::error!("tun2proxy not started");
+            1
+        }
+        Some(tun2proxy) => {
+            if let Err(e) = tun2proxy.shutdown() {
+                log::error!("failed to shutdown tun2proxy with error: {:?}", e);
+                1
+            } else {
+                0
+            }
+        }
     }
 }
 

@@ -123,11 +123,11 @@ impl Credentials {
     }
 }
 
-pub fn main_entry(
+pub fn tun_to_proxy<'a>(
     interface: &NetworkInterface,
     proxy: &Proxy,
     options: Options,
-) -> Result<(), Error> {
+) -> Result<TunToProxy<'a>, Error> {
     let mut ttp = TunToProxy::new(interface, options)?;
     match proxy.proxy_type {
         ProxyType::Socks4 => {
@@ -148,9 +148,14 @@ pub fn main_entry(
             ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials.clone()));
         }
     }
-    ttp.run()
+    Ok(ttp)
 }
 
-pub fn shutdown() -> Result<(), Error> {
-    TunToProxy::shutdown()
+pub fn main_entry(
+    interface: &NetworkInterface,
+    proxy: &Proxy,
+    options: Options,
+) -> Result<(), Error> {
+    let ttp = tun_to_proxy(interface, proxy, options);
+    ttp?.run()
 }

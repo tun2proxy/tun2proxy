@@ -20,7 +20,7 @@ log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 nix = { version = "0.26", features = ["process", "signal"] }
 prctl = "1.0"
-smoltcp = { version = "0.9", git = "https://github.com/smoltcp-rs/smoltcp", features = ["std"] }
+smoltcp = { version = "0.9.1", git = "https://github.com/smoltcp-rs/smoltcp", features = ["std", "phy-tuntap_interface"] }
 thiserror = "1.0"
 url = "2.3"
 

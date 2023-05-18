@@ -100,8 +100,8 @@ pub(crate) struct SocksConnection {
     client_outbuf: VecDeque<u8>,
     server_outbuf: VecDeque<u8>,
     data_buf: VecDeque<u8>,
-    manager: Rc<dyn ConnectionManager>,
     version: SocksVersion,
+    credentials: Option<Credentials>,
 }
 
 impl SocksConnection {
@@ -118,15 +118,15 @@ impl SocksConnection {
             client_outbuf: VecDeque::default(),
             server_outbuf: VecDeque::default(),
             data_buf: VecDeque::default(),
-            manager,
             version,
+            credentials: manager.get_credentials().clone(),
         };
         result.send_client_hello()?;
         Ok(result)
     }
 
     fn send_client_hello(&mut self) -> Result<(), Error> {
-        let credentials = self.manager.get_credentials();
+        let credentials = &self.credentials;
         match self.version {
             SocksVersion::V4 => {
                 self.server_outbuf.extend(&[
@@ -207,15 +207,15 @@ impl SocksConnection {
             return Err("SOCKS5 server replied with an unexpected version.".into());
         }
 
-        if self.server_inbuf[1] != 0 && self.manager.get_credentials().is_none()
-            || self.server_inbuf[1] != 2 && self.manager.get_credentials().is_some()
+        if self.server_inbuf[1] != 0 && self.credentials.is_none()
+            || self.server_inbuf[1] != 2 && self.credentials.is_some()
         {
             return Err("SOCKS5 server requires an unsupported authentication method.".into());
         }
 
         self.server_inbuf.drain(0..2);
 
-        if self.manager.get_credentials().is_some() {
+        if self.credentials.is_some() {
             self.state = SocksState::SendAuthData;
         } else {
             self.state = SocksState::SendRequest;
@@ -232,7 +232,7 @@ impl SocksConnection {
 
     fn send_auth_data(&mut self) -> Result<(), Error> {
         let tmp = Credentials::default();
-        let credentials = self.manager.get_credentials().as_ref().unwrap_or(&tmp);
+        let credentials = self.credentials.as_ref().unwrap_or(&tmp);
         self.server_outbuf
             .extend(&[1u8, credentials.username.len() as u8]);
         self.server_outbuf.extend(&credentials.username);
