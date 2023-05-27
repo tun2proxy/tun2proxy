@@ -166,13 +166,14 @@ impl SocksConnection {
                 if credentials.is_some() {
                     self.server_outbuf.extend(&[
                         self.version as u8,
-                        SocksCommand::Connect as u8,
+                        2u8,
+                        SocksAuthentication::None as u8,
                         SocksAuthentication::Password as u8,
                     ]);
                 } else {
                     self.server_outbuf.extend(&[
                         self.version as u8,
-                        SocksCommand::Connect as u8,
+                        1u8,
                         SocksAuthentication::None as u8,
                     ]);
                 }
@@ -207,15 +208,19 @@ impl SocksConnection {
             return Err("SOCKS5 server replied with an unexpected version.".into());
         }
 
-        if self.server_inbuf[1] != 0 && self.credentials.is_none()
-            || self.server_inbuf[1] != 2 && self.credentials.is_some()
+        let auth_method = self.server_inbuf[1];
+
+        if auth_method != SocksAuthentication::None as u8 && self.credentials.is_none()
+            || (auth_method != SocksAuthentication::None as u8
+                && auth_method != SocksAuthentication::Password as u8)
+                && self.credentials.is_some()
         {
             return Err("SOCKS5 server requires an unsupported authentication method.".into());
         }
 
         self.server_inbuf.drain(0..2);
 
-        if self.credentials.is_some() {
+        if auth_method == SocksAuthentication::Password as u8 {
             self.state = SocksState::SendAuthData;
         } else {
             self.state = SocksState::SendRequest;
