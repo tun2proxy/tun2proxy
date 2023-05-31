@@ -69,7 +69,11 @@ pub enum SocksCommand {
 #[allow(dead_code)]
 enum SocksAuthentication {
     None = 0,
+    GssApi = 1,
     Password = 2,
+    ChallengeHandshake = 3,
+    Unassigned = 4,
+    Unassigned100 = 100,
 }
 
 #[allow(dead_code)]
@@ -163,18 +167,24 @@ impl SocksConnection {
             }
 
             SocksVersion::V5 => {
+                // Providing unassigned methods is supposed to bypass China's GFW.
+                // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
                 if credentials.is_some() {
                     self.server_outbuf.extend(&[
                         self.version as u8,
-                        2u8,
+                        4u8,
                         SocksAuthentication::None as u8,
                         SocksAuthentication::Password as u8,
+                        SocksAuthentication::Unassigned as u8,
+                        SocksAuthentication::Unassigned100 as u8,
                     ]);
                 } else {
                     self.server_outbuf.extend(&[
                         self.version as u8,
-                        1u8,
+                        3u8,
                         SocksAuthentication::None as u8,
+                        SocksAuthentication::Unassigned as u8,
+                        SocksAuthentication::Unassigned100 as u8,
                     ]);
                 }
             }
