@@ -48,6 +48,12 @@ pub enum Error {
 
     #[error("std::num::ParseIntError {0:?}")]
     IntParseError(#[from] std::num::ParseIntError),
+
+    #[error("httparse::Error {0}")]
+    HttpError(#[from] httparse::Error),
+
+    #[error("digest_auth::Error {0}")]
+    DigestAuthError(#[from] digest_auth::Error),
 }
 
 impl From<&str> for Error {

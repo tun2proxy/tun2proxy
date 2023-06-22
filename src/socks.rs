@@ -156,10 +156,10 @@ impl SocksConnection {
                 }
                 self.server_outbuf.extend(ip_vec);
                 if let Some(credentials) = credentials {
-                    self.server_outbuf.extend(&credentials.username);
+                    self.server_outbuf.extend(credentials.username.as_bytes());
                     if !credentials.password.is_empty() {
                         self.server_outbuf.push_back(b':');
-                        self.server_outbuf.extend(&credentials.password);
+                        self.server_outbuf.extend(credentials.password.as_bytes());
                     }
                 }
                 self.server_outbuf.push_back(0);
@@ -250,10 +250,10 @@ impl SocksConnection {
         let credentials = self.credentials.as_ref().unwrap_or(&tmp);
         self.server_outbuf
             .extend(&[1u8, credentials.username.len() as u8]);
-        self.server_outbuf.extend(&credentials.username);
+        self.server_outbuf.extend(credentials.username.as_bytes());
         self.server_outbuf
             .extend(&[credentials.password.len() as u8]);
-        self.server_outbuf.extend(&credentials.password);
+        self.server_outbuf.extend(credentials.password.as_bytes());
         self.state = SocksState::ReceiveAuthResponse;
         self.state_change()
     }
@@ -423,6 +423,10 @@ impl TcpProxy for SocksConnection {
                 OutgoingDirection::ToClient => !self.client_outbuf.is_empty(),
             },
         }
+    }
+
+    fn reset_connection(&self) -> bool {
+        false
     }
 }
 

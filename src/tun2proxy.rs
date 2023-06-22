@@ -228,6 +228,7 @@ pub(crate) trait TcpProxy {
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent;
     fn connection_established(&self) -> bool;
     fn have_data(&mut self, dir: Direction) -> bool;
+    fn reset_connection(&self) -> bool;
 }
 
 pub(crate) trait ConnectionManager {
@@ -291,7 +292,7 @@ impl<'a> TunToProxy<'a> {
         let mut virt = VirtualTunDevice::new(tun.capabilities());
         let gateway4: Ipv4Addr = Ipv4Addr::from_str("0.0.0.1")?;
         let gateway6: Ipv6Addr = Ipv6Addr::from_str("::1")?;
-        let mut iface = Interface::new(config, &mut virt);
+        let mut iface = Interface::new(config, &mut virt, smoltcp::time::Instant::now());
         iface.update_ip_addrs(|ip_addrs| {
             ip_addrs.push(IpCidr::new(gateway4.into(), 0)).unwrap();
             ip_addrs.push(IpCidr::new(gateway6.into(), 0)).unwrap()
@@ -699,6 +700,10 @@ impl<'a> TunToProxy<'a> {
             return Ok(());
         }
         let connection = conn_ref.unwrap().clone();
+        let server = self
+            .get_connection_manager(&connection)
+            .unwrap()
+            .get_server();
 
         (|| -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {
@@ -734,6 +739,30 @@ impl<'a> TunToProxy<'a> {
                         self.expect_smoltcp_send()?;
                         log::error! {"{error}"}
                         self.remove_connection(&connection.clone())?;
+                        return Ok(());
+                    }
+
+                    // The handler request for reset the server connection
+                    if state.handler.reset_connection() {                        
+                        // Closes the connection with the proxy
+                        state.mio_stream.shutdown(Both)?;
+
+                        info!("RESETED {}", connection);
+
+                        // TODO: Improve the call upstairs
+                        state.mio_stream = TcpStream::connect(server)?;
+
+                        _ = self.poll.registry().deregister(&mut state.mio_stream);
+                        self.poll.registry().register(
+                            &mut state.mio_stream,
+                            state.token,
+                            Interest::WRITABLE,
+                        )?;
+
+                        state.wait_read = true;
+                        state.wait_write = true;
+                        state.close_state = 0;
+                        
                         return Ok(());
                     }
 

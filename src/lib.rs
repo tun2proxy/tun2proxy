@@ -110,15 +110,15 @@ impl Options {
 
 #[derive(Default, Clone, Debug)]
 pub struct Credentials {
-    pub(crate) username: Vec<u8>,
-    pub(crate) password: Vec<u8>,
+    pub(crate) username: String,
+    pub(crate) password: String,
 }
 
 impl Credentials {
     pub fn new(username: &str, password: &str) -> Self {
         Self {
-            username: username.as_bytes().to_vec(),
-            password: password.as_bytes().to_vec(),
+            username: String::from(username),
+            password: String::from(password),
         }
     }
 }

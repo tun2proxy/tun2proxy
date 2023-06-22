@@ -23,6 +23,9 @@ prctl = "1.0"
 smoltcp = { version = "0.9.1", git = "https://github.com/smoltcp-rs/smoltcp", features = ["std", "phy-tuntap_interface"] }
 thiserror = "1.0"
 url = "2.3"
+digest_auth = "0.3.1"
+httparse = "1.8.0"
+unicase = "2.6.0"
 
 [target.'cfg(target_os="android")'.dependencies]
 android_logger = "0.13"
