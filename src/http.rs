@@ -245,7 +245,7 @@ impl HttpConnection {
                 // [RFC-9112](https://datatracker.ietf.org/doc/html/rfc9112#body.content-length)
 
                 // Transfer-Encoding isn't supported yet
-                if let Some(_) = headers_map.get(&UniCase::new(TRANSFER_ENCODING)) {
+                if headers_map.get(&UniCase::new(TRANSFER_ENCODING)).is_some() {
                     unimplemented!("Header Transfer-Encoding not supported");
                 }
 
