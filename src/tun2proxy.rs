@@ -9,6 +9,7 @@ use mio::{Events, Interest, Poll, Token};
 use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
 use smoltcp::phy::{Device, Medium, RxToken, TunTapInterface, TxToken};
 use smoltcp::socket::tcp::State;
+use smoltcp::socket::udp::UdpMetadata;
 use smoltcp::socket::{tcp, udp};
 use smoltcp::time::Instant;
 use smoltcp::wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket};
@@ -292,7 +293,7 @@ impl<'a> TunToProxy<'a> {
         let mut virt = VirtualTunDevice::new(tun.capabilities());
         let gateway4: Ipv4Addr = Ipv4Addr::from_str("0.0.0.1")?;
         let gateway6: Ipv6Addr = Ipv6Addr::from_str("::1")?;
-        let mut iface = Interface::new(config, &mut virt, smoltcp::time::Instant::now());
+        let mut iface = Interface::new(config, &mut virt, Instant::now());
         iface.update_ip_addrs(|ip_addrs| {
             ip_addrs.push(IpCidr::new(gateway4.into(), 0)).unwrap();
             ip_addrs.push(IpCidr::new(gateway6.into(), 0)).unwrap()
@@ -577,7 +578,10 @@ impl<'a> TunToProxy<'a> {
                             let dst = SocketAddr::try_from(dst)?;
                             socket.bind(dst)?;
                             socket
-                                .send_slice(response.as_slice(), resolved_conn.src.into())
+                                .send_slice(
+                                    response.as_slice(),
+                                    UdpMetadata::from(resolved_conn.src),
+                                )
                                 .expect("failed to send DNS response");
                             let handle = self.sockets.add(socket);
                             self.expect_smoltcp_send()?;
@@ -743,7 +747,7 @@ impl<'a> TunToProxy<'a> {
                     }
 
                     // The handler request for reset the server connection
-                    if state.handler.reset_connection() {                        
+                    if state.handler.reset_connection() {
                         // Closes the connection with the proxy
                         state.mio_stream.shutdown(Both)?;
 
@@ -762,7 +766,7 @@ impl<'a> TunToProxy<'a> {
                         state.wait_read = true;
                         state.wait_write = true;
                         state.close_state = 0;
-                        
+
                         return Ok(());
                     }
 
