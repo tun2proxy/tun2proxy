@@ -1,6 +1,14 @@
 # tun2proxy
 A tunnel interface for HTTP and SOCKS proxies on Linux based on [smoltcp](https://github.com/smoltcp-rs/smoltcp).
 
+## Features
+- HTTP proxy support (unauthenticated, basic and digest auth)
+- SOCKS4 and SOCKS5 support (unauthenticated, username/password auth)
+- SOCKS4a and SOCKS5h support (through the virtual DNS feature)
+- Minimal configuration setup for routing all traffic
+- IPv4 and IPv6 support
+- GFW evasion mechanism for certain use cases (see [issue #35](https://github.com/blechschmidt/tun2proxy/issues/35))
+
 ## Build
 Clone the repository and `cd` into the project folder. Then run the following:
 ```
