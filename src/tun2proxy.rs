@@ -748,24 +748,18 @@ impl<'a> TunToProxy<'a> {
 
                     // The handler request for reset the server connection
                     if state.handler.reset_connection() {
+                        _ = self.poll.registry().deregister(&mut state.mio_stream);
                         // Closes the connection with the proxy
                         state.mio_stream.shutdown(Both)?;
 
-                        info!("RESETED {}", connection);
+                        info!("RESET {}", connection);
 
-                        // TODO: Improve the call upstairs
                         state.mio_stream = TcpStream::connect(server)?;
-
-                        _ = self.poll.registry().deregister(&mut state.mio_stream);
-                        self.poll.registry().register(
-                            &mut state.mio_stream,
-                            state.token,
-                            Interest::WRITABLE,
-                        )?;
 
                         state.wait_read = true;
                         state.wait_write = true;
-                        state.close_state = 0;
+
+                        self.update_mio_socket_interest(&connection)?;
 
                         return Ok(());
                     }

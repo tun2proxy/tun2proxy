@@ -311,6 +311,7 @@ impl HttpConnection {
             }
             HttpState::Reset => {
                 self.state = HttpState::ExpectResponseHeaders;
+                return self.state_change();
             }
             _ => {}
         }
