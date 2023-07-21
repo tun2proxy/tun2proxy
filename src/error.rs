@@ -34,14 +34,8 @@ pub enum Error {
     #[error("jni::errors::Error {0:?}")]
     Jni(#[from] jni::errors::Error),
 
-    #[error("&str {0}")]
-    Str(String),
-
-    #[error("String {0}")]
+    #[error("{0}")]
     String(String),
-
-    #[error("&String {0}")]
-    RefString(String),
 
     #[error("nix::errno::Errno {0:?}")]
     OSError(#[from] nix::errno::Errno),
@@ -58,7 +52,7 @@ pub enum Error {
 
 impl From<&str> for Error {
     fn from(err: &str) -> Self {
-        Self::Str(err.to_string())
+        Self::String(err.to_string())
     }
 }
 
@@ -70,6 +64,8 @@ impl From<String> for Error {
 
 impl From<&String> for Error {
     fn from(err: &String) -> Self {
-        Self::RefString(err.to_string())
+        Self::String(err.to_string())
     }
 }
+
+pub type Result<T, E = Error> = std::result::Result<T, E>;
