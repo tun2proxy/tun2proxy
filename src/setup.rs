@@ -1,20 +1,17 @@
 #![cfg(target_os = "linux")]
 
 use crate::error::Error;
-use smoltcp::wire::IpCidr;
-use std::convert::TryFrom;
-
-use std::ffi::OsStr;
-use std::io::BufRead;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-
-use std::os::unix::io::RawFd;
-
-use std::process::{Command, Output};
-
-use std::str::FromStr;
-
 use fork::Fork;
+use smoltcp::wire::IpCidr;
+use std::{
+    convert::TryFrom,
+    ffi::OsStr,
+    io::BufRead,
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    os::unix::io::RawFd,
+    process::{Command, Output},
+    str::FromStr,
+};
 
 #[derive(Clone)]
 pub struct Setup {
@@ -320,7 +317,7 @@ impl Setup {
         if self.tunnel_bypass_addr.is_loopback() && !self.allow_private {
             log::warn!(
                 "The proxy address {} is a loopback address. You may need to manually \
-                provide --setup-ip to specify the server IP bypassing the tunnel",
+                provide --bypass-ip to specify the server IP bypassing the tunnel",
                 self.tunnel_bypass_addr
             )
         }

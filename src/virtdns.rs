@@ -1,11 +1,12 @@
-use hashlink::linked_hash_map::RawEntryMut;
-use hashlink::LruCache;
+use hashlink::{linked_hash_map::RawEntryMut, LruCache};
 use smoltcp::wire::Ipv4Cidr;
-use std::collections::HashMap;
-use std::convert::{TryFrom, TryInto};
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr};
-use std::str::FromStr;
-use std::time::{Duration, Instant};
+use std::{
+    collections::HashMap,
+    convert::{TryFrom, TryInto},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr},
+    str::FromStr,
+    time::{Duration, Instant},
+};
 
 const DNS_TTL: u8 = 30; // TTL in DNS replies in seconds
 const MAPPING_TIMEOUT: u64 = 60; // Mapping timeout in seconds
@@ -43,7 +44,7 @@ impl Default for VirtualDns {
 
         Self {
             next_addr: start_addr.into(),
-            name_to_ip: Default::default(),
+            name_to_ip: HashMap::default(),
             network_addr: IpAddr::try_from(cidr.network().address().into_address()).unwrap(),
             broadcast_addr: IpAddr::try_from(cidr.broadcast().unwrap().into_address()).unwrap(),
             lru_cache: LruCache::new_unbounded(),
@@ -53,7 +54,7 @@ impl Default for VirtualDns {
 
 impl VirtualDns {
     pub fn new() -> Self {
-        Default::default()
+        VirtualDns::default()
     }
 
     pub fn receive_query(&mut self, data: &[u8]) -> Option<Vec<u8>> {
@@ -66,18 +67,17 @@ impl VirtualDns {
         // bit 7: Message is not truncated (0)
         // bit 8: Recursion desired (1)
         let is_supported_query = (data[2] & 0b11111011) == 0b00000001;
-        let num_queries = (data[4] as u16) << 8 | data[5] as u16;
+        let num_queries = u16::from_be_bytes(data[4..6].try_into().ok()?);
         if !is_supported_query || num_queries != 1 {
             return None;
         }
 
-        let result = VirtualDns::parse_qname(data, 12);
-        let (qname, offset) = result?;
+        let (qname, offset) = VirtualDns::parse_qname(data, 12)?;
         if offset + 3 >= data.len() {
             return None;
         }
-        let qtype = (data[offset] as u16) << 8 | data[offset + 1] as u16;
-        let qclass = (data[offset + 2] as u16) << 8 | data[offset + 3] as u16;
+        let qtype = u16::from_be_bytes(data[offset..offset + 2].try_into().ok()?);
+        let qclass = u16::from_be_bytes(data[offset + 2..offset + 4].try_into().ok()?);
 
         if qtype != DnsRecordType::A as u16 && qtype != DnsRecordType::AAAA as u16
             || qclass != DnsClass::IN as u16
@@ -121,7 +121,7 @@ impl VirtualDns {
                     0, 0, 0, DNS_TTL, // TTL
                     0, 4, // Data length: 4 bytes
                 ]);
-                match ip as IpAddr {
+                match ip {
                     IpAddr::V4(ip) => response.extend(ip.octets().as_ref()),
                     IpAddr::V6(ip) => response.extend(ip.octets().as_ref()),
                 };
@@ -191,11 +191,10 @@ impl VirtualDns {
         let now = Instant::now();
 
         loop {
-            let p = self.lru_cache.iter().next();
-            if p.is_none() {
-                break;
-            }
-            let (ip, entry) = p.unwrap();
+            let (ip, entry) = match self.lru_cache.iter().next() {
+                None => break,
+                Some((ip, entry)) => (ip, entry),
+            };
             if now > entry.expiry {
                 let name = entry.name.clone();
                 self.lru_cache.remove(&ip.clone());

@@ -30,7 +30,7 @@ Apart from SOCKS5, SOCKS4 and HTTP are supported.
 
 Note that if your proxy is a non-global IP address (e.g. because the proxy is provided by some tunneling tool running
 locally), you will additionally need to provide the public IP address of the server through which the traffic is
-actually tunneled. In such a case, the tool will tell you to specify the address through `--setup-ip <address>` if you
+actually tunneled. In such a case, the tool will tell you to specify the address through `--bypass-ip <address>` if you
 wish to make use of the automated setup feature.
 
 ## Manual Setup
@@ -40,6 +40,7 @@ A standard setup, which would route all traffic from your system through the tun
 PROXY_TYPE=SOCKS5
 PROXY_IP=1.2.3.4
 PROXY_PORT=1080
+BYPASS_IP=123.45.67.89
 
 # Create a tunnel interface named tun0 which your user can bind to,
 # so we don't need to run tun2proxy as root.
@@ -48,7 +49,7 @@ sudo ip link set tun0 up
 
 # To prevent a routing loop, we add a route to the proxy server that behaves
 # like the default route.
-sudo ip route add "$PROXY_IP" $(ip route | grep '^default' | cut -d ' ' -f 2-)
+sudo ip route add "$BYPASS_IP" $(ip route | grep '^default' | cut -d ' ' -f 2-)
 
 # Route all your traffic through tun0 without interfering with the default route.
 sudo ip route add 128.0.0.0/1 dev tun0
@@ -92,7 +93,7 @@ Options:
   -p, --proxy <URL>     Proxy URL in the form proto://[username[:password]@]host:port
   -d, --dns <method>    DNS handling [default: virtual] [possible values: virtual, none]
   -s, --setup <method>  Routing and system setup [possible values: auto]
-      --setup-ip <IP>   Public proxy IP used in routing setup
+      --bypass-ip <IP>  Public proxy IP used in routing setup which should bypassing the tunnel
   -h, --help            Print help
   -V, --version         Print version
 ```

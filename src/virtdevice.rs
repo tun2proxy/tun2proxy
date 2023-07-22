@@ -1,6 +1,7 @@
-use smoltcp::phy;
-use smoltcp::phy::{Device, DeviceCapabilities};
-use smoltcp::time::Instant;
+use smoltcp::{
+    phy::{self, Device, DeviceCapabilities},
+    time::Instant,
+};
 
 #[derive(Default)]
 pub struct VirtualTunDevice {
@@ -72,7 +73,7 @@ impl VirtualTunDevice {
     pub fn new(capabilities: DeviceCapabilities) -> Self {
         Self {
             capabilities,
-            ..Default::default()
+            ..VirtualTunDevice::default()
         }
     }
 }

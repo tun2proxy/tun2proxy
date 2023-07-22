@@ -23,6 +23,7 @@ mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
 nix = { version = "0.26", features = ["process", "signal"] }
 prctl = "1.0"
 smoltcp = { version = "0.10.0", features = ["std", "phy-tuntap_interface"] }
+socks5-impl = { version = "0.4", default-features = false }
 thiserror = "1.0"
 unicase = "2.6.0"
 url = "2.4"

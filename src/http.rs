@@ -1,19 +1,22 @@
-use crate::error::Error;
-use crate::tun2proxy::{
-    Connection, ConnectionManager, Destination, Direction, IncomingDataEvent, IncomingDirection,
-    OutgoingDataEvent, OutgoingDirection, TcpProxy,
+use crate::{
+    error::Error,
+    tun2proxy::{
+        Connection, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
+        OutgoingDataEvent, OutgoingDirection, TcpProxy,
+    },
 };
-use crate::Credentials;
 use base64::Engine;
 use httparse::Response;
 use smoltcp::wire::IpProtocol;
-use std::cell::RefCell;
-use std::collections::hash_map::RandomState;
-use std::collections::{HashMap, VecDeque};
-use std::iter::FromIterator;
-use std::net::SocketAddr;
-use std::rc::Rc;
-use std::str;
+use socks5_impl::protocol::{Address, UserKey};
+use std::{
+    cell::RefCell,
+    collections::{hash_map::RandomState, HashMap, VecDeque},
+    iter::FromIterator,
+    net::SocketAddr,
+    rc::Rc,
+    str,
+};
 use unicase::UniCase;
 
 #[derive(Eq, PartialEq, Debug)]
@@ -48,8 +51,8 @@ pub struct HttpConnection {
     skip: usize,
     digest_state: Rc<RefCell<Option<DigestState>>>,
     before: bool,
-    credentials: Option<Credentials>,
-    destination: Destination,
+    credentials: Option<UserKey>,
+    destination: Address,
 }
 
 static PROXY_AUTHENTICATE: &str = "Proxy-Authenticate";
@@ -66,11 +69,11 @@ impl HttpConnection {
     ) -> Result<Self, Error> {
         let mut res = Self {
             state: HttpState::ExpectResponseHeaders,
-            client_inbuf: Default::default(),
-            server_inbuf: Default::default(),
-            client_outbuf: Default::default(),
-            server_outbuf: Default::default(),
-            data_buf: Default::default(),
+            client_inbuf: VecDeque::default(),
+            server_inbuf: VecDeque::default(),
+            client_outbuf: VecDeque::default(),
+            server_outbuf: VecDeque::default(),
+            data_buf: VecDeque::default(),
             skip: 0,
             counter: 0,
             crlf_state: 0,
@@ -110,7 +113,7 @@ impl HttpConnection {
 
         match scheme {
             AuthenticationScheme::Digest => {
-                let uri = format!("{}:{}", self.destination.host, self.destination.port);
+                let uri = self.destination.to_string();
 
                 let context = digest_auth::AuthContext::new_with_method(
                     &credentials.username,
@@ -386,7 +389,7 @@ impl TcpProxy for HttpConnection {
 
 pub(crate) struct HttpManager {
     server: SocketAddr,
-    credentials: Option<Credentials>,
+    credentials: Option<UserKey>,
     digest_state: Rc<RefCell<Option<DigestState>>>,
 }
 
@@ -416,13 +419,13 @@ impl ConnectionManager for HttpManager {
         self.server
     }
 
-    fn get_credentials(&self) -> &Option<Credentials> {
+    fn get_credentials(&self) -> &Option<UserKey> {
         &self.credentials
     }
 }
 
 impl HttpManager {
-    pub fn new(server: SocketAddr, credentials: Option<Credentials>) -> Rc<Self> {
+    pub fn new(server: SocketAddr, credentials: Option<UserKey>) -> Rc<Self> {
         Rc::new(Self {
             server,
             credentials,
