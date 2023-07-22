@@ -1,7 +1,6 @@
 #![cfg(target_os = "android")]
 
-use crate::tun2proxy::TunToProxy;
-use crate::{error::Error, tun_to_proxy, NetworkInterface, Options, Proxy};
+use crate::{error::Error, tun2proxy::TunToProxy, tun_to_proxy, NetworkInterface, Options, Proxy};
 use jni::{
     objects::{JClass, JString},
     sys::{jboolean, jint},

@@ -1,6 +1,8 @@
-use crate::error::Error;
-use crate::socks::SocksVersion;
-use crate::{http::HttpManager, socks::SocksManager, tun2proxy::TunToProxy};
+use crate::{
+    error::Error, http::HttpManager, socks::SocksManager, socks::SocksVersion,
+    tun2proxy::TunToProxy,
+};
+use socks5_impl::protocol::UserKey;
 use std::net::{SocketAddr, ToSocketAddrs};
 
 mod android;
@@ -16,7 +18,7 @@ mod virtdns;
 pub struct Proxy {
     pub proxy_type: ProxyType,
     pub addr: SocketAddr,
-    pub credentials: Option<Credentials>,
+    pub credentials: Option<UserKey>,
 }
 
 pub enum NetworkInterface {
@@ -48,7 +50,7 @@ impl Proxy {
         } else {
             let username = String::from(url.username());
             let password = String::from(url.password().unwrap_or(""));
-            Some(Credentials::new(&username, &password))
+            Some(UserKey::new(username, password))
         };
 
         let scheme = url.scheme();
@@ -94,7 +96,7 @@ pub struct Options {
 
 impl Options {
     pub fn new() -> Self {
-        Default::default()
+        Options::default()
     }
 
     pub fn with_virtual_dns(mut self) -> Self {
@@ -105,21 +107,6 @@ impl Options {
     pub fn with_mtu(mut self, mtu: usize) -> Self {
         self.mtu = Some(mtu);
         self
-    }
-}
-
-#[derive(Default, Clone, Debug)]
-pub struct Credentials {
-    pub(crate) username: String,
-    pub(crate) password: String,
-}
-
-impl Credentials {
-    pub fn new(username: &str, password: &str) -> Self {
-        Self {
-            username: String::from(username),
-            password: String::from(password),
-        }
     }
 }
 

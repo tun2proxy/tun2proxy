@@ -1,16 +1,13 @@
-use std::collections::VecDeque;
-use std::convert::TryFrom;
-use std::net::{IpAddr, SocketAddr};
-use std::rc::Rc;
-
-use smoltcp::wire::IpProtocol;
-
-use crate::error::Error;
-use crate::tun2proxy::{
-    Connection, ConnectionManager, DestinationHost, Direction, IncomingDataEvent,
-    IncomingDirection, OutgoingDataEvent, OutgoingDirection, TcpProxy,
+use crate::{
+    error::Error,
+    tun2proxy::{
+        Connection, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
+        OutgoingDataEvent, OutgoingDirection, TcpProxy,
+    },
 };
-use crate::Credentials;
+use smoltcp::wire::IpProtocol;
+use socks5_impl::protocol::{self, Address, AddressType, UserKey};
+use std::{collections::VecDeque, convert::TryFrom, net::SocketAddr, rc::Rc};
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -26,44 +23,9 @@ enum SocksState {
 
 #[repr(u8)]
 #[derive(Copy, Clone, PartialEq, Debug)]
-enum SocksAddressType {
-    Ipv4 = 1,
-    DomainName = 3,
-    Ipv6 = 4,
-}
-
-impl TryFrom<u8> for SocksAddressType {
-    type Error = Error;
-    fn try_from(value: u8) -> Result<Self, Self::Error> {
-        match value {
-            1 => Ok(SocksAddressType::Ipv4),
-            3 => Ok(SocksAddressType::DomainName),
-            4 => Ok(SocksAddressType::Ipv6),
-            _ => Err(format!("Unknown address type: {}", value).into()),
-        }
-    }
-}
-
-impl From<SocksAddressType> for u8 {
-    fn from(value: SocksAddressType) -> Self {
-        value as u8
-    }
-}
-
-#[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Debug)]
 pub enum SocksVersion {
     V4 = 4,
     V5 = 5,
-}
-
-#[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Debug)]
-#[allow(dead_code)]
-pub enum SocksCommand {
-    Connect = 1,
-    Bind = 2,
-    UdpAssociate = 3,
 }
 
 #[allow(dead_code)]
@@ -105,7 +67,7 @@ pub(crate) struct SocksConnection {
     server_outbuf: VecDeque<u8>,
     data_buf: VecDeque<u8>,
     version: SocksVersion,
-    credentials: Option<Credentials>,
+    credentials: Option<UserKey>,
 }
 
 impl SocksConnection {
@@ -133,22 +95,20 @@ impl SocksConnection {
         let credentials = &self.credentials;
         match self.version {
             SocksVersion::V4 => {
-                self.server_outbuf.extend(&[
-                    self.version as u8,
-                    SocksCommand::Connect as u8,
-                    (self.connection.dst.port >> 8) as u8,
-                    (self.connection.dst.port & 0xff) as u8,
-                ]);
+                self.server_outbuf
+                    .extend(&[self.version as u8, protocol::Command::Connect.into()]);
+                self.server_outbuf
+                    .extend(self.connection.dst.port().to_be_bytes());
                 let mut ip_vec = Vec::<u8>::new();
                 let mut name_vec = Vec::<u8>::new();
-                match &self.connection.dst.host {
-                    DestinationHost::Address(dst_ip) => {
-                        match dst_ip {
-                            IpAddr::V4(ip) => ip_vec.extend(ip.octets().as_ref()),
-                            IpAddr::V6(_) => return Err("SOCKS4 does not support IPv6".into()),
-                        };
+                match &self.connection.dst {
+                    Address::SocketAddress(SocketAddr::V4(addr)) => {
+                        ip_vec.extend(addr.ip().octets().as_ref());
                     }
-                    DestinationHost::Hostname(host) => {
+                    Address::SocketAddress(SocketAddr::V6(_)) => {
+                        return Err("SOCKS4 does not support IPv6".into());
+                    }
+                    Address::DomainAddress(host, _) => {
                         ip_vec.extend(&[0, 0, 0, host.len() as u8]);
                         name_vec.extend(host.as_bytes());
                         name_vec.push(0);
@@ -246,7 +206,7 @@ impl SocksConnection {
     }
 
     fn send_auth_data(&mut self) -> Result<(), Error> {
-        let tmp = Credentials::default();
+        let tmp = UserKey::default();
         let credentials = self.credentials.as_ref().unwrap_or(&tmp);
         self.server_outbuf
             .extend(&[1u8, credentials.username.len() as u8]);
@@ -287,8 +247,8 @@ impl SocksConnection {
             return Err("SOCKS5 connection unsuccessful.".into());
         }
 
-        let message_length = match SocksAddressType::try_from(atyp)? {
-            SocksAddressType::DomainName => {
+        let message_length = match AddressType::try_from(atyp)? {
+            AddressType::Domain => {
                 if self.server_inbuf.len() < 5 {
                     return Ok(());
                 }
@@ -297,8 +257,8 @@ impl SocksConnection {
                 }
                 7 + (self.server_inbuf[4] as usize)
             }
-            SocksAddressType::Ipv4 => 10,
-            SocksAddressType::Ipv6 => 22,
+            AddressType::IPv4 => 10,
+            AddressType::IPv6 => 22,
         };
 
         self.server_inbuf.drain(0..message_length);
@@ -310,30 +270,8 @@ impl SocksConnection {
     }
 
     fn send_request(&mut self) -> Result<(), Error> {
-        self.server_outbuf.extend(&[5u8, 1, 0]);
-        match &self.connection.dst.host {
-            DestinationHost::Address(dst_ip) => {
-                let cmd = if dst_ip.is_ipv4() {
-                    SocksAddressType::Ipv4
-                } else {
-                    SocksAddressType::Ipv6
-                };
-                self.server_outbuf.extend(&[u8::from(cmd)]);
-                match dst_ip {
-                    IpAddr::V4(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
-                    IpAddr::V6(ip) => self.server_outbuf.extend(ip.octets().as_ref()),
-                };
-            }
-            DestinationHost::Hostname(host) => {
-                self.server_outbuf
-                    .extend(&[u8::from(SocksAddressType::DomainName), host.len() as u8]);
-                self.server_outbuf.extend(host.as_bytes());
-            }
-        }
-        self.server_outbuf.extend(&[
-            (self.connection.dst.port >> 8) as u8,
-            (self.connection.dst.port & 0xff) as u8,
-        ]);
+        protocol::Request::new(protocol::Command::Connect, self.connection.dst.clone())
+            .write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveResponse;
         self.state_change()
     }
@@ -432,7 +370,7 @@ impl TcpProxy for SocksConnection {
 
 pub struct SocksManager {
     server: SocketAddr,
-    credentials: Option<Credentials>,
+    credentials: Option<UserKey>,
     version: SocksVersion,
 }
 
@@ -462,7 +400,7 @@ impl ConnectionManager for SocksManager {
         self.server
     }
 
-    fn get_credentials(&self) -> &Option<Credentials> {
+    fn get_credentials(&self) -> &Option<UserKey> {
         &self.credentials
     }
 }
@@ -471,7 +409,7 @@ impl SocksManager {
     pub fn new(
         server: SocketAddr,
         version: SocksVersion,
-        credentials: Option<Credentials>,
+        credentials: Option<UserKey>,
     ) -> Rc<Self> {
         Rc::new(Self {
             server,

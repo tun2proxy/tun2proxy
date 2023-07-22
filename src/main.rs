@@ -1,12 +1,7 @@
 use clap::Parser;
 use env_logger::Env;
-
-use std::net::IpAddr;
-use std::process::ExitCode;
-
-use tun2proxy::error::Error;
-use tun2proxy::{main_entry, Proxy};
-use tun2proxy::{NetworkInterface, Options};
+use std::{net::IpAddr, process::ExitCode};
+use tun2proxy::{error::Error, main_entry, NetworkInterface, Options, Proxy};
 
 #[cfg(target_os = "linux")]
 use tun2proxy::setup::{get_default_cidrs, Setup};
@@ -45,9 +40,9 @@ struct Args {
     #[arg(short, long, value_name = "method", value_enum)]
     setup: Option<ArgSetup>,
 
-    /// Public proxy IP used in routing setup
+    /// Public proxy IP used in routing setup which should bypassing the tunnel
     #[arg(long, value_name = "IP")]
-    setup_ip: Option<IpAddr>,
+    bypass_ip: Option<IpAddr>,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
@@ -83,12 +78,12 @@ fn main() -> ExitCode {
         }
     };
 
-    if let Err(e) = (|| -> Result<(), Error> {
+    let block = || -> Result<(), Error> {
         #[cfg(target_os = "linux")]
         {
             let mut setup: Setup;
             if args.setup == Some(ArgSetup::Auto) {
-                let bypass_tun_ip = match args.setup_ip {
+                let bypass_tun_ip = match args.bypass_ip {
                     Some(addr) => addr,
                     None => args.proxy.addr.ip(),
                 };
@@ -96,7 +91,7 @@ fn main() -> ExitCode {
                     &args.tun,
                     &bypass_tun_ip,
                     get_default_cidrs(),
-                    args.setup_ip.is_some(),
+                    args.bypass_ip.is_some(),
                 );
 
                 setup.configure()?;
@@ -108,10 +103,11 @@ fn main() -> ExitCode {
         main_entry(&interface, &args.proxy, options)?;
 
         Ok(())
-    })() {
+    };
+    if let Err(e) = block() {
         log::error!("{e}");
         return ExitCode::FAILURE;
-    };
+    }
 
     ExitCode::SUCCESS
 }

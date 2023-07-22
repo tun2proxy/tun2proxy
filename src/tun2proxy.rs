@@ -1,91 +1,35 @@
-use crate::error::Error;
-use crate::virtdevice::VirtualTunDevice;
-use crate::{Credentials, NetworkInterface, Options};
-use log::{error, info};
-use mio::event::Event;
-use mio::net::TcpStream;
-use mio::unix::SourceFd;
-use mio::{Events, Interest, Poll, Token};
-use smoltcp::iface::{Config, Interface, SocketHandle, SocketSet};
-use smoltcp::phy::{Device, Medium, RxToken, TunTapInterface, TxToken};
-use smoltcp::socket::tcp::State;
-use smoltcp::socket::udp::UdpMetadata;
-use smoltcp::socket::{tcp, udp};
-use smoltcp::time::Instant;
-use smoltcp::wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket};
-use std::collections::{HashMap, HashSet};
-use std::convert::{From, TryFrom};
-use std::io::{Read, Write};
-use std::net::Shutdown::Both;
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr};
-use std::os::unix::io::AsRawFd;
-use std::rc::Rc;
-use std::str::FromStr;
-
-#[derive(Hash, Clone, Eq, PartialEq, Debug)]
-pub(crate) enum DestinationHost {
-    Address(IpAddr),
-    Hostname(String),
-}
-
-impl std::fmt::Display for DestinationHost {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            DestinationHost::Address(addr) => addr.fmt(f),
-            DestinationHost::Hostname(name) => name.fmt(f),
-        }
-    }
-}
-
-#[derive(Hash, Clone, Eq, PartialEq, Debug)]
-pub(crate) struct Destination {
-    pub(crate) host: DestinationHost,
-    pub(crate) port: u16,
-}
-
-impl TryFrom<Destination> for SocketAddr {
-    type Error = Error;
-    fn try_from(value: Destination) -> Result<Self, Self::Error> {
-        let ip = match value.host {
-            DestinationHost::Address(addr) => addr,
-            DestinationHost::Hostname(e) => {
-                return Err(e.into());
-            }
-        };
-        Ok(SocketAddr::new(ip, value.port))
-    }
-}
-
-impl From<SocketAddr> for Destination {
-    fn from(addr: SocketAddr) -> Self {
-        Self {
-            host: DestinationHost::Address(addr.ip()),
-            port: addr.port(),
-        }
-    }
-}
-
-impl std::fmt::Display for Destination {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        if let DestinationHost::Address(IpAddr::V6(addr)) = self.host {
-            write!(f, "[{}]:{}", addr, self.port)
-        } else {
-            write!(f, "{}:{}", self.host, self.port)
-        }
-    }
-}
+use crate::{error::Error, virtdevice::VirtualTunDevice, NetworkInterface, Options};
+use mio::{event::Event, net::TcpStream, unix::SourceFd, Events, Interest, Poll, Token};
+use smoltcp::{
+    iface::{Config, Interface, SocketHandle, SocketSet},
+    phy::{Device, Medium, RxToken, TunTapInterface, TxToken},
+    socket::{tcp, tcp::State, udp, udp::UdpMetadata},
+    time::Instant,
+    wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket},
+};
+use socks5_impl::protocol::{Address, UserKey};
+use std::{
+    collections::{HashMap, HashSet},
+    convert::{From, TryFrom},
+    io::{Read, Write},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, Shutdown::Both, SocketAddr},
+    os::unix::io::AsRawFd,
+    rc::Rc,
+    str::FromStr,
+};
 
 #[derive(Hash, Clone, Eq, PartialEq, Debug)]
 pub(crate) struct Connection {
     pub(crate) src: SocketAddr,
-    pub(crate) dst: Destination,
+    pub(crate) dst: Address,
     pub(crate) proto: IpProtocol,
 }
 
 impl Connection {
     fn to_named(&self, name: String) -> Self {
         let mut result = self.clone();
-        result.dst.host = DestinationHost::Hostname(name);
+        result.dst = Address::from((name, result.dst.port()));
+        log::trace!("Replace dst \"{}\" -> \"{}\"", self.dst, result.dst);
         result
     }
 }
@@ -160,7 +104,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
     if let Ok(packet) = Ipv4Packet::new_checked(frame) {
         let proto = packet.next_header();
 
-        let mut a: [u8; 4] = Default::default();
+        let mut a = [0_u8; 4];
         a.copy_from_slice(packet.src_addr().as_bytes());
         let src_addr = IpAddr::from(a);
         a.copy_from_slice(packet.dst_addr().as_bytes());
@@ -187,7 +131,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
             // TODO: Support extension headers.
             let proto = packet.next_header();
 
-            let mut a: [u8; 16] = Default::default();
+            let mut a = [0_u8; 16];
             a.copy_from_slice(packet.src_addr().as_bytes());
             let src_addr = IpAddr::from(a);
             a.copy_from_slice(packet.dst_addr().as_bytes());
@@ -241,7 +185,7 @@ pub(crate) trait ConnectionManager {
     ) -> Result<Option<Box<dyn TcpProxy>>, Error>;
     fn close_connection(&self, connection: &Connection);
     fn get_server(&self) -> SocketAddr;
-    fn get_credentials(&self) -> &Option<Credentials>;
+    fn get_credentials(&self) -> &Option<UserKey>;
 }
 
 const TUN_TOKEN: Token = Token(0);
@@ -354,7 +298,7 @@ impl<'a> TunToProxy<'a> {
             self.token_to_connection.remove(token);
             self.sockets.remove(conn.smoltcp_handle);
             _ = self.poll.registry().deregister(&mut conn.mio_stream);
-            info!("CLOSE {}", connection);
+            log::info!("CLOSE {}", connection);
         }
         Ok(())
     }
@@ -479,9 +423,7 @@ impl<'a> TunToProxy<'a> {
 
     // A raw packet was received on the tunnel interface.
     fn receive_tun(&mut self, frame: &mut [u8]) -> Result<(), Error> {
-        if let Some((connection, first_packet, _payload_offset, _payload_size)) =
-            connection_tuple(frame)
-        {
+        if let Some((connection, first_packet, offset, size)) = connection_tuple(frame) {
             let resolved_conn = match &mut self.options.virtdns {
                 None => connection.clone(),
                 Some(virt_dns) => {
@@ -494,7 +436,7 @@ impl<'a> TunToProxy<'a> {
                 }
             };
             let dst = connection.dst;
-            (|| -> Result<(), Error> {
+            let handler = || -> Result<(), Error> {
                 if resolved_conn.proto == IpProtocol::Tcp {
                     let cm = self.get_connection_manager(&resolved_conn);
                     if cm.is_none() {
@@ -540,7 +482,7 @@ impl<'a> TunToProxy<'a> {
 
                                 self.connections.insert(resolved_conn.clone(), state);
 
-                                info!("CONNECT {}", resolved_conn,);
+                                log::info!("CONNECT {}", resolved_conn,);
                                 break;
                             }
                         }
@@ -562,9 +504,9 @@ impl<'a> TunToProxy<'a> {
                     // The connection handler builds up the connection or encapsulates the data.
                     // Therefore, we now expect it to write data to the server.
                     self.write_to_server(&resolved_conn)?;
-                } else if resolved_conn.proto == IpProtocol::Udp && resolved_conn.dst.port == 53 {
+                } else if resolved_conn.proto == IpProtocol::Udp && resolved_conn.dst.port() == 53 {
                     if let Some(virtual_dns) = &mut self.options.virtdns {
-                        let payload = &frame[_payload_offset.._payload_offset + _payload_size];
+                        let payload = &frame[offset..offset + size];
                         if let Some(response) = virtual_dns.receive_query(payload) {
                             let rx_buffer = udp::PacketBuffer::new(
                                 vec![udp::PacketMetadata::EMPTY],
@@ -590,12 +532,11 @@ impl<'a> TunToProxy<'a> {
                     }
                     // Otherwise, UDP is not yet supported.
                 }
-                Ok(())
-            })()
-            .or_else(|error| {
-                log::error! {"{error}"}
                 Ok::<(), Error>(())
-            })?;
+            };
+            if let Err(error) = handler() {
+                log::error!("{}", error);
+            }
         }
         Ok(())
     }
@@ -709,7 +650,7 @@ impl<'a> TunToProxy<'a> {
             .unwrap()
             .get_server();
 
-        (|| -> Result<(), Error> {
+        let mut block = || -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {
                 {
                     let state = self.connections.get_mut(&connection).ok_or(e)?;
@@ -721,7 +662,7 @@ impl<'a> TunToProxy<'a> {
                         Ok(read_result) => read_result,
                         Err(error) => {
                             if error.kind() != std::io::ErrorKind::WouldBlock {
-                                error!("Read from proxy: {}", error);
+                                log::error!("Read from proxy: {}", error);
                             }
                             vecbuf.len()
                         }
@@ -752,7 +693,7 @@ impl<'a> TunToProxy<'a> {
                         // Closes the connection with the proxy
                         state.mio_stream.shutdown(Both)?;
 
-                        info!("RESET {}", connection);
+                        log::info!("RESET {}", connection);
 
                         state.mio_stream = TcpStream::connect(server)?;
 
@@ -785,14 +726,13 @@ impl<'a> TunToProxy<'a> {
             if event.is_writable() {
                 self.write_to_server(&connection)?;
             }
-
-            Ok(())
-        })()
-        .or_else(|error| {
-            log::error! {"{error}"}
+            Ok::<(), Error>(())
+        };
+        if let Err(error) = block() {
+            log::error!("{}", error);
             self.remove_connection(&connection)?;
-            Ok(())
-        })
+        }
+        Ok(())
     }
 
     fn udp_event(&mut self, _event: &Event) {}
@@ -816,10 +756,10 @@ impl<'a> TunToProxy<'a> {
                     self.send_to_smoltcp()?;
                 }
                 Err(e) => {
-                    if e.kind() != std::io::ErrorKind::Interrupted {
-                        return Err(e.into());
+                    if e.kind() == std::io::ErrorKind::Interrupted {
+                        log::warn!("Poll interrupted: \"{e}\", ignored, continue polling");
                     } else {
-                        log::warn!("Poll interrupted: {e}")
+                        return Err(e.into());
                     }
                 }
             }
