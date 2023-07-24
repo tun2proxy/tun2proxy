@@ -6,8 +6,8 @@ use crate::{
     },
 };
 use smoltcp::wire::IpProtocol;
-use socks5_impl::protocol::{self, Address, AddressType, UserKey};
-use std::{collections::VecDeque, convert::TryFrom, net::SocketAddr, rc::Rc};
+use socks5_impl::protocol::{self, Address, UserKey};
+use std::{collections::VecDeque, net::SocketAddr, rc::Rc};
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -231,37 +231,20 @@ impl SocksConnection {
     }
 
     fn receive_connection_status(&mut self) -> Result<(), Error> {
-        if self.server_inbuf.len() < 4 {
-            return Ok(());
-        }
-        let ver = self.server_inbuf[0];
-        let rep = self.server_inbuf[1];
-        let _rsv = self.server_inbuf[2];
-        let atyp = self.server_inbuf[3];
-
-        if ver != 5 {
-            return Err("SOCKS5 server replied with an unexpected version.".into());
-        }
-
-        if rep != 0 {
-            return Err("SOCKS5 connection unsuccessful.".into());
-        }
-
-        let message_length = match AddressType::try_from(atyp)? {
-            AddressType::Domain => {
-                if self.server_inbuf.len() < 5 {
-                    return Ok(());
-                }
-                if self.server_inbuf.len() < 7 + (self.server_inbuf[4] as usize) {
-                    return Ok(());
-                }
-                7 + (self.server_inbuf[4] as usize)
+        let response = protocol::Response::rebuild_from_stream(&mut self.server_inbuf);
+        if let Err(e) = &response {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                log::trace!("Waiting for more data \"{}\"...", e);
+                return Ok(());
+            } else {
+                return Err(e.to_string().into());
             }
-            AddressType::IPv4 => 10,
-            AddressType::IPv6 => 22,
-        };
-
-        self.server_inbuf.drain(0..message_length);
+        }
+        let response = response?;
+        if response.reply != protocol::Reply::Succeeded {
+            return Err(format!("SOCKS connection failed: {}", response.reply).into());
+        }
+        assert!(self.server_inbuf.is_empty());
         self.server_outbuf.append(&mut self.data_buf);
         self.data_buf.clear();
 
