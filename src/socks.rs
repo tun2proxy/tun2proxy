@@ -6,7 +6,7 @@ use crate::{
     },
 };
 use smoltcp::wire::IpProtocol;
-use socks5_impl::protocol::{self, Address, UserKey};
+use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, UserKey};
 use std::{collections::VecDeque, net::SocketAddr, rc::Rc};
 
 #[derive(Eq, PartialEq, Debug)]
@@ -26,36 +26,6 @@ enum SocksState {
 pub enum SocksVersion {
     V4 = 4,
     V5 = 5,
-}
-
-#[allow(dead_code)]
-enum SocksAuthentication {
-    None = 0,
-    GssApi = 1,
-    Password = 2,
-    ChallengeHandshake = 3,
-    Unassigned = 4,
-    Unassigned100 = 100,
-}
-
-#[allow(dead_code)]
-#[repr(u8)]
-#[derive(Debug, Eq, PartialEq)]
-enum SocksReplies {
-    Succeeded,
-    GeneralFailure,
-    ConnectionDisallowed,
-    NetworkUnreachable,
-    ConnectionRefused,
-    TtlExpired,
-    CommandUnsupported,
-    AddressUnsupported,
-}
-
-impl std::fmt::Display for SocksReplies {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{:?}", self)
-    }
 }
 
 pub(crate) struct SocksConnection {
@@ -129,24 +99,15 @@ impl SocksConnection {
             SocksVersion::V5 => {
                 // Providing unassigned methods is supposed to bypass China's GFW.
                 // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
+                let mut methods = vec![
+                    AuthMethod::NoAuth,
+                    AuthMethod::from(4_u8),
+                    AuthMethod::from(100_u8),
+                ];
                 if credentials.is_some() {
-                    self.server_outbuf.extend(&[
-                        self.version as u8,
-                        4u8,
-                        SocksAuthentication::None as u8,
-                        SocksAuthentication::Password as u8,
-                        SocksAuthentication::Unassigned as u8,
-                        SocksAuthentication::Unassigned100 as u8,
-                    ]);
-                } else {
-                    self.server_outbuf.extend(&[
-                        self.version as u8,
-                        3u8,
-                        SocksAuthentication::None as u8,
-                        SocksAuthentication::Unassigned as u8,
-                        SocksAuthentication::Unassigned100 as u8,
-                    ]);
+                    methods.push(AuthMethod::UserPass);
                 }
+                handshake::Request::new(methods).write_to_stream(&mut self.server_outbuf)?;
             }
         }
         self.state = SocksState::ServerHello;
@@ -171,26 +132,26 @@ impl SocksConnection {
     }
 
     fn receive_server_hello_socks5(&mut self) -> Result<(), Error> {
-        if self.server_inbuf.len() < 2 {
-            return Ok(());
+        let response = handshake::Response::rebuild_from_stream(&mut self.server_inbuf);
+        if let Err(e) = &response {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                log::trace!("receive_server_hello_socks5 need more data \"{}\"...", e);
+                return Ok(());
+            } else {
+                return Err(e.to_string().into());
+            }
         }
-        if self.server_inbuf[0] != 5 {
-            return Err("SOCKS5 server replied with an unexpected version.".into());
-        }
+        let respones = response?;
+        let auth_method = respones.method;
 
-        let auth_method = self.server_inbuf[1];
-
-        if auth_method != SocksAuthentication::None as u8 && self.credentials.is_none()
-            || (auth_method != SocksAuthentication::None as u8
-                && auth_method != SocksAuthentication::Password as u8)
+        if auth_method != AuthMethod::NoAuth && self.credentials.is_none()
+            || (auth_method != AuthMethod::NoAuth && auth_method != AuthMethod::UserPass)
                 && self.credentials.is_some()
         {
             return Err("SOCKS5 server requires an unsupported authentication method.".into());
         }
 
-        self.server_inbuf.drain(0..2);
-
-        if auth_method == SocksAuthentication::Password as u8 {
+        if auth_method == AuthMethod::UserPass {
             self.state = SocksState::SendAuthData;
         } else {
             self.state = SocksState::SendRequest;
@@ -208,24 +169,27 @@ impl SocksConnection {
     fn send_auth_data(&mut self) -> Result<(), Error> {
         let tmp = UserKey::default();
         let credentials = self.credentials.as_ref().unwrap_or(&tmp);
-        self.server_outbuf
-            .extend(&[1u8, credentials.username.len() as u8]);
-        self.server_outbuf.extend(credentials.username.as_bytes());
-        self.server_outbuf
-            .extend(&[credentials.password.len() as u8]);
-        self.server_outbuf.extend(credentials.password.as_bytes());
+        let request = password_method::Request::new(&credentials.username, &credentials.password);
+        request.write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveAuthResponse;
         self.state_change()
     }
 
     fn receive_auth_data(&mut self) -> Result<(), Error> {
-        if self.server_inbuf.len() < 2 {
-            return Ok(());
+        let response = password_method::Response::rebuild_from_stream(&mut self.server_inbuf);
+        if let Err(e) = &response {
+            if e.kind() == std::io::ErrorKind::UnexpectedEof {
+                log::trace!("receive_auth_data need more data \"{}\"...", e);
+                return Ok(());
+            } else {
+                return Err(e.to_string().into());
+            }
         }
-        if self.server_inbuf[0] != 1 || self.server_inbuf[1] != 0 {
-            return Err("SOCKS authentication failed.".into());
+        assert!(self.server_inbuf.is_empty());
+        let response = response?;
+        if response.status != password_method::Status::Succeeded {
+            return Err(format!("SOCKS authentication failed: {:?}", response.status).into());
         }
-        self.server_inbuf.drain(0..2);
         self.state = SocksState::SendRequest;
         self.state_change()
     }
@@ -234,7 +198,7 @@ impl SocksConnection {
         let response = protocol::Response::rebuild_from_stream(&mut self.server_inbuf);
         if let Err(e) = &response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                log::trace!("Waiting for more data \"{}\"...", e);
+                log::trace!("receive_connection_status need more data \"{}\"...", e);
                 return Ok(());
             } else {
                 return Err(e.to_string().into());
