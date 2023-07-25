@@ -6,7 +6,9 @@ use crate::{
     },
 };
 use smoltcp::wire::IpProtocol;
-use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, UserKey};
+use socks5_impl::protocol::{
+    self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey,
+};
 use std::{collections::VecDeque, net::SocketAddr, rc::Rc};
 
 #[derive(Eq, PartialEq, Debug)]
@@ -132,16 +134,17 @@ impl SocksConnection {
     }
 
     fn receive_server_hello_socks5(&mut self) -> Result<(), Error> {
-        let response = handshake::Response::rebuild_from_stream(&mut self.server_inbuf);
+        let response = handshake::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
         if let Err(e) = &response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                log::trace!("receive_server_hello_socks5 need more data \"{}\"...", e);
+                log::trace!("receive_server_hello_socks5 needs more data \"{}\"...", e);
                 return Ok(());
             } else {
                 return Err(e.to_string().into());
             }
         }
         let respones = response?;
+        self.server_inbuf.drain(0..respones.len());
         let auth_method = respones.method;
 
         if auth_method != AuthMethod::NoAuth && self.credentials.is_none()
@@ -176,17 +179,18 @@ impl SocksConnection {
     }
 
     fn receive_auth_data(&mut self) -> Result<(), Error> {
-        let response = password_method::Response::rebuild_from_stream(&mut self.server_inbuf);
+        use password_method::Response;
+        let response = Response::retrieve_from_stream(&mut self.server_inbuf.clone());
         if let Err(e) = &response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                log::trace!("receive_auth_data need more data \"{}\"...", e);
+                log::trace!("receive_auth_data needs more data \"{}\"...", e);
                 return Ok(());
             } else {
                 return Err(e.to_string().into());
             }
         }
-        assert!(self.server_inbuf.is_empty());
         let response = response?;
+        self.server_inbuf.drain(0..response.len());
         if response.status != password_method::Status::Succeeded {
             return Err(format!("SOCKS authentication failed: {:?}", response.status).into());
         }
@@ -195,20 +199,20 @@ impl SocksConnection {
     }
 
     fn receive_connection_status(&mut self) -> Result<(), Error> {
-        let response = protocol::Response::rebuild_from_stream(&mut self.server_inbuf);
+        let response = protocol::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
         if let Err(e) = &response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                log::trace!("receive_connection_status need more data \"{}\"...", e);
+                log::trace!("receive_connection_status needs more data \"{}\"...", e);
                 return Ok(());
             } else {
                 return Err(e.to_string().into());
             }
         }
         let response = response?;
+        self.server_inbuf.drain(0..response.len());
         if response.reply != protocol::Reply::Succeeded {
             return Err(format!("SOCKS connection failed: {}", response.reply).into());
         }
-        assert!(self.server_inbuf.is_empty());
         self.server_outbuf.append(&mut self.data_buf);
         self.data_buf.clear();
 
