@@ -9,7 +9,11 @@ use smoltcp::wire::IpProtocol;
 use socks5_impl::protocol::{
     self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey,
 };
-use std::{collections::VecDeque, net::SocketAddr, rc::Rc};
+use std::{
+    collections::VecDeque,
+    net::{Ipv4Addr, SocketAddr},
+    rc::Rc,
+};
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -40,6 +44,8 @@ pub(crate) struct SocksConnection {
     data_buf: VecDeque<u8>,
     version: SocksVersion,
     credentials: Option<UserKey>,
+    command: protocol::Command,
+    udp_relay_addr: Option<Address>,
 }
 
 impl SocksConnection {
@@ -58,58 +64,92 @@ impl SocksConnection {
             data_buf: VecDeque::default(),
             version,
             credentials: manager.get_credentials().clone(),
+            command: protocol::Command::Connect,
+            udp_relay_addr: None,
         };
         result.send_client_hello()?;
         Ok(result)
     }
 
-    fn send_client_hello(&mut self) -> Result<(), Error> {
+    pub fn new_udp_control_connection(manager: Rc<dyn ConnectionManager>) -> Result<Self, Error> {
+        let mut result = Self {
+            connection: Connection::new(
+                SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
+                Address::unspecified(),
+                IpProtocol::Udp,
+            ),
+            state: SocksState::ServerHello,
+            client_inbuf: VecDeque::default(),
+            server_inbuf: VecDeque::default(),
+            client_outbuf: VecDeque::default(),
+            server_outbuf: VecDeque::default(),
+            data_buf: VecDeque::default(),
+            version: SocksVersion::V5,
+            credentials: manager.get_credentials().clone(),
+            command: protocol::Command::UdpAssociate,
+            udp_relay_addr: None,
+        };
+        result.send_client_hello()?;
+        Ok(result)
+    }
+
+    fn send_client_hello_socks4(&mut self) -> Result<(), Error> {
         let credentials = &self.credentials;
+        self.server_outbuf
+            .extend(&[self.version as u8, protocol::Command::Connect.into()]);
+        self.server_outbuf
+            .extend(self.connection.dst.port().to_be_bytes());
+        let mut ip_vec = Vec::<u8>::new();
+        let mut name_vec = Vec::<u8>::new();
+        match &self.connection.dst {
+            Address::SocketAddress(SocketAddr::V4(addr)) => {
+                ip_vec.extend(addr.ip().octets().as_ref());
+            }
+            Address::SocketAddress(SocketAddr::V6(_)) => {
+                return Err("SOCKS4 does not support IPv6".into());
+            }
+            Address::DomainAddress(host, _) => {
+                ip_vec.extend(&[0, 0, 0, host.len() as u8]);
+                name_vec.extend(host.as_bytes());
+                name_vec.push(0);
+            }
+        }
+        self.server_outbuf.extend(ip_vec);
+        if let Some(credentials) = credentials {
+            self.server_outbuf.extend(credentials.username.as_bytes());
+            if !credentials.password.is_empty() {
+                self.server_outbuf.push_back(b':');
+                self.server_outbuf.extend(credentials.password.as_bytes());
+            }
+        }
+        self.server_outbuf.push_back(0);
+        self.server_outbuf.extend(name_vec);
+        Ok(())
+    }
+
+    fn send_client_hello_socks5(&mut self) -> Result<(), Error> {
+        let credentials = &self.credentials;
+        // Providing unassigned methods is supposed to bypass China's GFW.
+        // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
+        let mut methods = vec![
+            AuthMethod::NoAuth,
+            AuthMethod::from(4_u8),
+            AuthMethod::from(100_u8),
+        ];
+        if credentials.is_some() {
+            methods.push(AuthMethod::UserPass);
+        }
+        handshake::Request::new(methods).write_to_stream(&mut self.server_outbuf)?;
+        Ok(())
+    }
+
+    fn send_client_hello(&mut self) -> Result<(), Error> {
         match self.version {
             SocksVersion::V4 => {
-                self.server_outbuf
-                    .extend(&[self.version as u8, protocol::Command::Connect.into()]);
-                self.server_outbuf
-                    .extend(self.connection.dst.port().to_be_bytes());
-                let mut ip_vec = Vec::<u8>::new();
-                let mut name_vec = Vec::<u8>::new();
-                match &self.connection.dst {
-                    Address::SocketAddress(SocketAddr::V4(addr)) => {
-                        ip_vec.extend(addr.ip().octets().as_ref());
-                    }
-                    Address::SocketAddress(SocketAddr::V6(_)) => {
-                        return Err("SOCKS4 does not support IPv6".into());
-                    }
-                    Address::DomainAddress(host, _) => {
-                        ip_vec.extend(&[0, 0, 0, host.len() as u8]);
-                        name_vec.extend(host.as_bytes());
-                        name_vec.push(0);
-                    }
-                }
-                self.server_outbuf.extend(ip_vec);
-                if let Some(credentials) = credentials {
-                    self.server_outbuf.extend(credentials.username.as_bytes());
-                    if !credentials.password.is_empty() {
-                        self.server_outbuf.push_back(b':');
-                        self.server_outbuf.extend(credentials.password.as_bytes());
-                    }
-                }
-                self.server_outbuf.push_back(0);
-                self.server_outbuf.extend(name_vec);
+                self.send_client_hello_socks4()?;
             }
-
             SocksVersion::V5 => {
-                // Providing unassigned methods is supposed to bypass China's GFW.
-                // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
-                let mut methods = vec![
-                    AuthMethod::NoAuth,
-                    AuthMethod::from(4_u8),
-                    AuthMethod::from(100_u8),
-                ];
-                if credentials.is_some() {
-                    methods.push(AuthMethod::UserPass);
-                }
-                handshake::Request::new(methods).write_to_stream(&mut self.server_outbuf)?;
+                self.send_client_hello_socks5()?;
             }
         }
         self.state = SocksState::ServerHello;
@@ -213,6 +253,12 @@ impl SocksConnection {
         if response.reply != protocol::Reply::Succeeded {
             return Err(format!("SOCKS connection failed: {}", response.reply).into());
         }
+
+        if self.command == protocol::Command::UdpAssociate {
+            log::info!("UDP packet destination: {}", response.address);
+            self.udp_relay_addr = Some(response.address);
+        }
+
         self.server_outbuf.append(&mut self.data_buf);
         self.data_buf.clear();
 
@@ -220,7 +266,8 @@ impl SocksConnection {
         self.state_change()
     }
 
-    fn send_request(&mut self) -> Result<(), Error> {
+    fn send_request_socks5(&mut self) -> Result<(), Error> {
+        // self.server_outbuf.extend(&[self.version as u8, self.command as u8, 0]);
         protocol::Request::new(protocol::Command::Connect, self.connection.dst.clone())
             .write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveResponse;
@@ -243,7 +290,7 @@ impl SocksConnection {
 
             SocksState::ReceiveAuthResponse => self.receive_auth_data(),
 
-            SocksState::SendRequest => self.send_request(),
+            SocksState::SendRequest => self.send_request_socks5(),
 
             SocksState::ReceiveResponse => self.receive_connection_status(),
 
@@ -323,10 +370,14 @@ pub struct SocksManager {
     server: SocketAddr,
     credentials: Option<UserKey>,
     version: SocksVersion,
+    udp_connection: Option<SocksConnection>,
 }
 
 impl ConnectionManager for SocksManager {
     fn handles_connection(&self, connection: &Connection) -> bool {
+        if self.udp_connection.is_some() {
+            return connection.proto == IpProtocol::Udp;
+        }
         connection.proto == IpProtocol::Tcp
     }
 
@@ -354,6 +405,18 @@ impl ConnectionManager for SocksManager {
     fn get_credentials(&self) -> &Option<UserKey> {
         &self.credentials
     }
+
+    fn get_udp_control_connection(
+        &self,
+        manager: Rc<dyn ConnectionManager>,
+    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
+        if self.version != SocksVersion::V5 {
+            return Ok(None);
+        }
+        Ok(Some(Box::new(SocksConnection::new_udp_control_connection(
+            manager,
+        )?)))
+    }
 }
 
 impl SocksManager {
@@ -366,6 +429,7 @@ impl SocksManager {
             server,
             credentials,
             version,
+            udp_connection: None,
         })
     }
 }
