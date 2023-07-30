@@ -125,7 +125,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
         a.copy_from_slice(packet.dst_addr().as_bytes());
         let dst_addr = IpAddr::from(a);
 
-        return if let Some((ports, first_packet, payload_offset, payload_size)) = get_transport_info(
+        if let Some((ports, first_packet, payload_offset, payload_size)) = get_transport_info(
             proto,
             packet.header_len().into(),
             &frame[packet.header_len().into()..],
@@ -135,38 +135,34 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
                 dst: SocketAddr::new(dst_addr, ports.1).into(),
                 proto,
             };
-            Some((info, first_packet, payload_offset, payload_size))
-        } else {
-            None
-        };
-    }
-
-    match Ipv6Packet::new_checked(frame) {
-        Ok(packet) => {
-            // TODO: Support extension headers.
-            let proto = packet.next_header();
-
-            let mut a = [0_u8; 16];
-            a.copy_from_slice(packet.src_addr().as_bytes());
-            let src_addr = IpAddr::from(a);
-            a.copy_from_slice(packet.dst_addr().as_bytes());
-            let dst_addr = IpAddr::from(a);
-
-            if let Some((ports, first_packet, payload_offset, payload_size)) =
-                get_transport_info(proto, packet.header_len(), &frame[packet.header_len()..])
-            {
-                let info = ConnectionInfo {
-                    src: SocketAddr::new(src_addr, ports.0),
-                    dst: SocketAddr::new(dst_addr, ports.1).into(),
-                    proto,
-                };
-                Some((info, first_packet, payload_offset, payload_size))
-            } else {
-                None
-            }
+            return Some((info, first_packet, payload_offset, payload_size));
         }
-        _ => None,
+        return None;
     }
+
+    if let Ok(packet) = Ipv6Packet::new_checked(frame) {
+        // TODO: Support extension headers.
+        let proto = packet.next_header();
+
+        let mut a = [0_u8; 16];
+        a.copy_from_slice(packet.src_addr().as_bytes());
+        let src_addr = IpAddr::from(a);
+        a.copy_from_slice(packet.dst_addr().as_bytes());
+        let dst_addr = IpAddr::from(a);
+
+        if let Some((ports, first_packet, payload_offset, payload_size)) =
+            get_transport_info(proto, packet.header_len(), &frame[packet.header_len()..])
+        {
+            let info = ConnectionInfo {
+                src: SocketAddr::new(src_addr, ports.0),
+                dst: SocketAddr::new(dst_addr, ports.1).into(),
+                proto,
+            };
+            return Some((info, first_packet, payload_offset, payload_size));
+        }
+        return None;
+    }
+    None
 }
 
 const SERVER_WRITE_CLOSED: u8 = 1;
