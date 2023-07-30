@@ -19,13 +19,13 @@ use std::{
 };
 
 #[derive(Hash, Clone, Eq, PartialEq, Debug)]
-pub(crate) struct Connection {
+pub(crate) struct ConnectionInfo {
     pub(crate) src: SocketAddr,
     pub(crate) dst: Address,
     pub(crate) proto: IpProtocol,
 }
 
-impl Default for Connection {
+impl Default for ConnectionInfo {
     fn default() -> Self {
         Self {
             src: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0),
@@ -35,7 +35,7 @@ impl Default for Connection {
     }
 }
 
-impl Connection {
+impl ConnectionInfo {
     pub fn new(src: SocketAddr, dst: Address, proto: IpProtocol) -> Self {
         Self { src, dst, proto }
     }
@@ -48,7 +48,7 @@ impl Connection {
     }
 }
 
-impl std::fmt::Display for Connection {
+impl std::fmt::Display for ConnectionInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
         write!(f, "{} -> {}", self.src, self.dst)
     }
@@ -74,8 +74,8 @@ pub(crate) enum Direction {
 
 #[allow(dead_code)]
 pub(crate) enum ConnectionEvent<'a> {
-    NewConnection(&'a Connection),
-    ConnectionClosed(&'a Connection),
+    NewConnection(&'a ConnectionInfo),
+    ConnectionClosed(&'a ConnectionInfo),
 }
 
 #[derive(Debug)]
@@ -88,11 +88,11 @@ pub(crate) type IncomingDataEvent<'a> = DataEvent<'a, IncomingDirection>;
 pub(crate) type OutgoingDataEvent<'a> = DataEvent<'a, OutgoingDirection>;
 
 fn get_transport_info(
-    proto: IpProtocol,
+    protocol: IpProtocol,
     transport_offset: usize,
     packet: &[u8],
 ) -> Option<((u16, u16), bool, usize, usize)> {
-    match proto {
+    match protocol {
         IpProtocol::Udp => match UdpPacket::new_checked(packet) {
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
@@ -115,7 +115,7 @@ fn get_transport_info(
     }
 }
 
-fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
+fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)> {
     if let Ok(packet) = Ipv4Packet::new_checked(frame) {
         let proto = packet.next_header();
 
@@ -130,12 +130,12 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
             packet.header_len().into(),
             &frame[packet.header_len().into()..],
         ) {
-            let connection = Connection {
+            let info = ConnectionInfo {
                 src: SocketAddr::new(src_addr, ports.0),
                 dst: SocketAddr::new(dst_addr, ports.1).into(),
                 proto,
             };
-            Some((connection, first_packet, payload_offset, payload_size))
+            Some((info, first_packet, payload_offset, payload_size))
         } else {
             None
         };
@@ -155,12 +155,12 @@ fn connection_tuple(frame: &[u8]) -> Option<(Connection, bool, usize, usize)> {
             if let Some((ports, first_packet, payload_offset, payload_size)) =
                 get_transport_info(proto, packet.header_len(), &frame[packet.header_len()..])
             {
-                let connection = Connection {
+                let info = ConnectionInfo {
                     src: SocketAddr::new(src_addr, ports.0),
                     dst: SocketAddr::new(dst_addr, ports.1).into(),
                     proto,
                 };
-                Some((connection, first_packet, payload_offset, payload_size))
+                Some((info, first_packet, payload_offset, payload_size))
             } else {
                 None
             }
@@ -197,13 +197,13 @@ pub(crate) trait UdpProxy {
 }
 
 pub(crate) trait ConnectionManager {
-    fn handles_connection(&self, connection: &Connection) -> bool;
+    fn handles_connection(&self, info: &ConnectionInfo) -> bool;
     fn new_connection(
         &self,
-        connection: &Connection,
+        info: &ConnectionInfo,
         manager: Rc<dyn ConnectionManager>,
     ) -> Result<Option<Box<dyn TcpProxy>>, Error>;
-    fn close_connection(&self, connection: &Connection);
+    fn close_connection(&self, info: &ConnectionInfo);
     fn get_server(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<UserKey>;
     fn get_udp_control_connection(
@@ -220,10 +220,10 @@ pub struct TunToProxy<'a> {
     tun: TunTapInterface,
     poll: Poll,
     iface: Interface,
-    connections: HashMap<Connection, TcpConnection>,
+    connection_map: HashMap<ConnectionInfo, TcpConnection>,
     connection_managers: Vec<Rc<dyn ConnectionManager>>,
     next_token: usize,
-    token_to_connection: HashMap<Token, Connection>,
+    token_to_info: HashMap<Token, ConnectionInfo>,
     sockets: SocketSet<'a>,
     device: VirtualTunDevice,
     options: Options,
@@ -275,9 +275,9 @@ impl<'a> TunToProxy<'a> {
             tun,
             poll,
             iface,
-            connections: HashMap::default(),
+            connection_map: HashMap::default(),
             next_token: usize::from(EXIT_TOKEN) + 1,
-            token_to_connection: HashMap::default(),
+            token_to_info: HashMap::default(),
             connection_managers: Vec::default(),
             sockets: SocketSet::new([]),
             device: virt,
@@ -318,8 +318,8 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn remove_connection(&mut self, connection: &Connection) -> Result<(), Error> {
-        if let Some(mut conn) = self.connections.remove(connection) {
+    fn remove_connection(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
+        if let Some(mut conn) = self.connection_map.remove(info) {
             _ = conn.mio_stream.shutdown(Both);
             if let Some(handle) = conn.smoltcp_handle {
                 let socket = self.sockets.get_mut::<tcp::Socket>(handle);
@@ -328,24 +328,24 @@ impl<'a> TunToProxy<'a> {
             }
             self.expect_smoltcp_send()?;
             let token = &conn.token;
-            self.token_to_connection.remove(token);
+            self.token_to_info.remove(token);
             _ = self.poll.registry().deregister(&mut conn.mio_stream);
-            log::info!("CLOSE {}", connection);
+            log::info!("CLOSE {}", info);
         }
         Ok(())
     }
 
-    fn get_connection_manager(&self, connection: &Connection) -> Option<Rc<dyn ConnectionManager>> {
+    fn get_connection_manager(&self, info: &ConnectionInfo) -> Option<Rc<dyn ConnectionManager>> {
         for manager in self.connection_managers.iter() {
-            if manager.handles_connection(connection) {
+            if manager.handles_connection(info) {
                 return Some(manager.clone());
             }
         }
         None
     }
 
-    fn check_change_close_state(&mut self, connection: &Connection) -> Result<(), Error> {
-        let state = self.connections.get_mut(connection);
+    fn check_change_close_state(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
+        let state = self.connection_map.get_mut(info);
         if state.is_none() {
             return Ok(());
         }
@@ -379,15 +379,15 @@ impl<'a> TunToProxy<'a> {
         }
 
         if closed_ends == 2 {
-            self.remove_connection(connection)?;
+            self.remove_connection(info)?;
         }
         Ok(())
     }
 
-    fn tunsocket_read_and_forward(&mut self, connection: &Connection) -> Result<(), Error> {
+    fn tunsocket_read_and_forward(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
         // Scope for mutable borrow of self.
         {
-            let state = match self.connections.get_mut(connection) {
+            let state = match self.connection_map.get_mut(info) {
                 Some(state) => state,
                 None => return Ok(()),
             };
@@ -421,7 +421,7 @@ impl<'a> TunToProxy<'a> {
             self.expect_smoltcp_send()?;
         }
 
-        self.check_change_close_state(connection)?;
+        self.check_change_close_state(info)?;
 
         Ok(())
     }
@@ -501,21 +501,20 @@ impl<'a> TunToProxy<'a> {
                                     wait_write: false,
                                 };
 
-                                self.token_to_connection
-                                    .insert(token, resolved_conn.clone());
+                                self.token_to_info.insert(token, resolved_conn.clone());
                                 self.poll.registry().register(
                                     &mut state.mio_stream,
                                     token,
                                     Interest::READABLE,
                                 )?;
 
-                                self.connections.insert(resolved_conn.clone(), state);
+                                self.connection_map.insert(resolved_conn.clone(), state);
 
                                 log::info!("CONNECT {}", resolved_conn,);
                                 break;
                             }
                         }
-                    } else if !self.connections.contains_key(&resolved_conn) {
+                    } else if !self.connection_map.contains_key(&resolved_conn) {
                         return Ok(());
                     }
 
@@ -578,14 +577,14 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn write_to_server(&mut self, connection: &Connection) -> Result<(), Error> {
-        if let Some(state) = self.connections.get_mut(connection) {
+    fn write_to_server(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
+        if let Some(state) = self.connection_map.get_mut(info) {
             let event = state.handler.peek_data(OutgoingDirection::ToServer);
             let buffer_size = event.buffer.len();
             if buffer_size == 0 {
                 state.wait_write = false;
                 Self::update_mio_socket_interest(&mut self.poll, state)?;
-                self.check_change_close_state(connection)?;
+                self.check_change_close_state(info)?;
                 return Ok(());
             }
             let result = state.mio_stream.write(event.buffer);
@@ -607,12 +606,12 @@ impl<'a> TunToProxy<'a> {
                 }
             }
         }
-        self.check_change_close_state(connection)?;
+        self.check_change_close_state(info)?;
         Ok(())
     }
 
-    fn write_to_client(&mut self, token: Token, connection: &Connection) -> Result<(), Error> {
-        while let Some(state) = self.connections.get_mut(connection) {
+    fn write_to_client(&mut self, token: Token, info: &ConnectionInfo) -> Result<(), Error> {
+        while let Some(state) = self.connection_map.get_mut(info) {
             let socket_handle = match state.smoltcp_handle {
                 Some(handle) => handle,
                 None => break,
@@ -646,7 +645,7 @@ impl<'a> TunToProxy<'a> {
                 }
             }
 
-            self.check_change_close_state(connection)?;
+            self.check_change_close_state(info)?;
         }
         Ok(())
     }
@@ -663,7 +662,7 @@ impl<'a> TunToProxy<'a> {
     fn send_to_smoltcp(&mut self) -> Result<(), Error> {
         let cloned = self.write_sockets.clone();
         for token in cloned.iter() {
-            if let Some(connection) = self.token_to_connection.get(token) {
+            if let Some(connection) = self.token_to_info.get(token) {
                 let connection = connection.clone();
                 if let Err(error) = self.write_to_client(*token, &connection) {
                     self.remove_connection(&connection)?;
@@ -701,7 +700,7 @@ impl<'a> TunToProxy<'a> {
 
     fn mio_socket_event(&mut self, event: &Event) -> Result<(), Error> {
         let e = "connection not found";
-        let conn_ref = self.token_to_connection.get(&event.token());
+        let conn_ref = self.token_to_info.get(&event.token());
         // We may have closed the connection in an earlier iteration over the poll
         // events, e.g. because an event through the tunnel interface indicated that the connection
         // should be closed.
@@ -718,7 +717,7 @@ impl<'a> TunToProxy<'a> {
         let mut block = || -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {
                 {
-                    let state = self.connections.get_mut(&connection).ok_or(e)?;
+                    let state = self.connection_map.get_mut(&connection).ok_or(e)?;
 
                     // TODO: Move this reading process to its own function.
                     let mut vecbuf = Vec::<u8>::new();
@@ -866,33 +865,29 @@ impl<'a> TunToProxy<'a> {
         self.init()?;
         let mut events = Events::with_capacity(1024);
         loop {
-            match self.poll.poll(&mut events, None) {
-                Ok(()) => {
-                    for event in events.iter() {
-                        match event.token() {
-                            EXIT_TOKEN => {
-                                log::info!("exiting...");
-                                return Ok(());
-                            }
-                            TUN_TOKEN => self.tun_event(event)?,
-                            UDP_CONTROL_TOKEN => {
-                                if let Err(e) = self.udp_control_event(event) {
-                                    log::error!("UDP error: \"{e}\"");
-                                }
-                            }
-                            _ => self.mio_socket_event(event)?,
+            if let Err(err) = self.poll.poll(&mut events, None) {
+                if err.kind() == std::io::ErrorKind::Interrupted {
+                    log::warn!("Poll interrupted: \"{err}\", ignored, continue polling");
+                    continue;
+                }
+                return Err(err.into());
+            }
+            for event in events.iter() {
+                match event.token() {
+                    EXIT_TOKEN => {
+                        log::info!("Exiting tun2proxy...");
+                        return Ok(());
+                    }
+                    TUN_TOKEN => self.tun_event(event)?,
+                    UDP_CONTROL_TOKEN => {
+                        if let Err(e) = self.udp_control_event(event) {
+                            log::error!("UDP error: \"{e}\"");
                         }
                     }
-                    self.send_to_smoltcp()?;
-                }
-                Err(e) => {
-                    if e.kind() == std::io::ErrorKind::Interrupted {
-                        log::warn!("Poll interrupted: \"{e}\", ignored, continue polling");
-                    } else {
-                        return Err(e.into());
-                    }
+                    _ => self.mio_socket_event(event)?,
                 }
             }
+            self.send_to_smoltcp()?;
         }
     }
 

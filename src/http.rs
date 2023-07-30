@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     tun2proxy::{
-        Connection, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
+        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
         OutgoingDataEvent, OutgoingDirection, TcpProxy,
     },
 };
@@ -63,7 +63,7 @@ static CONTENT_LENGTH: &str = "Content-Length";
 
 impl HttpConnection {
     fn new(
-        connection: &Connection,
+        info: &ConnectionInfo,
         manager: Rc<dyn ConnectionManager>,
         digest_state: Rc<RefCell<Option<DigestState>>>,
     ) -> Result<Self, Error> {
@@ -80,7 +80,7 @@ impl HttpConnection {
             digest_state,
             before: false,
             credentials: manager.get_credentials().clone(),
-            destination: connection.dst.clone(),
+            destination: info.dst.clone(),
         };
 
         res.send_tunnel_request()?;
@@ -394,26 +394,26 @@ pub(crate) struct HttpManager {
 }
 
 impl ConnectionManager for HttpManager {
-    fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == IpProtocol::Tcp
+    fn handles_connection(&self, info: &ConnectionInfo) -> bool {
+        info.proto == IpProtocol::Tcp
     }
 
     fn new_connection(
         &self,
-        connection: &Connection,
+        info: &ConnectionInfo,
         manager: Rc<dyn ConnectionManager>,
     ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        if connection.proto != IpProtocol::Tcp {
+        if info.proto != IpProtocol::Tcp {
             return Ok(None);
         }
         Ok(Some(Box::new(HttpConnection::new(
-            connection,
+            info,
             manager,
             self.digest_state.clone(),
         )?)))
     }
 
-    fn close_connection(&self, _: &Connection) {}
+    fn close_connection(&self, _: &ConnectionInfo) {}
 
     fn get_server(&self) -> SocketAddr {
         self.server

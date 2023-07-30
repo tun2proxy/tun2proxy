@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     tun2proxy::{
-        Connection, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
+        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
         OutgoingDataEvent, OutgoingDirection, TcpProxy,
     },
 };
@@ -35,7 +35,7 @@ pub enum SocksVersion {
 }
 
 pub(crate) struct SocksConnection {
-    connection: Connection,
+    info: ConnectionInfo,
     state: SocksState,
     client_inbuf: VecDeque<u8>,
     server_inbuf: VecDeque<u8>,
@@ -50,12 +50,12 @@ pub(crate) struct SocksConnection {
 
 impl SocksConnection {
     pub fn new(
-        connection: &Connection,
+        info: &ConnectionInfo,
         manager: Rc<dyn ConnectionManager>,
         version: SocksVersion,
     ) -> Result<Self, Error> {
         let mut result = Self {
-            connection: connection.clone(),
+            info: info.clone(),
             state: SocksState::ServerHello,
             client_inbuf: VecDeque::default(),
             server_inbuf: VecDeque::default(),
@@ -73,7 +73,7 @@ impl SocksConnection {
 
     pub fn new_udp_control_connection(manager: Rc<dyn ConnectionManager>) -> Result<Self, Error> {
         let mut result = Self {
-            connection: Connection::new(
+            info: ConnectionInfo::new(
                 SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
                 Address::unspecified(),
                 IpProtocol::Udp,
@@ -98,10 +98,10 @@ impl SocksConnection {
         self.server_outbuf
             .extend(&[self.version as u8, protocol::Command::Connect.into()]);
         self.server_outbuf
-            .extend(self.connection.dst.port().to_be_bytes());
+            .extend(self.info.dst.port().to_be_bytes());
         let mut ip_vec = Vec::<u8>::new();
         let mut name_vec = Vec::<u8>::new();
-        match &self.connection.dst {
+        match &self.info.dst {
             Address::SocketAddress(SocketAddr::V4(addr)) => {
                 ip_vec.extend(addr.ip().octets().as_ref());
             }
@@ -268,7 +268,7 @@ impl SocksConnection {
 
     fn send_request_socks5(&mut self) -> Result<(), Error> {
         // self.server_outbuf.extend(&[self.version as u8, self.command as u8, 0]);
-        protocol::Request::new(protocol::Command::Connect, self.connection.dst.clone())
+        protocol::Request::new(protocol::Command::Connect, self.info.dst.clone())
             .write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveResponse;
         self.state_change()
@@ -374,29 +374,29 @@ pub struct SocksManager {
 }
 
 impl ConnectionManager for SocksManager {
-    fn handles_connection(&self, connection: &Connection) -> bool {
+    fn handles_connection(&self, info: &ConnectionInfo) -> bool {
         if self.udp_connection.is_some() {
-            return connection.proto == IpProtocol::Udp;
+            return info.proto == IpProtocol::Udp;
         }
-        connection.proto == IpProtocol::Tcp
+        info.proto == IpProtocol::Tcp
     }
 
     fn new_connection(
         &self,
-        connection: &Connection,
+        info: &ConnectionInfo,
         manager: Rc<dyn ConnectionManager>,
     ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        if connection.proto != IpProtocol::Tcp {
+        if info.proto != IpProtocol::Tcp {
             return Ok(None);
         }
         Ok(Some(Box::new(SocksConnection::new(
-            connection,
+            info,
             manager,
             self.version,
         )?)))
     }
 
-    fn close_connection(&self, _: &Connection) {}
+    fn close_connection(&self, _: &ConnectionInfo) {}
 
     fn get_server(&self) -> SocketAddr {
         self.server

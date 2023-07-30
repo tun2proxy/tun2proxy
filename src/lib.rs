@@ -143,6 +143,7 @@ pub fn main_entry(
     proxy: &Proxy,
     options: Options,
 ) -> Result<(), Error> {
-    let ttp = tun_to_proxy(interface, proxy, options);
-    ttp?.run()
+    let mut ttp = tun_to_proxy(interface, proxy, options)?;
+    ttp.run()?;
+    Ok(())
 }
