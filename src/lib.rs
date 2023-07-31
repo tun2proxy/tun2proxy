@@ -90,7 +90,7 @@ impl std::fmt::Display for ProxyType {
 
 #[derive(Default)]
 pub struct Options {
-    virtdns: Option<virtdns::VirtualDns>,
+    virtual_dns: Option<virtdns::VirtualDns>,
     mtu: Option<usize>,
 }
 
@@ -100,7 +100,7 @@ impl Options {
     }
 
     pub fn with_virtual_dns(mut self) -> Self {
-        self.virtdns = Some(virtdns::VirtualDns::new());
+        self.virtual_dns = Some(virtdns::VirtualDns::new());
         self
     }
 

@@ -446,12 +446,12 @@ impl<'a> TunToProxy<'a> {
             Some(tuple) => tuple,
             None => return Ok(()),
         };
-        let connection_info = match &mut self.options.virtdns {
+        let connection_info = match &mut self.options.virtual_dns {
             None => info.clone(),
-            Some(virt_dns) => {
-                let ip = SocketAddr::try_from(info.dst.clone())?.ip();
-                virt_dns.touch_ip(&ip);
-                match virt_dns.resolve_ip(&ip) {
+            Some(virtual_dns) => {
+                let dst_ip = SocketAddr::try_from(info.dst.clone())?.ip();
+                virtual_dns.touch_ip(&dst_ip);
+                match virtual_dns.resolve_ip(&dst_ip) {
                     None => info.clone(),
                     Some(name) => info.to_named(name.clone()),
                 }
@@ -526,9 +526,8 @@ impl<'a> TunToProxy<'a> {
                 // Therefore, we now expect it to write data to the server.
                 self.write_to_server(&connection_info)?;
             } else if connection_info.protocol == IpProtocol::Udp {
-                if let (Some(virtual_dns), true) =
-                    (&mut self.options.virtdns, connection_info.dst.port() == 53)
-                {
+                let port = connection_info.dst.port();
+                if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == 53) {
                     let payload = &frame[offset..offset + size];
                     if let Some(response) = virtual_dns.receive_query(payload) {
                         let rx_buffer =
@@ -607,9 +606,9 @@ impl<'a> TunToProxy<'a> {
             {
                 let socket = self.sockets.get_mut::<tcp::Socket>(socket_handle);
                 if socket.may_send() {
-                    if let Some(virtdns) = &mut self.options.virtdns {
+                    if let Some(virtual_dns) = &mut self.options.virtual_dns {
                         // Unwrapping is fine because every smoltcp socket is bound to an.
-                        virtdns.touch_ip(&IpAddr::from(socket.local_endpoint().unwrap().addr));
+                        virtual_dns.touch_ip(&IpAddr::from(socket.local_endpoint().unwrap().addr));
                     }
                     consumed = socket.send_slice(event.buffer)?;
                     state
