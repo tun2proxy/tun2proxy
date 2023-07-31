@@ -194,7 +194,7 @@ pub(crate) trait ConnectionManager {
         manager: Rc<dyn ConnectionManager>,
     ) -> Result<Option<Box<dyn TcpProxy>>, Error>;
     fn close_connection(&self, info: &ConnectionInfo);
-    fn get_server(&self) -> SocketAddr;
+    fn get_server_addr(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<UserKey>;
     fn get_udp_control_connection(
         &self,
@@ -460,12 +460,13 @@ impl<'a> TunToProxy<'a> {
         let dst = info.dst;
         let handler = || -> Result<(), Error> {
             if connection_info.protocol == IpProtocol::Tcp {
-                let cm = self.get_connection_manager(&connection_info);
-                if cm.is_none() {
-                    log::trace!("no connect manager");
-                    return Ok(());
-                }
-                let server = cm.unwrap().get_server();
+                let server = match self.get_connection_manager(&connection_info) {
+                    None => {
+                        log::trace!("no connect manager");
+                        return Ok(());
+                    }
+                    Some(cm) => cm.get_server_addr(),
+                };
                 if first_packet {
                     for manager in self.connection_managers.iter_mut() {
                         if let Some(handler) =
@@ -696,7 +697,7 @@ impl<'a> TunToProxy<'a> {
         let server = self
             .get_connection_manager(&connection)
             .unwrap()
-            .get_server();
+            .get_server_addr();
 
         let mut block = || -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {
@@ -827,7 +828,7 @@ impl<'a> TunToProxy<'a> {
             if let Some(udp_control) = manager.get_udp_control_connection(manager.clone())? {
                 self.udp_control = Some(TcpConnection {
                     smoltcp_handle: None,
-                    mio_stream: TcpStream::connect(manager.get_server())?,
+                    mio_stream: TcpStream::connect(manager.get_server_addr())?,
                     token: UDP_CONTROL_TOKEN,
                     handler: udp_control,
                     close_state: 0,

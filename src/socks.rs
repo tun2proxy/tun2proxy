@@ -398,7 +398,7 @@ impl ConnectionManager for SocksManager {
 
     fn close_connection(&self, _: &ConnectionInfo) {}
 
-    fn get_server(&self) -> SocketAddr {
+    fn get_server_addr(&self) -> SocketAddr {
         self.server
     }
 
