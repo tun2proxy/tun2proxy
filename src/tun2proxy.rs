@@ -5,7 +5,7 @@ use smoltcp::{
     phy::{Device, Medium, RxToken, TunTapInterface, TxToken},
     socket::{tcp, tcp::State, udp, udp::UdpMetadata},
     time::Instant,
-    wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket},
+    wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
 };
 use socks5_impl::protocol::{Address, UserKey};
 use std::{
@@ -97,8 +97,8 @@ fn get_transport_info(
             Ok(result) => Some((
                 (result.src_port(), result.dst_port()),
                 false,
-                transport_offset + 8,
-                packet.len() - 8,
+                transport_offset + UDP_HEADER_LEN,
+                packet.len() - UDP_HEADER_LEN,
             )),
             Err(_) => None,
         },
@@ -124,12 +124,11 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
         let src_addr = IpAddr::from(a);
         a.copy_from_slice(packet.dst_addr().as_bytes());
         let dst_addr = IpAddr::from(a);
+        let header_len = packet.header_len().into();
 
-        if let Some((ports, first_packet, payload_offset, payload_size)) = get_transport_info(
-            proto,
-            packet.header_len().into(),
-            &frame[packet.header_len().into()..],
-        ) {
+        if let Some((ports, first_packet, payload_offset, payload_size)) =
+            get_transport_info(proto, header_len, &frame[header_len..])
+        {
             let info = ConnectionInfo {
                 src: SocketAddr::new(src_addr, ports.0),
                 dst: SocketAddr::new(dst_addr, ports.1).into(),
@@ -149,9 +148,10 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
         let src_addr = IpAddr::from(a);
         a.copy_from_slice(packet.dst_addr().as_bytes());
         let dst_addr = IpAddr::from(a);
+        let header_len = packet.header_len();
 
         if let Some((ports, first_packet, payload_offset, payload_size)) =
-            get_transport_info(proto, packet.header_len(), &frame[packet.header_len()..])
+            get_transport_info(proto, header_len, &frame[header_len..])
         {
             let info = ConnectionInfo {
                 src: SocketAddr::new(src_addr, ports.0),
