@@ -446,7 +446,7 @@ impl<'a> TunToProxy<'a> {
             Some(tuple) => tuple,
             None => return Ok(()),
         };
-        let resolved_conn = match &mut self.options.virtdns {
+        let connection_info = match &mut self.options.virtdns {
             None => info.clone(),
             Some(virt_dns) => {
                 let ip = SocketAddr::try_from(info.dst.clone())?.ip();
@@ -459,8 +459,8 @@ impl<'a> TunToProxy<'a> {
         };
         let dst = info.dst;
         let handler = || -> Result<(), Error> {
-            if resolved_conn.protocol == IpProtocol::Tcp {
-                let cm = self.get_connection_manager(&resolved_conn);
+            if connection_info.protocol == IpProtocol::Tcp {
+                let cm = self.get_connection_manager(&connection_info);
                 if cm.is_none() {
                     log::trace!("no connect manager");
                     return Ok(());
@@ -469,7 +469,7 @@ impl<'a> TunToProxy<'a> {
                 if first_packet {
                     for manager in self.connection_managers.iter_mut() {
                         if let Some(handler) =
-                            manager.new_connection(&resolved_conn, manager.clone())?
+                            manager.new_connection(&connection_info, manager.clone())?
                         {
                             let mut socket = tcp::Socket::new(
                                 tcp::SocketBuffer::new(vec![0; 1024 * 128]),
@@ -494,20 +494,20 @@ impl<'a> TunToProxy<'a> {
                                 wait_write: false,
                             };
 
-                            self.token_to_info.insert(token, resolved_conn.clone());
+                            self.token_to_info.insert(token, connection_info.clone());
                             self.poll.registry().register(
                                 &mut state.mio_stream,
                                 token,
                                 Interest::READABLE,
                             )?;
 
-                            self.connection_map.insert(resolved_conn.clone(), state);
+                            self.connection_map.insert(connection_info.clone(), state);
 
-                            log::info!("CONNECT {}", resolved_conn,);
+                            log::info!("CONNECT {}", connection_info,);
                             break;
                         }
                     }
-                } else if !self.connection_map.contains_key(&resolved_conn) {
+                } else if !self.connection_map.contains_key(&connection_info) {
                     return Ok(());
                 }
 
@@ -520,14 +520,14 @@ impl<'a> TunToProxy<'a> {
                 self.expect_smoltcp_send()?;
 
                 // Read from the smoltcp socket and push the data to the connection handler.
-                self.tunsocket_read_and_forward(&resolved_conn)?;
+                self.tunsocket_read_and_forward(&connection_info)?;
 
                 // The connection handler builds up the connection or encapsulates the data.
                 // Therefore, we now expect it to write data to the server.
-                self.write_to_server(&resolved_conn)?;
-            } else if resolved_conn.protocol == IpProtocol::Udp {
+                self.write_to_server(&connection_info)?;
+            } else if connection_info.protocol == IpProtocol::Udp {
                 if let (Some(virtual_dns), true) =
-                    (&mut self.options.virtdns, resolved_conn.dst.port() == 53)
+                    (&mut self.options.virtdns, connection_info.dst.port() == 53)
                 {
                     let payload = &frame[offset..offset + size];
                     if let Some(response) = virtual_dns.receive_query(payload) {
@@ -539,7 +539,7 @@ impl<'a> TunToProxy<'a> {
                         let dst = SocketAddr::try_from(dst)?;
                         socket.bind(dst)?;
                         socket
-                            .send_slice(response.as_slice(), UdpMetadata::from(resolved_conn.src))
+                            .send_slice(response.as_slice(), UdpMetadata::from(connection_info.src))
                             .expect("failed to send DNS response");
                         let handle = self.sockets.add(socket);
                         self.expect_smoltcp_send()?;
@@ -548,7 +548,7 @@ impl<'a> TunToProxy<'a> {
                 } else {
                     // Another UDP packet
                     let _payload = &frame[offset..offset + size];
-                    let cm = self.get_connection_manager(&resolved_conn);
+                    let cm = self.get_connection_manager(&connection_info);
                     if cm.is_none() {
                         return Ok(());
                     }
