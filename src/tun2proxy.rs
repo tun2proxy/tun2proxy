@@ -126,17 +126,14 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
         let dst_addr = IpAddr::from(a);
         let header_len = packet.header_len().into();
 
-        if let Some((ports, first_packet, payload_offset, payload_size)) =
-            get_transport_info(proto, header_len, &frame[header_len..])
-        {
-            let info = ConnectionInfo {
-                src: SocketAddr::new(src_addr, ports.0),
-                dst: SocketAddr::new(dst_addr, ports.1).into(),
-                proto,
-            };
-            return Some((info, first_packet, payload_offset, payload_size));
-        }
-        return None;
+        let (ports, first_packet, payload_offset, payload_size) =
+            get_transport_info(proto, header_len, &frame[header_len..])?;
+        let info = ConnectionInfo {
+            src: SocketAddr::new(src_addr, ports.0),
+            dst: SocketAddr::new(dst_addr, ports.1).into(),
+            proto,
+        };
+        return Some((info, first_packet, payload_offset, payload_size));
     }
 
     if let Ok(packet) = Ipv6Packet::new_checked(frame) {
@@ -150,17 +147,14 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
         let dst_addr = IpAddr::from(a);
         let header_len = packet.header_len();
 
-        if let Some((ports, first_packet, payload_offset, payload_size)) =
-            get_transport_info(proto, header_len, &frame[header_len..])
-        {
-            let info = ConnectionInfo {
-                src: SocketAddr::new(src_addr, ports.0),
-                dst: SocketAddr::new(dst_addr, ports.1).into(),
-                proto,
-            };
-            return Some((info, first_packet, payload_offset, payload_size));
-        }
-        return None;
+        let (ports, first_packet, payload_offset, payload_size) =
+            get_transport_info(proto, header_len, &frame[header_len..])?;
+        let info = ConnectionInfo {
+            src: SocketAddr::new(src_addr, ports.0),
+            dst: SocketAddr::new(dst_addr, ports.1).into(),
+            proto,
+        };
+        return Some((info, first_packet, payload_offset, payload_size));
     }
     None
 }
