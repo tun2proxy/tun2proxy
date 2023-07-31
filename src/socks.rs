@@ -7,7 +7,7 @@ use crate::{
 };
 use smoltcp::wire::IpProtocol;
 use socks5_impl::protocol::{
-    self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey,
+    self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version,
 };
 use std::{
     collections::VecDeque,
@@ -27,13 +27,6 @@ enum SocksState {
     Established,
 }
 
-#[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum SocksVersion {
-    V4 = 4,
-    V5 = 5,
-}
-
 pub(crate) struct SocksConnection {
     info: ConnectionInfo,
     state: SocksState,
@@ -42,7 +35,7 @@ pub(crate) struct SocksConnection {
     client_outbuf: VecDeque<u8>,
     server_outbuf: VecDeque<u8>,
     data_buf: VecDeque<u8>,
-    version: SocksVersion,
+    version: Version,
     credentials: Option<UserKey>,
     command: protocol::Command,
     udp_relay_addr: Option<Address>,
@@ -52,7 +45,7 @@ impl SocksConnection {
     pub fn new(
         info: &ConnectionInfo,
         manager: Rc<dyn ConnectionManager>,
-        version: SocksVersion,
+        version: Version,
     ) -> Result<Self, Error> {
         let mut result = Self {
             info: info.clone(),
@@ -84,7 +77,7 @@ impl SocksConnection {
             client_outbuf: VecDeque::default(),
             server_outbuf: VecDeque::default(),
             data_buf: VecDeque::default(),
-            version: SocksVersion::V5,
+            version: Version::V5,
             credentials: manager.get_credentials().clone(),
             command: protocol::Command::UdpAssociate,
             udp_relay_addr: None,
@@ -145,10 +138,10 @@ impl SocksConnection {
 
     fn send_client_hello(&mut self) -> Result<(), Error> {
         match self.version {
-            SocksVersion::V4 => {
+            Version::V4 => {
                 self.send_client_hello_socks4()?;
             }
-            SocksVersion::V5 => {
+            Version::V5 => {
                 self.send_client_hello_socks5()?;
             }
         }
@@ -204,8 +197,8 @@ impl SocksConnection {
 
     fn receive_server_hello(&mut self) -> Result<(), Error> {
         match self.version {
-            SocksVersion::V4 => self.receive_server_hello_socks4(),
-            SocksVersion::V5 => self.receive_server_hello_socks5(),
+            Version::V4 => self.receive_server_hello_socks4(),
+            Version::V5 => self.receive_server_hello_socks5(),
         }
     }
 
@@ -369,7 +362,7 @@ impl TcpProxy for SocksConnection {
 pub struct SocksManager {
     server: SocketAddr,
     credentials: Option<UserKey>,
-    version: SocksVersion,
+    version: Version,
     udp_connection: Option<SocksConnection>,
 }
 
@@ -410,7 +403,7 @@ impl ConnectionManager for SocksManager {
         &self,
         manager: Rc<dyn ConnectionManager>,
     ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        if self.version != SocksVersion::V5 {
+        if self.version != Version::V5 {
             return Ok(None);
         }
         Ok(Some(Box::new(SocksConnection::new_udp_control_connection(
@@ -420,11 +413,7 @@ impl ConnectionManager for SocksManager {
 }
 
 impl SocksManager {
-    pub fn new(
-        server: SocketAddr,
-        version: SocksVersion,
-        credentials: Option<UserKey>,
-    ) -> Rc<Self> {
+    pub fn new(server: SocketAddr, version: Version, credentials: Option<UserKey>) -> Rc<Self> {
         Rc::new(Self {
             server,
             credentials,

@@ -1,8 +1,5 @@
-use crate::{
-    error::Error, http::HttpManager, socks::SocksManager, socks::SocksVersion,
-    tun2proxy::TunToProxy,
-};
-use socks5_impl::protocol::UserKey;
+use crate::{error::Error, http::HttpManager, socks::SocksManager, tun2proxy::TunToProxy};
+use socks5_impl::protocol::{UserKey, Version};
 use std::net::{SocketAddr, ToSocketAddrs};
 
 mod android;
@@ -120,14 +117,14 @@ pub fn tun_to_proxy<'a>(
         ProxyType::Socks4 => {
             ttp.add_connection_manager(SocksManager::new(
                 proxy.addr,
-                SocksVersion::V4,
+                Version::V4,
                 proxy.credentials.clone(),
             ));
         }
         ProxyType::Socks5 => {
             ttp.add_connection_manager(SocksManager::new(
                 proxy.addr,
-                SocksVersion::V5,
+                Version::V5,
                 proxy.credentials.clone(),
             ));
         }
