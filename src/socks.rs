@@ -376,9 +376,9 @@ pub struct SocksManager {
 impl ConnectionManager for SocksManager {
     fn handles_connection(&self, info: &ConnectionInfo) -> bool {
         if self.udp_connection.is_some() {
-            return info.proto == IpProtocol::Udp;
+            return info.protocol == IpProtocol::Udp;
         }
-        info.proto == IpProtocol::Tcp
+        info.protocol == IpProtocol::Tcp
     }
 
     fn new_connection(
@@ -386,7 +386,7 @@ impl ConnectionManager for SocksManager {
         info: &ConnectionInfo,
         manager: Rc<dyn ConnectionManager>,
     ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        if info.proto != IpProtocol::Tcp {
+        if info.protocol != IpProtocol::Tcp {
             return Ok(None);
         }
         Ok(Some(Box::new(SocksConnection::new(

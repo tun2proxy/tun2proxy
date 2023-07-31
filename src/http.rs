@@ -395,7 +395,7 @@ pub(crate) struct HttpManager {
 
 impl ConnectionManager for HttpManager {
     fn handles_connection(&self, info: &ConnectionInfo) -> bool {
-        info.proto == IpProtocol::Tcp
+        info.protocol == IpProtocol::Tcp
     }
 
     fn new_connection(
@@ -403,7 +403,7 @@ impl ConnectionManager for HttpManager {
         info: &ConnectionInfo,
         manager: Rc<dyn ConnectionManager>,
     ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        if info.proto != IpProtocol::Tcp {
+        if info.protocol != IpProtocol::Tcp {
             return Ok(None);
         }
         Ok(Some(Box::new(HttpConnection::new(

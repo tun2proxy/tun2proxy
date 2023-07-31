@@ -22,7 +22,7 @@ use std::{
 pub(crate) struct ConnectionInfo {
     pub(crate) src: SocketAddr,
     pub(crate) dst: Address,
-    pub(crate) proto: IpProtocol,
+    pub(crate) protocol: IpProtocol,
 }
 
 impl Default for ConnectionInfo {
@@ -30,14 +30,14 @@ impl Default for ConnectionInfo {
         Self {
             src: SocketAddr::new(Ipv4Addr::UNSPECIFIED.into(), 0),
             dst: Address::unspecified(),
-            proto: IpProtocol::Tcp,
+            protocol: IpProtocol::Tcp,
         }
     }
 }
 
 impl ConnectionInfo {
-    pub fn new(src: SocketAddr, dst: Address, proto: IpProtocol) -> Self {
-        Self { src, dst, proto }
+    pub fn new(src: SocketAddr, dst: Address, protocol: IpProtocol) -> Self {
+        Self { src, dst, protocol }
     }
 
     fn to_named(&self, name: String) -> Self {
@@ -117,7 +117,7 @@ fn get_transport_info(
 
 fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)> {
     if let Ok(packet) = Ipv4Packet::new_checked(frame) {
-        let proto = packet.next_header();
+        let protocol = packet.next_header();
 
         let mut a = [0_u8; 4];
         a.copy_from_slice(packet.src_addr().as_bytes());
@@ -127,18 +127,18 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
         let header_len = packet.header_len().into();
 
         let (ports, first_packet, payload_offset, payload_size) =
-            get_transport_info(proto, header_len, &frame[header_len..])?;
+            get_transport_info(protocol, header_len, &frame[header_len..])?;
         let info = ConnectionInfo {
             src: SocketAddr::new(src_addr, ports.0),
             dst: SocketAddr::new(dst_addr, ports.1).into(),
-            proto,
+            protocol,
         };
         return Some((info, first_packet, payload_offset, payload_size));
     }
 
     if let Ok(packet) = Ipv6Packet::new_checked(frame) {
         // TODO: Support extension headers.
-        let proto = packet.next_header();
+        let protocol = packet.next_header();
 
         let mut a = [0_u8; 16];
         a.copy_from_slice(packet.src_addr().as_bytes());
@@ -148,11 +148,11 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
         let header_len = packet.header_len();
 
         let (ports, first_packet, payload_offset, payload_size) =
-            get_transport_info(proto, header_len, &frame[header_len..])?;
+            get_transport_info(protocol, header_len, &frame[header_len..])?;
         let info = ConnectionInfo {
             src: SocketAddr::new(src_addr, ports.0),
             dst: SocketAddr::new(dst_addr, ports.1).into(),
-            proto,
+            protocol,
         };
         return Some((info, first_packet, payload_offset, payload_size));
     }
@@ -459,7 +459,7 @@ impl<'a> TunToProxy<'a> {
         };
         let dst = info.dst;
         let handler = || -> Result<(), Error> {
-            if resolved_conn.proto == IpProtocol::Tcp {
+            if resolved_conn.protocol == IpProtocol::Tcp {
                 let cm = self.get_connection_manager(&resolved_conn);
                 if cm.is_none() {
                     log::trace!("no connect manager");
@@ -525,7 +525,7 @@ impl<'a> TunToProxy<'a> {
                 // The connection handler builds up the connection or encapsulates the data.
                 // Therefore, we now expect it to write data to the server.
                 self.write_to_server(&resolved_conn)?;
-            } else if resolved_conn.proto == IpProtocol::Udp {
+            } else if resolved_conn.protocol == IpProtocol::Udp {
                 if let (Some(virtual_dns), true) =
                     (&mut self.options.virtdns, resolved_conn.dst.port() == 53)
                 {
