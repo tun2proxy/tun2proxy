@@ -406,9 +406,8 @@ impl ConnectionManager for SocksManager {
         if self.version != Version::V5 {
             return Ok(None);
         }
-        Ok(Some(Box::new(SocksConnection::new_udp_control_connection(
-            manager,
-        )?)))
+        let conn = SocksConnection::new_udp_control_connection(manager)?;
+        Ok(Some(Box::new(conn)))
     }
 }
 

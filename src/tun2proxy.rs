@@ -1,4 +1,4 @@
-use crate::{error::Error, virtdevice::VirtualTunDevice, NetworkInterface, Options};
+use crate::{error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
 use mio::{event::Event, net::TcpStream, unix::SourceFd, Events, Interest, Poll, Token};
 use smoltcp::{
     iface::{Config, Interface, SocketHandle, SocketSet},
@@ -162,7 +162,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
 const SERVER_WRITE_CLOSED: u8 = 1;
 const CLIENT_WRITE_CLOSED: u8 = 2;
 
-struct TcpConnection {
+struct TcpConnectState {
     smoltcp_handle: Option<SocketHandle>,
     mio_stream: TcpStream,
     token: Token,
@@ -210,7 +210,7 @@ pub struct TunToProxy<'a> {
     tun: TunTapInterface,
     poll: Poll,
     iface: Interface,
-    connection_map: HashMap<ConnectionInfo, TcpConnection>,
+    connection_map: HashMap<ConnectionInfo, TcpConnectState>,
     connection_managers: Vec<Rc<dyn ConnectionManager>>,
     next_token: usize,
     token_to_info: HashMap<Token, ConnectionInfo>,
@@ -220,7 +220,7 @@ pub struct TunToProxy<'a> {
     write_sockets: HashSet<Token>,
     _exit_receiver: mio::unix::pipe::Receiver,
     exit_sender: mio::unix::pipe::Sender,
-    udp_control: Option<TcpConnection>,
+    udp_control: Option<TcpConnectState>,
 }
 
 impl<'a> TunToProxy<'a> {
@@ -249,10 +249,10 @@ impl<'a> TunToProxy<'a> {
             Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
             Medium::Ieee802154 => todo!(),
         };
-        let mut virt = VirtualTunDevice::new(tun.capabilities());
+        let mut device = VirtualTunDevice::new(tun.capabilities());
         let gateway4: Ipv4Addr = Ipv4Addr::from_str("0.0.0.1")?;
         let gateway6: Ipv6Addr = Ipv6Addr::from_str("::1")?;
-        let mut iface = Interface::new(config, &mut virt, Instant::now());
+        let mut iface = Interface::new(config, &mut device, Instant::now());
         iface.update_ip_addrs(|ip_addrs| {
             ip_addrs.push(IpCidr::new(gateway4.into(), 0)).unwrap();
             ip_addrs.push(IpCidr::new(gateway6.into(), 0)).unwrap()
@@ -270,7 +270,7 @@ impl<'a> TunToProxy<'a> {
             token_to_info: HashMap::default(),
             connection_managers: Vec::default(),
             sockets: SocketSet::new([]),
-            device: virt,
+            device,
             options,
             write_sockets: HashSet::default(),
             _exit_receiver: exit_receiver,
@@ -416,7 +416,7 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn update_mio_socket_interest(poll: &mut Poll, state: &mut TcpConnection) -> Result<(), Error> {
+    fn update_mio_socket_interest(poll: &mut Poll, state: &mut TcpConnectState) -> Result<()> {
         // Maybe we did not listen for any events before. Therefore, just swallow the error.
         _ = poll.registry().deregister(&mut state.mio_stream);
 
@@ -444,7 +444,7 @@ impl<'a> TunToProxy<'a> {
     fn receive_tun(&mut self, frame: &mut [u8]) -> Result<(), Error> {
         let (info, first_packet, offset, size) = match connection_tuple(frame) {
             Some(tuple) => tuple,
-            None => return Ok(()),
+            None => return Ok(()), // This line is necessary.
         };
         let connection_info = match &mut self.options.virtual_dns {
             None => info.clone(),
@@ -457,35 +457,30 @@ impl<'a> TunToProxy<'a> {
                 }
             }
         };
-        let dst = info.dst;
-        let handler = || -> Result<(), Error> {
+        let dst = SocketAddr::try_from(&info.dst)?;
+        let mut handler = || -> Result<(), Error> {
             if connection_info.protocol == IpProtocol::Tcp {
-                let server = match self.get_connection_manager(&connection_info) {
-                    None => {
-                        log::trace!("no connect manager");
-                        return Ok(());
-                    }
+                let server_addr = match self.get_connection_manager(&connection_info) {
+                    None => return Ok(()), // This line is necessary.
                     Some(cm) => cm.get_server_addr(),
                 };
                 if first_packet {
                     for manager in self.connection_managers.iter_mut() {
-                        if let Some(handler) =
-                            manager.new_connection(&connection_info, manager.clone())?
-                        {
+                        let handler = manager.new_connection(&connection_info, manager.clone())?;
+                        if let Some(handler) = handler {
                             let mut socket = tcp::Socket::new(
                                 tcp::SocketBuffer::new(vec![0; 1024 * 128]),
                                 tcp::SocketBuffer::new(vec![0; 1024 * 128]),
                             );
                             socket.set_ack_delay(None);
-                            let dst = SocketAddr::try_from(dst)?;
                             socket.listen(dst)?;
                             let handle = self.sockets.add(socket);
 
-                            let client = TcpStream::connect(server)?;
+                            let client = TcpStream::connect(server_addr)?;
 
                             let token = self.new_token();
 
-                            let mut state = TcpConnection {
+                            let mut state = TcpConnectState {
                                 smoltcp_handle: Some(handle),
                                 mio_stream: client,
                                 token,
@@ -504,7 +499,7 @@ impl<'a> TunToProxy<'a> {
 
                             self.connection_map.insert(connection_info.clone(), state);
 
-                            log::info!("CONNECT {}", connection_info,);
+                            log::info!("CONNECT {}", connection_info);
                             break;
                         }
                     }
@@ -536,7 +531,6 @@ impl<'a> TunToProxy<'a> {
                         let tx_buffer =
                             udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
                         let mut socket = udp::Socket::new(rx_buffer, tx_buffer);
-                        let dst = SocketAddr::try_from(dst)?;
                         socket.bind(dst)?;
                         socket
                             .send_slice(response.as_slice(), UdpMetadata::from(connection_info.src))
@@ -685,24 +679,26 @@ impl<'a> TunToProxy<'a> {
 
     fn mio_socket_event(&mut self, event: &Event) -> Result<(), Error> {
         let e = "connection not found";
-        let conn_ref = self.token_to_info.get(&event.token());
-        // We may have closed the connection in an earlier iteration over the poll
-        // events, e.g. because an event through the tunnel interface indicated that the connection
-        // should be closed.
-        if conn_ref.is_none() {
-            log::trace!("{e}");
-            return Ok(());
-        }
-        let connection = conn_ref.unwrap().clone();
+        let conn_info = match self.token_to_info.get(&event.token()) {
+            Some(conn_info) => conn_info.clone(),
+            None => {
+                // We may have closed the connection in an earlier iteration over the poll events,
+                // e.g. because an event through the tunnel interface indicated that the connection
+                // should be closed.
+                log::trace!("{e}");
+                return Ok(());
+            }
+        };
+
         let server = self
-            .get_connection_manager(&connection)
-            .unwrap()
+            .get_connection_manager(&conn_info)
+            .ok_or(e)?
             .get_server_addr();
 
         let mut block = || -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {
                 {
-                    let state = self.connection_map.get_mut(&connection).ok_or(e)?;
+                    let state = self.connection_map.get_mut(&conn_info).ok_or(e)?;
 
                     // TODO: Move this reading process to its own function.
                     let mut vecbuf = Vec::<u8>::new();
@@ -724,7 +720,7 @@ impl<'a> TunToProxy<'a> {
                     };
                     if let Err(error) = state.handler.push_data(data_event) {
                         log::error!("{}", error);
-                        self.remove_connection(&connection.clone())?;
+                        self.remove_connection(&conn_info.clone())?;
                         return Ok(());
                     }
 
@@ -734,7 +730,7 @@ impl<'a> TunToProxy<'a> {
                         // Closes the connection with the proxy
                         state.mio_stream.shutdown(Both)?;
 
-                        log::info!("RESET {}", connection);
+                        log::info!("RESET {}", conn_info);
 
                         state.mio_stream = TcpStream::connect(server)?;
 
@@ -750,45 +746,45 @@ impl<'a> TunToProxy<'a> {
                         state.wait_read = false;
                         state.close_state |= SERVER_WRITE_CLOSED;
                         Self::update_mio_socket_interest(&mut self.poll, state)?;
-                        self.check_change_close_state(&connection)?;
+                        self.check_change_close_state(&conn_info)?;
                         self.expect_smoltcp_send()?;
                     }
                 }
 
                 // We have read from the proxy server and pushed the data to the connection handler.
                 // Thus, expect data to be processed (e.g. decapsulated) and forwarded to the client.
-                self.write_to_client(event.token(), &connection)?;
+                self.write_to_client(event.token(), &conn_info)?;
 
                 // The connection handler could have produced data that is to be written to the
                 // server.
-                self.write_to_server(&connection)?;
+                self.write_to_server(&conn_info)?;
             }
 
             if event.is_writable() {
-                self.write_to_server(&connection)?;
+                self.write_to_server(&conn_info)?;
             }
             Ok::<(), Error>(())
         };
         if let Err(error) = block() {
             log::error!("{}", error);
-            self.remove_connection(&connection)?;
+            self.remove_connection(&conn_info)?;
         }
         Ok(())
     }
 
     fn udp_control_event(&mut self, event: &Event) -> Result<(), Error> {
         if event.is_readable() {
-            let tcp_connection = self.udp_control.as_mut().unwrap();
+            let tcp_conn_state = self.udp_control.as_mut().unwrap();
             _ = Self::read_from_server(
-                &mut tcp_connection.mio_stream,
-                tcp_connection.handler.as_mut(),
+                &mut tcp_conn_state.mio_stream,
+                tcp_conn_state.handler.as_mut(),
             )?;
 
-            tcp_connection.wait_write = tcp_connection
+            tcp_conn_state.wait_write = tcp_conn_state
                 .handler
                 .have_data(Direction::Outgoing(OutgoingDirection::ToServer));
 
-            Self::update_mio_socket_interest(&mut self.poll, tcp_connection)?;
+            Self::update_mio_socket_interest(&mut self.poll, tcp_conn_state)?;
         }
 
         if event.is_writable() {
@@ -826,7 +822,7 @@ impl<'a> TunToProxy<'a> {
     fn init(&mut self) -> Result<(), Error> {
         for manager in self.connection_managers.iter() {
             if let Some(udp_control) = manager.get_udp_control_connection(manager.clone())? {
-                self.udp_control = Some(TcpConnection {
+                self.udp_control = Some(TcpConnectState {
                     smoltcp_handle: None,
                     mio_stream: TcpStream::connect(manager.get_server_addr())?,
                     token: UDP_CONTROL_TOKEN,
