@@ -342,8 +342,8 @@ impl<'a> TunToProxy<'a> {
                 .handler
                 .have_data(Direction::Outgoing(OutgoingDirection::ToClient))
         {
-            if let Some(smoltcp_handle) = state.smoltcp_handle {
-                let socket = self.sockets.get_mut::<tcp::Socket>(smoltcp_handle);
+            if let Some(socket_handle) = state.smoltcp_handle {
+                let socket = self.sockets.get_mut::<tcp::Socket>(socket_handle);
                 socket.close();
             }
             closed_ends += 1;
@@ -435,28 +435,26 @@ impl<'a> TunToProxy<'a> {
 
     // A raw packet was received on the tunnel interface.
     fn receive_tun(&mut self, frame: &mut [u8]) -> Result<(), Error> {
-        let (info, first_packet, offset, size) = match connection_tuple(frame) {
-            Some(tuple) => tuple,
-            None => return Ok(()), // This line is necessary.
-        };
-        let connection_info = match &mut self.options.virtual_dns {
-            None => info.clone(),
-            Some(virtual_dns) => {
-                let dst_ip = SocketAddr::try_from(info.dst.clone())?.ip();
-                virtual_dns.touch_ip(&dst_ip);
-                match virtual_dns.resolve_ip(&dst_ip) {
-                    None => info.clone(),
-                    Some(name) => info.to_named(name.clone()),
-                }
-            }
-        };
-        let dst = SocketAddr::try_from(&info.dst)?;
         let mut handler = || -> Result<(), Error> {
+            let (info, first_packet, payload_offset, payload_size) =
+                connection_tuple(frame).ok_or("connection_tuple")?;
+            let dst = SocketAddr::try_from(&info.dst)?;
+            let connection_info = match &mut self.options.virtual_dns {
+                None => info.clone(),
+                Some(virtual_dns) => {
+                    let dst_ip = dst.ip();
+                    virtual_dns.touch_ip(&dst_ip);
+                    match virtual_dns.resolve_ip(&dst_ip) {
+                        None => info.clone(),
+                        Some(name) => info.to_named(name.clone()),
+                    }
+                }
+            };
             if connection_info.protocol == IpProtocol::Tcp {
-                let server_addr = match self.get_connection_manager(&connection_info) {
-                    None => return Ok(()), // This line is necessary.
-                    Some(cm) => cm.get_server_addr(),
-                };
+                let server_addr = self
+                    .get_connection_manager(&connection_info)
+                    .ok_or("get_connection_manager")?
+                    .get_server_addr();
                 if first_packet {
                     for manager in self.connection_managers.iter_mut() {
                         let handler = manager.new_connection(&connection_info)?;
@@ -469,11 +467,12 @@ impl<'a> TunToProxy<'a> {
                             socket.listen(dst)?;
                             let handle = self.sockets.add(socket);
 
-                            let client = TcpStream::connect(server_addr)?;
-
+                            let mut client = TcpStream::connect(server_addr)?;
                             let token = self.new_token();
+                            let i = Interest::READABLE;
+                            self.poll.registry().register(&mut client, token, i)?;
 
-                            let mut state = TcpConnectState {
+                            let state = TcpConnectState {
                                 smoltcp_handle: Some(handle),
                                 mio_stream: client,
                                 token,
@@ -482,17 +481,11 @@ impl<'a> TunToProxy<'a> {
                                 wait_read: true,
                                 wait_write: false,
                             };
-
-                            self.token_to_info.insert(token, connection_info.clone());
-                            self.poll.registry().register(
-                                &mut state.mio_stream,
-                                token,
-                                Interest::READABLE,
-                            )?;
-
                             self.connection_map.insert(connection_info.clone(), state);
 
-                            log::info!("CONNECT {}", connection_info);
+                            self.token_to_info.insert(token, connection_info.clone());
+
+                            log::info!("CONNECT tcp {}", connection_info);
                             break;
                         }
                     }
@@ -517,7 +510,7 @@ impl<'a> TunToProxy<'a> {
             } else if connection_info.protocol == IpProtocol::Udp {
                 let port = connection_info.dst.port();
                 if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == 53) {
-                    let payload = &frame[offset..offset + size];
+                    let payload = &frame[payload_offset..payload_offset + payload_size];
                     if let Some(response) = virtual_dns.receive_query(payload) {
                         let rx_buffer =
                             udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
@@ -534,7 +527,7 @@ impl<'a> TunToProxy<'a> {
                     }
                 } else {
                     // Another UDP packet
-                    let _payload = &frame[offset..offset + size];
+                    let _payload = &frame[payload_offset..payload_offset + payload_size];
                     let cm = self.get_connection_manager(&connection_info);
                     if cm.is_none() {
                         return Ok(());
