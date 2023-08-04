@@ -12,7 +12,6 @@ use socks5_impl::protocol::{
 use std::{
     collections::VecDeque,
     net::{Ipv4Addr, SocketAddr},
-    rc::Rc,
 };
 
 #[derive(Eq, PartialEq, Debug)]
@@ -44,7 +43,7 @@ pub(crate) struct SocksConnection {
 impl SocksConnection {
     pub fn new(
         info: &ConnectionInfo,
-        manager: Rc<dyn ConnectionManager>,
+        credentials: Option<UserKey>,
         version: Version,
     ) -> Result<Self, Error> {
         let mut result = Self {
@@ -56,7 +55,7 @@ impl SocksConnection {
             server_outbuf: VecDeque::default(),
             data_buf: VecDeque::default(),
             version,
-            credentials: manager.get_credentials().clone(),
+            credentials,
             command: protocol::Command::Connect,
             udp_relay_addr: None,
         };
@@ -64,7 +63,7 @@ impl SocksConnection {
         Ok(result)
     }
 
-    pub fn new_udp_control_connection(manager: Rc<dyn ConnectionManager>) -> Result<Self, Error> {
+    pub fn new_udp_control_connection(credentials: Option<UserKey>) -> Result<Self, Error> {
         let mut result = Self {
             info: ConnectionInfo::new(
                 SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
@@ -78,7 +77,7 @@ impl SocksConnection {
             server_outbuf: VecDeque::default(),
             data_buf: VecDeque::default(),
             version: Version::V5,
-            credentials: manager.get_credentials().clone(),
+            credentials,
             command: protocol::Command::UdpAssociate,
             udp_relay_addr: None,
         };
@@ -374,17 +373,13 @@ impl ConnectionManager for SocksManager {
         info.protocol == IpProtocol::Tcp
     }
 
-    fn new_connection(
-        &self,
-        info: &ConnectionInfo,
-        manager: Rc<dyn ConnectionManager>,
-    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
+    fn new_connection(&self, info: &ConnectionInfo) -> Result<Option<Box<dyn TcpProxy>>, Error> {
         if info.protocol != IpProtocol::Tcp {
             return Ok(None);
         }
         Ok(Some(Box::new(SocksConnection::new(
             info,
-            manager,
+            self.credentials.clone(),
             self.version,
         )?)))
     }
@@ -399,25 +394,22 @@ impl ConnectionManager for SocksManager {
         &self.credentials
     }
 
-    fn get_udp_control_connection(
-        &self,
-        manager: Rc<dyn ConnectionManager>,
-    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
+    fn get_udp_control_connection(&self) -> Result<Option<Box<dyn TcpProxy>>, Error> {
         if self.version != Version::V5 {
             return Ok(None);
         }
-        let conn = SocksConnection::new_udp_control_connection(manager)?;
+        let conn = SocksConnection::new_udp_control_connection(self.credentials.clone())?;
         Ok(Some(Box::new(conn)))
     }
 }
 
 impl SocksManager {
-    pub fn new(server: SocketAddr, version: Version, credentials: Option<UserKey>) -> Rc<Self> {
-        Rc::new(Self {
+    pub(crate) fn new(server: SocketAddr, version: Version, credentials: Option<UserKey>) -> Self {
+        Self {
             server,
             credentials,
             version,
             udp_connection: None,
-        })
+        }
     }
 }

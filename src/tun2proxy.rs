@@ -188,18 +188,11 @@ pub(crate) trait UdpProxy {
 
 pub(crate) trait ConnectionManager {
     fn handles_connection(&self, info: &ConnectionInfo) -> bool;
-    fn new_connection(
-        &self,
-        info: &ConnectionInfo,
-        manager: Rc<dyn ConnectionManager>,
-    ) -> Result<Option<Box<dyn TcpProxy>>, Error>;
+    fn new_connection(&self, info: &ConnectionInfo) -> Result<Option<Box<dyn TcpProxy>>, Error>;
     fn close_connection(&self, info: &ConnectionInfo);
     fn get_server_addr(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<UserKey>;
-    fn get_udp_control_connection(
-        &self,
-        manager: Rc<dyn ConnectionManager>,
-    ) -> Result<Option<Box<dyn TcpProxy>>, Error>;
+    fn get_udp_control_connection(&self) -> Result<Option<Box<dyn TcpProxy>>, Error>;
 }
 
 const TUN_TOKEN: Token = Token(0);
@@ -466,7 +459,7 @@ impl<'a> TunToProxy<'a> {
                 };
                 if first_packet {
                     for manager in self.connection_managers.iter_mut() {
-                        let handler = manager.new_connection(&connection_info, manager.clone())?;
+                        let handler = manager.new_connection(&connection_info)?;
                         if let Some(handler) = handler {
                             let mut socket = tcp::Socket::new(
                                 tcp::SocketBuffer::new(vec![0; 1024 * 128]),
@@ -821,7 +814,7 @@ impl<'a> TunToProxy<'a> {
 
     fn init(&mut self) -> Result<(), Error> {
         for manager in self.connection_managers.iter() {
-            if let Some(udp_control) = manager.get_udp_control_connection(manager.clone())? {
+            if let Some(udp_control) = manager.get_udp_control_connection()? {
                 self.udp_control = Some(TcpConnectState {
                     smoltcp_handle: None,
                     mio_stream: TcpStream::connect(manager.get_server_addr())?,

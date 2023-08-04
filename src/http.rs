@@ -64,7 +64,7 @@ static CONTENT_LENGTH: &str = "Content-Length";
 impl HttpConnection {
     fn new(
         info: &ConnectionInfo,
-        manager: Rc<dyn ConnectionManager>,
+        credentials: Option<UserKey>,
         digest_state: Rc<RefCell<Option<DigestState>>>,
     ) -> Result<Self, Error> {
         let mut res = Self {
@@ -79,7 +79,7 @@ impl HttpConnection {
             crlf_state: 0,
             digest_state,
             before: false,
-            credentials: manager.get_credentials().clone(),
+            credentials,
             destination: info.dst.clone(),
         };
 
@@ -398,17 +398,13 @@ impl ConnectionManager for HttpManager {
         info.protocol == IpProtocol::Tcp
     }
 
-    fn new_connection(
-        &self,
-        info: &ConnectionInfo,
-        manager: Rc<dyn ConnectionManager>,
-    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
+    fn new_connection(&self, info: &ConnectionInfo) -> Result<Option<Box<dyn TcpProxy>>, Error> {
         if info.protocol != IpProtocol::Tcp {
             return Ok(None);
         }
         Ok(Some(Box::new(HttpConnection::new(
             info,
-            manager,
+            self.credentials.clone(),
             self.digest_state.clone(),
         )?)))
     }
@@ -423,20 +419,17 @@ impl ConnectionManager for HttpManager {
         &self.credentials
     }
 
-    fn get_udp_control_connection(
-        &self,
-        _manager: Rc<dyn ConnectionManager>,
-    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
+    fn get_udp_control_connection(&self) -> Result<Option<Box<dyn TcpProxy>>, Error> {
         Ok(None)
     }
 }
 
 impl HttpManager {
-    pub fn new(server: SocketAddr, credentials: Option<UserKey>) -> Rc<Self> {
-        Rc::new(Self {
+    pub fn new(server: SocketAddr, credentials: Option<UserKey>) -> Self {
+        Self {
             server,
             credentials,
             digest_state: Rc::new(RefCell::new(None)),
-        })
+        }
     }
 }

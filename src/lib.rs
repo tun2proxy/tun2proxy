@@ -1,6 +1,10 @@
 use crate::{error::Error, http::HttpManager, socks::SocksManager, tun2proxy::TunToProxy};
 use socks5_impl::protocol::{UserKey, Version};
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::{
+    net::{SocketAddr, ToSocketAddrs},
+    rc::Rc,
+};
+use tun2proxy::ConnectionManager;
 
 mod android;
 pub mod error;
@@ -113,25 +117,18 @@ pub fn tun_to_proxy<'a>(
     options: Options,
 ) -> Result<TunToProxy<'a>, Error> {
     let mut ttp = TunToProxy::new(interface, options)?;
-    match proxy.proxy_type {
-        ProxyType::Socks4 => {
-            ttp.add_connection_manager(SocksManager::new(
-                proxy.addr,
-                Version::V4,
-                proxy.credentials.clone(),
-            ));
-        }
-        ProxyType::Socks5 => {
-            ttp.add_connection_manager(SocksManager::new(
-                proxy.addr,
-                Version::V5,
-                proxy.credentials.clone(),
-            ));
-        }
+    let credentials = proxy.credentials.clone();
+    let server = proxy.addr;
+    let mgr = match proxy.proxy_type {
+        ProxyType::Socks4 => Rc::new(SocksManager::new(server, Version::V4, credentials))
+            as Rc<dyn ConnectionManager>,
+        ProxyType::Socks5 => Rc::new(SocksManager::new(server, Version::V5, credentials))
+            as Rc<dyn ConnectionManager>,
         ProxyType::Http => {
-            ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials.clone()));
+            Rc::new(HttpManager::new(server, credentials)) as Rc<dyn ConnectionManager>
         }
-    }
+    };
+    ttp.add_connection_manager(mgr);
     Ok(ttp)
 }
 
