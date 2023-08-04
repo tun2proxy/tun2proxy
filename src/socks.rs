@@ -373,15 +373,15 @@ impl ConnectionManager for SocksManager {
         info.protocol == IpProtocol::Tcp
     }
 
-    fn new_connection(&self, info: &ConnectionInfo) -> Result<Option<Box<dyn TcpProxy>>, Error> {
+    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error> {
         if info.protocol != IpProtocol::Tcp {
-            return Ok(None);
+            return Err("Invalid protocol".into());
         }
-        Ok(Some(Box::new(SocksConnection::new(
+        Ok(Box::new(SocksConnection::new(
             info,
             self.credentials.clone(),
             self.version,
-        )?)))
+        )?))
     }
 
     fn close_connection(&self, _: &ConnectionInfo) {}

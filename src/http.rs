@@ -398,15 +398,15 @@ impl ConnectionManager for HttpManager {
         info.protocol == IpProtocol::Tcp
     }
 
-    fn new_connection(&self, info: &ConnectionInfo) -> Result<Option<Box<dyn TcpProxy>>, Error> {
+    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error> {
         if info.protocol != IpProtocol::Tcp {
-            return Ok(None);
+            return Err("Invalid protocol".into());
         }
-        Ok(Some(Box::new(HttpConnection::new(
+        Ok(Box::new(HttpConnection::new(
             info,
             self.credentials.clone(),
             self.digest_state.clone(),
-        )?)))
+        )?))
     }
 
     fn close_connection(&self, _: &ConnectionInfo) {}
