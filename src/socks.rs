@@ -26,7 +26,7 @@ enum SocksState {
     Established,
 }
 
-pub(crate) struct SocksConnection {
+struct SocksProxyConnection {
     info: ConnectionInfo,
     state: SocksState,
     client_inbuf: VecDeque<u8>,
@@ -40,7 +40,7 @@ pub(crate) struct SocksConnection {
     udp_relay_addr: Option<Address>,
 }
 
-impl SocksConnection {
+impl SocksProxyConnection {
     pub fn new(
         info: &ConnectionInfo,
         credentials: Option<UserKey>,
@@ -293,7 +293,7 @@ impl SocksConnection {
     }
 }
 
-impl TcpProxy for SocksConnection {
+impl TcpProxy for SocksProxyConnection {
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
         let direction = event.direction;
         let buffer = event.buffer;
@@ -362,7 +362,7 @@ pub struct SocksManager {
     server: SocketAddr,
     credentials: Option<UserKey>,
     version: Version,
-    udp_connection: Option<SocksConnection>,
+    udp_connection: Option<SocksProxyConnection>,
 }
 
 impl ConnectionManager for SocksManager {
@@ -377,7 +377,7 @@ impl ConnectionManager for SocksManager {
         if info.protocol != IpProtocol::Tcp {
             return Err("Invalid protocol".into());
         }
-        Ok(Box::new(SocksConnection::new(
+        Ok(Box::new(SocksProxyConnection::new(
             info,
             self.credentials.clone(),
             self.version,
@@ -398,7 +398,7 @@ impl ConnectionManager for SocksManager {
         if self.version != Version::V5 {
             return Ok(None);
         }
-        let conn = SocksConnection::new_udp_control_connection(self.credentials.clone())?;
+        let conn = SocksProxyConnection::new_udp_control_connection(self.credentials.clone())?;
         Ok(Some(Box::new(conn)))
     }
 }
