@@ -1,15 +1,15 @@
 use crate::{
     error::Error,
     tun2proxy::{
-        Connection, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
+        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
         OutgoingDataEvent, OutgoingDirection, TcpProxy,
     },
 };
 use smoltcp::wire::IpProtocol;
 use socks5_impl::protocol::{
-    self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey,
+    self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version,
 };
-use std::{collections::VecDeque, net::SocketAddr, rc::Rc};
+use std::{collections::VecDeque, net::SocketAddr};
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -23,33 +23,28 @@ enum SocksState {
     Established,
 }
 
-#[repr(u8)]
-#[derive(Copy, Clone, PartialEq, Debug)]
-pub enum SocksVersion {
-    V4 = 4,
-    V5 = 5,
-}
-
-pub(crate) struct SocksConnection {
-    connection: Connection,
+struct SocksProxyImpl {
+    info: ConnectionInfo,
     state: SocksState,
     client_inbuf: VecDeque<u8>,
     server_inbuf: VecDeque<u8>,
     client_outbuf: VecDeque<u8>,
     server_outbuf: VecDeque<u8>,
     data_buf: VecDeque<u8>,
-    version: SocksVersion,
+    version: Version,
     credentials: Option<UserKey>,
+    command: protocol::Command,
+    udp_relay_addr: Option<Address>,
 }
 
-impl SocksConnection {
+impl SocksProxyImpl {
     pub fn new(
-        connection: &Connection,
-        manager: Rc<dyn ConnectionManager>,
-        version: SocksVersion,
+        info: &ConnectionInfo,
+        credentials: Option<UserKey>,
+        version: Version,
     ) -> Result<Self, Error> {
         let mut result = Self {
-            connection: connection.clone(),
+            info: info.clone(),
             state: SocksState::ServerHello,
             client_inbuf: VecDeque::default(),
             server_inbuf: VecDeque::default(),
@@ -57,59 +52,71 @@ impl SocksConnection {
             server_outbuf: VecDeque::default(),
             data_buf: VecDeque::default(),
             version,
-            credentials: manager.get_credentials().clone(),
+            credentials,
+            command: protocol::Command::Connect,
+            udp_relay_addr: None,
         };
         result.send_client_hello()?;
         Ok(result)
     }
 
-    fn send_client_hello(&mut self) -> Result<(), Error> {
+    fn send_client_hello_socks4(&mut self) -> Result<(), Error> {
         let credentials = &self.credentials;
-        match self.version {
-            SocksVersion::V4 => {
-                self.server_outbuf
-                    .extend(&[self.version as u8, protocol::Command::Connect.into()]);
-                self.server_outbuf
-                    .extend(self.connection.dst.port().to_be_bytes());
-                let mut ip_vec = Vec::<u8>::new();
-                let mut name_vec = Vec::<u8>::new();
-                match &self.connection.dst {
-                    Address::SocketAddress(SocketAddr::V4(addr)) => {
-                        ip_vec.extend(addr.ip().octets().as_ref());
-                    }
-                    Address::SocketAddress(SocketAddr::V6(_)) => {
-                        return Err("SOCKS4 does not support IPv6".into());
-                    }
-                    Address::DomainAddress(host, _) => {
-                        ip_vec.extend(&[0, 0, 0, host.len() as u8]);
-                        name_vec.extend(host.as_bytes());
-                        name_vec.push(0);
-                    }
-                }
-                self.server_outbuf.extend(ip_vec);
-                if let Some(credentials) = credentials {
-                    self.server_outbuf.extend(credentials.username.as_bytes());
-                    if !credentials.password.is_empty() {
-                        self.server_outbuf.push_back(b':');
-                        self.server_outbuf.extend(credentials.password.as_bytes());
-                    }
-                }
-                self.server_outbuf.push_back(0);
-                self.server_outbuf.extend(name_vec);
+        self.server_outbuf
+            .extend(&[self.version as u8, protocol::Command::Connect.into()]);
+        self.server_outbuf
+            .extend(self.info.dst.port().to_be_bytes());
+        let mut ip_vec = Vec::<u8>::new();
+        let mut name_vec = Vec::<u8>::new();
+        match &self.info.dst {
+            Address::SocketAddress(SocketAddr::V4(addr)) => {
+                ip_vec.extend(addr.ip().octets().as_ref());
             }
+            Address::SocketAddress(SocketAddr::V6(_)) => {
+                return Err("SOCKS4 does not support IPv6".into());
+            }
+            Address::DomainAddress(host, _) => {
+                ip_vec.extend(&[0, 0, 0, host.len() as u8]);
+                name_vec.extend(host.as_bytes());
+                name_vec.push(0);
+            }
+        }
+        self.server_outbuf.extend(ip_vec);
+        if let Some(credentials) = credentials {
+            self.server_outbuf.extend(credentials.username.as_bytes());
+            if !credentials.password.is_empty() {
+                self.server_outbuf.push_back(b':');
+                self.server_outbuf.extend(credentials.password.as_bytes());
+            }
+        }
+        self.server_outbuf.push_back(0);
+        self.server_outbuf.extend(name_vec);
+        Ok(())
+    }
 
-            SocksVersion::V5 => {
-                // Providing unassigned methods is supposed to bypass China's GFW.
-                // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
-                let mut methods = vec![
-                    AuthMethod::NoAuth,
-                    AuthMethod::from(4_u8),
-                    AuthMethod::from(100_u8),
-                ];
-                if credentials.is_some() {
-                    methods.push(AuthMethod::UserPass);
-                }
-                handshake::Request::new(methods).write_to_stream(&mut self.server_outbuf)?;
+    fn send_client_hello_socks5(&mut self) -> Result<(), Error> {
+        let credentials = &self.credentials;
+        // Providing unassigned methods is supposed to bypass China's GFW.
+        // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
+        let mut methods = vec![
+            AuthMethod::NoAuth,
+            AuthMethod::from(4_u8),
+            AuthMethod::from(100_u8),
+        ];
+        if credentials.is_some() {
+            methods.push(AuthMethod::UserPass);
+        }
+        handshake::Request::new(methods).write_to_stream(&mut self.server_outbuf)?;
+        Ok(())
+    }
+
+    fn send_client_hello(&mut self) -> Result<(), Error> {
+        match self.version {
+            Version::V4 => {
+                self.send_client_hello_socks4()?;
+            }
+            Version::V5 => {
+                self.send_client_hello_socks5()?;
             }
         }
         self.state = SocksState::ServerHello;
@@ -164,8 +171,8 @@ impl SocksConnection {
 
     fn receive_server_hello(&mut self) -> Result<(), Error> {
         match self.version {
-            SocksVersion::V4 => self.receive_server_hello_socks4(),
-            SocksVersion::V5 => self.receive_server_hello_socks5(),
+            Version::V4 => self.receive_server_hello_socks4(),
+            Version::V5 => self.receive_server_hello_socks5(),
         }
     }
 
@@ -213,6 +220,12 @@ impl SocksConnection {
         if response.reply != protocol::Reply::Succeeded {
             return Err(format!("SOCKS connection failed: {}", response.reply).into());
         }
+
+        if self.command == protocol::Command::UdpAssociate {
+            log::info!("UDP packet destination: {}", response.address);
+            self.udp_relay_addr = Some(response.address);
+        }
+
         self.server_outbuf.append(&mut self.data_buf);
         self.data_buf.clear();
 
@@ -220,8 +233,9 @@ impl SocksConnection {
         self.state_change()
     }
 
-    fn send_request(&mut self) -> Result<(), Error> {
-        protocol::Request::new(protocol::Command::Connect, self.connection.dst.clone())
+    fn send_request_socks5(&mut self) -> Result<(), Error> {
+        // self.server_outbuf.extend(&[self.version as u8, self.command as u8, 0]);
+        protocol::Request::new(protocol::Command::Connect, self.info.dst.clone())
             .write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveResponse;
         self.state_change()
@@ -243,7 +257,7 @@ impl SocksConnection {
 
             SocksState::ReceiveAuthResponse => self.receive_auth_data(),
 
-            SocksState::SendRequest => self.send_request(),
+            SocksState::SendRequest => self.send_request_socks5(),
 
             SocksState::ReceiveResponse => self.receive_connection_status(),
 
@@ -254,7 +268,7 @@ impl SocksConnection {
     }
 }
 
-impl TcpProxy for SocksConnection {
+impl TcpProxy for SocksProxyImpl {
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
         let direction = event.direction;
         let buffer = event.buffer;
@@ -319,35 +333,31 @@ impl TcpProxy for SocksConnection {
     }
 }
 
-pub struct SocksManager {
+pub(crate) struct SocksProxyManager {
     server: SocketAddr,
     credentials: Option<UserKey>,
-    version: SocksVersion,
+    version: Version,
 }
 
-impl ConnectionManager for SocksManager {
-    fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == IpProtocol::Tcp
+impl ConnectionManager for SocksProxyManager {
+    fn handles_connection(&self, info: &ConnectionInfo) -> bool {
+        info.protocol == IpProtocol::Tcp
     }
 
-    fn new_connection(
-        &self,
-        connection: &Connection,
-        manager: Rc<dyn ConnectionManager>,
-    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        if connection.proto != IpProtocol::Tcp {
-            return Ok(None);
+    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error> {
+        if info.protocol != IpProtocol::Tcp {
+            return Err("Invalid protocol".into());
         }
-        Ok(Some(Box::new(SocksConnection::new(
-            connection,
-            manager,
+        Ok(Box::new(SocksProxyImpl::new(
+            info,
+            self.credentials.clone(),
             self.version,
-        )?)))
+        )?))
     }
 
-    fn close_connection(&self, _: &Connection) {}
+    fn close_connection(&self, _: &ConnectionInfo) {}
 
-    fn get_server(&self) -> SocketAddr {
+    fn get_server_addr(&self) -> SocketAddr {
         self.server
     }
 
@@ -356,16 +366,12 @@ impl ConnectionManager for SocksManager {
     }
 }
 
-impl SocksManager {
-    pub fn new(
-        server: SocketAddr,
-        version: SocksVersion,
-        credentials: Option<UserKey>,
-    ) -> Rc<Self> {
-        Rc::new(Self {
+impl SocksProxyManager {
+    pub(crate) fn new(server: SocketAddr, version: Version, credentials: Option<UserKey>) -> Self {
+        Self {
             server,
             credentials,
             version,
-        })
+        }
     }
 }

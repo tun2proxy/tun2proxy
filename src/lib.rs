@@ -1,9 +1,10 @@
-use crate::{
-    error::Error, http::HttpManager, socks::SocksManager, socks::SocksVersion,
-    tun2proxy::TunToProxy,
+use crate::{error::Error, http::HttpManager, socks::SocksProxyManager, tun2proxy::TunToProxy};
+use socks5_impl::protocol::{UserKey, Version};
+use std::{
+    net::{SocketAddr, ToSocketAddrs},
+    rc::Rc,
 };
-use socks5_impl::protocol::UserKey;
-use std::net::{SocketAddr, ToSocketAddrs};
+use tun2proxy::ConnectionManager;
 
 mod android;
 pub mod error;
@@ -90,7 +91,7 @@ impl std::fmt::Display for ProxyType {
 
 #[derive(Default)]
 pub struct Options {
-    virtdns: Option<virtdns::VirtualDns>,
+    virtual_dns: Option<virtdns::VirtualDns>,
     mtu: Option<usize>,
 }
 
@@ -100,7 +101,7 @@ impl Options {
     }
 
     pub fn with_virtual_dns(mut self) -> Self {
-        self.virtdns = Some(virtdns::VirtualDns::new());
+        self.virtual_dns = Some(virtdns::VirtualDns::new());
         self
     }
 
@@ -116,25 +117,18 @@ pub fn tun_to_proxy<'a>(
     options: Options,
 ) -> Result<TunToProxy<'a>, Error> {
     let mut ttp = TunToProxy::new(interface, options)?;
-    match proxy.proxy_type {
-        ProxyType::Socks4 => {
-            ttp.add_connection_manager(SocksManager::new(
-                proxy.addr,
-                SocksVersion::V4,
-                proxy.credentials.clone(),
-            ));
-        }
-        ProxyType::Socks5 => {
-            ttp.add_connection_manager(SocksManager::new(
-                proxy.addr,
-                SocksVersion::V5,
-                proxy.credentials.clone(),
-            ));
-        }
+    let credentials = proxy.credentials.clone();
+    let server = proxy.addr;
+    let mgr = match proxy.proxy_type {
+        ProxyType::Socks4 => Rc::new(SocksProxyManager::new(server, Version::V4, credentials))
+            as Rc<dyn ConnectionManager>,
+        ProxyType::Socks5 => Rc::new(SocksProxyManager::new(server, Version::V5, credentials))
+            as Rc<dyn ConnectionManager>,
         ProxyType::Http => {
-            ttp.add_connection_manager(HttpManager::new(proxy.addr, proxy.credentials.clone()));
+            Rc::new(HttpManager::new(server, credentials)) as Rc<dyn ConnectionManager>
         }
-    }
+    };
+    ttp.add_connection_manager(mgr);
     Ok(ttp)
 }
 
@@ -143,6 +137,7 @@ pub fn main_entry(
     proxy: &Proxy,
     options: Options,
 ) -> Result<(), Error> {
-    let ttp = tun_to_proxy(interface, proxy, options);
-    ttp?.run()
+    let mut ttp = tun_to_proxy(interface, proxy, options)?;
+    ttp.run()?;
+    Ok(())
 }

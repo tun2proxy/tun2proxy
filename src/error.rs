@@ -27,6 +27,9 @@ pub enum Error {
     #[error("smoltcp::socket::tcp::SendError {0:?}")]
     Send(#[from] smoltcp::socket::tcp::SendError),
 
+    #[error("smoltcp::wire::Error {0:?}")]
+    Wire(#[from] smoltcp::wire::Error),
+
     #[error("std::str::Utf8Error {0:?}")]
     Utf8(#[from] std::str::Utf8Error),
 

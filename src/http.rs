@@ -1,7 +1,7 @@
 use crate::{
     error::Error,
     tun2proxy::{
-        Connection, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
+        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
         OutgoingDataEvent, OutgoingDirection, TcpProxy,
     },
 };
@@ -63,8 +63,8 @@ static CONTENT_LENGTH: &str = "Content-Length";
 
 impl HttpConnection {
     fn new(
-        connection: &Connection,
-        manager: Rc<dyn ConnectionManager>,
+        info: &ConnectionInfo,
+        credentials: Option<UserKey>,
         digest_state: Rc<RefCell<Option<DigestState>>>,
     ) -> Result<Self, Error> {
         let mut res = Self {
@@ -79,8 +79,8 @@ impl HttpConnection {
             crlf_state: 0,
             digest_state,
             before: false,
-            credentials: manager.get_credentials().clone(),
-            destination: connection.dst.clone(),
+            credentials,
+            destination: info.dst.clone(),
         };
 
         res.send_tunnel_request()?;
@@ -394,28 +394,24 @@ pub(crate) struct HttpManager {
 }
 
 impl ConnectionManager for HttpManager {
-    fn handles_connection(&self, connection: &Connection) -> bool {
-        connection.proto == IpProtocol::Tcp
+    fn handles_connection(&self, info: &ConnectionInfo) -> bool {
+        info.protocol == IpProtocol::Tcp
     }
 
-    fn new_connection(
-        &self,
-        connection: &Connection,
-        manager: Rc<dyn ConnectionManager>,
-    ) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        if connection.proto != IpProtocol::Tcp {
-            return Ok(None);
+    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error> {
+        if info.protocol != IpProtocol::Tcp {
+            return Err("Invalid protocol".into());
         }
-        Ok(Some(Box::new(HttpConnection::new(
-            connection,
-            manager,
+        Ok(Box::new(HttpConnection::new(
+            info,
+            self.credentials.clone(),
             self.digest_state.clone(),
-        )?)))
+        )?))
     }
 
-    fn close_connection(&self, _: &Connection) {}
+    fn close_connection(&self, _: &ConnectionInfo) {}
 
-    fn get_server(&self) -> SocketAddr {
+    fn get_server_addr(&self) -> SocketAddr {
         self.server
     }
 
@@ -425,11 +421,11 @@ impl ConnectionManager for HttpManager {
 }
 
 impl HttpManager {
-    pub fn new(server: SocketAddr, credentials: Option<UserKey>) -> Rc<Self> {
-        Rc::new(Self {
+    pub fn new(server: SocketAddr, credentials: Option<UserKey>) -> Self {
+        Self {
             server,
             credentials,
             digest_state: Rc::new(RefCell::new(None)),
-        })
+        }
     }
 }
