@@ -33,8 +33,6 @@ struct SocksProxyImpl {
     data_buf: VecDeque<u8>,
     version: Version,
     credentials: Option<UserKey>,
-    command: protocol::Command,
-    udp_relay_addr: Option<Address>,
 }
 
 impl SocksProxyImpl {
@@ -53,8 +51,6 @@ impl SocksProxyImpl {
             data_buf: VecDeque::default(),
             version,
             credentials,
-            command: protocol::Command::Connect,
-            udp_relay_addr: None,
         };
         result.send_client_hello()?;
         Ok(result)
@@ -219,11 +215,6 @@ impl SocksProxyImpl {
         self.server_inbuf.drain(0..response.len());
         if response.reply != protocol::Reply::Succeeded {
             return Err(format!("SOCKS connection failed: {}", response.reply).into());
-        }
-
-        if self.command == protocol::Command::UdpAssociate {
-            log::info!("UDP packet destination: {}", response.address);
-            self.udp_relay_addr = Some(response.address);
         }
 
         self.server_outbuf.append(&mut self.data_buf);
