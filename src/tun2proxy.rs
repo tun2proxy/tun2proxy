@@ -43,14 +43,15 @@ impl ConnectionInfo {
     fn to_named(&self, name: String) -> Self {
         let mut result = self.clone();
         result.dst = Address::from((name, result.dst.port()));
-        log::trace!("Replace dst \"{}\" -> \"{}\"", self.dst, result.dst);
+        // let p = self.protocol;
+        // log::trace!("{p} replace dst \"{}\" -> \"{}\"", self.dst, result.dst);
         result
     }
 }
 
 impl std::fmt::Display for ConnectionInfo {
     fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        write!(f, "{} -> {}", self.src, self.dst)
+        write!(f, "{} {} -> {}", self.protocol, self.src, self.dst)
     }
 }
 
@@ -91,31 +92,33 @@ fn get_transport_info(
     protocol: IpProtocol,
     transport_offset: usize,
     packet: &[u8],
-) -> Option<((u16, u16), bool, usize, usize)> {
+) -> Result<((u16, u16), bool, usize, usize)> {
     match protocol {
-        IpProtocol::Udp => match UdpPacket::new_checked(packet) {
-            Ok(result) => Some((
-                (result.src_port(), result.dst_port()),
-                false,
-                transport_offset + UDP_HEADER_LEN,
-                packet.len() - UDP_HEADER_LEN,
-            )),
-            Err(_) => None,
-        },
-        IpProtocol::Tcp => match TcpPacket::new_checked(packet) {
-            Ok(result) => Some((
-                (result.src_port(), result.dst_port()),
-                result.syn() && !result.ack(),
-                transport_offset + result.header_len() as usize,
-                packet.len(),
-            )),
-            Err(_) => None,
-        },
-        _ => None,
+        IpProtocol::Udp => UdpPacket::new_checked(packet)
+            .map(|result| {
+                (
+                    (result.src_port(), result.dst_port()),
+                    false,
+                    transport_offset + UDP_HEADER_LEN,
+                    packet.len() - UDP_HEADER_LEN,
+                )
+            })
+            .map_err(|e| e.into()),
+        IpProtocol::Tcp => TcpPacket::new_checked(packet)
+            .map(|result| {
+                (
+                    (result.src_port(), result.dst_port()),
+                    result.syn() && !result.ack(),
+                    transport_offset + result.header_len() as usize,
+                    packet.len(),
+                )
+            })
+            .map_err(|e| e.into()),
+        _ => Err(format!("Unsupported protocol {protocol}").into()),
     }
 }
 
-fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)> {
+fn connection_tuple(frame: &[u8]) -> Result<(ConnectionInfo, bool, usize, usize)> {
     if let Ok(packet) = Ipv4Packet::new_checked(frame) {
         let protocol = packet.next_header();
 
@@ -133,7 +136,7 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
             dst: SocketAddr::new(dst_addr, ports.1).into(),
             protocol,
         };
-        return Some((info, first_packet, payload_offset, payload_size));
+        return Ok((info, first_packet, payload_offset, payload_size));
     }
 
     if let Ok(packet) = Ipv6Packet::new_checked(frame) {
@@ -154,9 +157,9 @@ fn connection_tuple(frame: &[u8]) -> Option<(ConnectionInfo, bool, usize, usize)
             dst: SocketAddr::new(dst_addr, ports.1).into(),
             protocol,
         };
-        return Some((info, first_packet, payload_offset, payload_size));
+        return Ok((info, first_packet, payload_offset, payload_size));
     }
-    None
+    Err("Neither IPv6 nor IPv4 packet".into())
 }
 
 const SERVER_WRITE_CLOSED: u8 = 1;
@@ -436,8 +439,7 @@ impl<'a> TunToProxy<'a> {
     // A raw packet was received on the tunnel interface.
     fn receive_tun(&mut self, frame: &mut [u8]) -> Result<(), Error> {
         let mut handler = || -> Result<(), Error> {
-            let (info, first_packet, payload_offset, payload_size) =
-                connection_tuple(frame).ok_or("connection_tuple")?;
+            let (info, first_packet, payload_offset, payload_size) = connection_tuple(frame)?;
             let dst = SocketAddr::try_from(&info.dst)?;
             let connection_info = match &mut self.options.virtual_dns {
                 None => info.clone(),
@@ -450,6 +452,7 @@ impl<'a> TunToProxy<'a> {
                     }
                 }
             };
+            log::trace!("{} ({})", connection_info, dst);
             if connection_info.protocol == IpProtocol::Tcp {
                 let server_addr = self
                     .get_connection_manager(&connection_info)
@@ -484,7 +487,7 @@ impl<'a> TunToProxy<'a> {
 
                         self.token_to_info.insert(token, connection_info.clone());
 
-                        log::info!("CONNECT tcp {}", connection_info);
+                        // log::info!("CONNECT {} ({})", connection_info, dst);
                     }
                 } else if !self.connection_map.contains_key(&connection_info) {
                     return Ok(());
