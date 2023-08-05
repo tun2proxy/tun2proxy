@@ -418,10 +418,6 @@ impl ConnectionManager for HttpManager {
     fn get_credentials(&self) -> &Option<UserKey> {
         &self.credentials
     }
-
-    fn get_udp_control_connection(&self) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        Ok(None)
-    }
 }
 
 impl HttpManager {

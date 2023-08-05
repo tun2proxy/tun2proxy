@@ -9,10 +9,7 @@ use smoltcp::wire::IpProtocol;
 use socks5_impl::protocol::{
     self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version,
 };
-use std::{
-    collections::VecDeque,
-    net::{Ipv4Addr, SocketAddr},
-};
+use std::{collections::VecDeque, net::SocketAddr};
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -57,28 +54,6 @@ impl SocksProxyImpl {
             version,
             credentials,
             command: protocol::Command::Connect,
-            udp_relay_addr: None,
-        };
-        result.send_client_hello()?;
-        Ok(result)
-    }
-
-    pub fn new_udp_control_connection(credentials: Option<UserKey>) -> Result<Self, Error> {
-        let mut result = Self {
-            info: ConnectionInfo::new(
-                SocketAddr::from((Ipv4Addr::UNSPECIFIED, 0)),
-                Address::unspecified(),
-                IpProtocol::Udp,
-            ),
-            state: SocksState::ServerHello,
-            client_inbuf: VecDeque::default(),
-            server_inbuf: VecDeque::default(),
-            client_outbuf: VecDeque::default(),
-            server_outbuf: VecDeque::default(),
-            data_buf: VecDeque::default(),
-            version: Version::V5,
-            credentials,
-            command: protocol::Command::UdpAssociate,
             udp_relay_addr: None,
         };
         result.send_client_hello()?;
@@ -362,14 +337,10 @@ pub(crate) struct SocksProxyManager {
     server: SocketAddr,
     credentials: Option<UserKey>,
     version: Version,
-    udp_connection: Option<SocksProxyImpl>,
 }
 
 impl ConnectionManager for SocksProxyManager {
     fn handles_connection(&self, info: &ConnectionInfo) -> bool {
-        if self.udp_connection.is_some() {
-            return info.protocol == IpProtocol::Udp;
-        }
         info.protocol == IpProtocol::Tcp
     }
 
@@ -393,14 +364,6 @@ impl ConnectionManager for SocksProxyManager {
     fn get_credentials(&self) -> &Option<UserKey> {
         &self.credentials
     }
-
-    fn get_udp_control_connection(&self) -> Result<Option<Box<dyn TcpProxy>>, Error> {
-        if self.version != Version::V5 {
-            return Ok(None);
-        }
-        let conn = SocksProxyImpl::new_udp_control_connection(self.credentials.clone())?;
-        Ok(Some(Box::new(conn)))
-    }
 }
 
 impl SocksProxyManager {
@@ -409,7 +372,6 @@ impl SocksProxyManager {
             server,
             credentials,
             version,
-            udp_connection: None,
         }
     }
 }
