@@ -1,4 +1,4 @@
-use crate::{error::Error, http::HttpManager, socks::SocksManager, tun2proxy::TunToProxy};
+use crate::{error::Error, http::HttpManager, socks::SocksProxyManager, tun2proxy::TunToProxy};
 use socks5_impl::protocol::{UserKey, Version};
 use std::{
     net::{SocketAddr, ToSocketAddrs},
@@ -120,9 +120,9 @@ pub fn tun_to_proxy<'a>(
     let credentials = proxy.credentials.clone();
     let server = proxy.addr;
     let mgr = match proxy.proxy_type {
-        ProxyType::Socks4 => Rc::new(SocksManager::new(server, Version::V4, credentials))
+        ProxyType::Socks4 => Rc::new(SocksProxyManager::new(server, Version::V4, credentials))
             as Rc<dyn ConnectionManager>,
-        ProxyType::Socks5 => Rc::new(SocksManager::new(server, Version::V5, credentials))
+        ProxyType::Socks5 => Rc::new(SocksProxyManager::new(server, Version::V5, credentials))
             as Rc<dyn ConnectionManager>,
         ProxyType::Http => {
             Rc::new(HttpManager::new(server, credentials)) as Rc<dyn ConnectionManager>

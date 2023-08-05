@@ -358,14 +358,14 @@ impl TcpProxy for SocksProxyConnection {
     }
 }
 
-pub struct SocksManager {
+pub(crate) struct SocksProxyManager {
     server: SocketAddr,
     credentials: Option<UserKey>,
     version: Version,
     udp_connection: Option<SocksProxyConnection>,
 }
 
-impl ConnectionManager for SocksManager {
+impl ConnectionManager for SocksProxyManager {
     fn handles_connection(&self, info: &ConnectionInfo) -> bool {
         if self.udp_connection.is_some() {
             return info.protocol == IpProtocol::Udp;
@@ -403,7 +403,7 @@ impl ConnectionManager for SocksManager {
     }
 }
 
-impl SocksManager {
+impl SocksProxyManager {
     pub(crate) fn new(server: SocketAddr, version: Version, credentials: Option<UserKey>) -> Self {
         Self {
             server,
