@@ -8,7 +8,6 @@ use std::{
     time::{Duration, Instant},
 };
 
-const DNS_TTL: u8 = 30; // TTL in DNS replies in seconds
 const MAPPING_TIMEOUT: u64 = 60; // Mapping timeout in seconds
 
 #[derive(Eq, PartialEq, Debug)]
@@ -57,6 +56,23 @@ impl VirtualDns {
         VirtualDns::default()
     }
 
+    // /*
+    pub fn receive_query(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+        use crate::dns;
+        let mut dns_block = || {
+            let message = dns::parse_data_to_dns_message(data, false)?;
+            let qname = dns::extract_domain_from_dns_message(&message)?;
+            if let Some(ip) = self.allocate_ip(qname.clone()) {
+                let message = dns::build_dns_response(message, &qname, ip, 5)?;
+                message.to_vec()
+            } else {
+                Err("Virtual IP space for DNS exhausted".into())
+            }
+        };
+        dns_block().ok()
+    }
+    // */
+    /*
     pub fn receive_query(&mut self, data: &[u8]) -> Option<Vec<u8>> {
         if data.len() < 17 {
             return None;
@@ -109,6 +125,8 @@ impl VirtualDns {
         response[8] = 0;
         response[9] = 0;
 
+        const DNS_TTL: u8 = 30; // TTL in DNS replies in seconds
+
         // additional section
         response[10] = 0;
         response[11] = 0;
@@ -138,7 +156,7 @@ impl VirtualDns {
         }
         Some(response)
     }
-
+    // */
     fn increment_ip(addr: IpAddr) -> Option<IpAddr> {
         let mut ip_bytes = match addr as IpAddr {
             IpAddr::V4(ip) => Vec::<u8>::from(ip.octets()),
@@ -239,6 +257,7 @@ impl VirtualDns {
         }
     }
 
+    /*
     /// Parse a non-root DNS qname at a specific offset and return the name along with its size.
     /// DNS packet parsing should be continued after the name.
     fn parse_qname(data: &[u8], mut offset: usize) -> Option<(String, usize)> {
@@ -277,4 +296,5 @@ impl VirtualDns {
 
         Some((qname, offset))
     }
+    // */
 }

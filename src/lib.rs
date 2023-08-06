@@ -7,6 +7,7 @@ use std::{
 use tun2proxy::ConnectionManager;
 
 mod android;
+mod dns;
 pub mod error;
 mod http;
 pub mod setup;
