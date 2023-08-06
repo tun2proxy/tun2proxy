@@ -1,3 +1,4 @@
+use crate::error::Result;
 use hashlink::{linked_hash_map::RawEntryMut, LruCache};
 use smoltcp::wire::Ipv4Cidr;
 use std::{
@@ -9,19 +10,6 @@ use std::{
 };
 
 const MAPPING_TIMEOUT: u64 = 60; // Mapping timeout in seconds
-
-#[derive(Eq, PartialEq, Debug)]
-#[allow(dead_code, clippy::upper_case_acronyms)]
-enum DnsRecordType {
-    A = 1,
-    AAAA = 28,
-}
-
-#[derive(Eq, PartialEq, Debug)]
-#[allow(dead_code)]
-enum DnsClass {
-    IN = 1,
-}
 
 struct NameCacheEntry {
     name: String,
@@ -57,25 +45,32 @@ impl VirtualDns {
     }
 
     // /*
-    pub fn receive_query(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+    pub fn receive_query(&mut self, data: &[u8]) -> Result<Vec<u8>> {
         use crate::dns;
-        let mut dns_block = || {
-            let message = dns::parse_data_to_dns_message(data, false)?;
-            let qname = dns::extract_domain_from_dns_message(&message)?;
-            if let Some(ip) = self.allocate_ip(qname.clone()) {
-                let message = dns::build_dns_response(message, &qname, ip, 5)?;
-                message.to_vec()
-            } else {
-                Err("Virtual IP space for DNS exhausted".into())
-            }
-        };
-        dns_block().ok()
+        let message = dns::parse_data_to_dns_message(data, false)?;
+        let qname = dns::extract_domain_from_dns_message(&message)?;
+        let ip = self.allocate_ip(qname.clone())?;
+        let message = dns::build_dns_response(message, &qname, ip, 5)?;
+        Ok(message.to_vec()?)
     }
     // */
     /*
-    pub fn receive_query(&mut self, data: &[u8]) -> Option<Vec<u8>> {
+    pub fn receive_query(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+        #[derive(Eq, PartialEq, Debug)]
+        #[allow(dead_code, clippy::upper_case_acronyms)]
+        enum DnsRecordType {
+            A = 1,
+            AAAA = 28,
+        }
+
+        #[derive(Eq, PartialEq, Debug)]
+        #[allow(dead_code)]
+        enum DnsClass {
+            IN = 1,
+        }
+
         if data.len() < 17 {
-            return None;
+            return Err("Invalid DNS query".into());
         }
         // bit 1: Message is a query (0)
         // bits 2 - 5: Standard query opcode (0)
@@ -83,22 +78,22 @@ impl VirtualDns {
         // bit 7: Message is not truncated (0)
         // bit 8: Recursion desired (1)
         let is_supported_query = (data[2] & 0b11111011) == 0b00000001;
-        let num_queries = u16::from_be_bytes(data[4..6].try_into().ok()?);
+        let num_queries = u16::from_be_bytes(data[4..6].try_into()?);
         if !is_supported_query || num_queries != 1 {
-            return None;
+            return Err("Invalid DNS query".into());
         }
 
-        let (qname, offset) = VirtualDns::parse_qname(data, 12)?;
+        let (qname, offset) = VirtualDns::parse_qname(data, 12).ok_or("parse_qname")?;
         if offset + 3 >= data.len() {
-            return None;
+            return Err("Invalid DNS query".into());
         }
-        let qtype = u16::from_be_bytes(data[offset..offset + 2].try_into().ok()?);
-        let qclass = u16::from_be_bytes(data[offset + 2..offset + 4].try_into().ok()?);
+        let qtype = u16::from_be_bytes(data[offset..offset + 2].try_into()?);
+        let qclass = u16::from_be_bytes(data[offset + 2..offset + 4].try_into()?);
 
         if qtype != DnsRecordType::A as u16 && qtype != DnsRecordType::AAAA as u16
             || qclass != DnsClass::IN as u16
         {
-            return None;
+            return Err("Invalid DNS query".into());
         }
 
         if qtype == DnsRecordType::A as u16 {
@@ -131,7 +126,7 @@ impl VirtualDns {
         response[10] = 0;
         response[11] = 0;
         if qtype == DnsRecordType::A as u16 {
-            if let Some(ip) = self.allocate_ip(qname) {
+            if let Ok(ip) = self.allocate_ip(qname) {
                 response.extend(&[
                     0xc0, 0x0c, // Question name pointer
                     0, 1, // Record type: A
@@ -154,10 +149,10 @@ impl VirtualDns {
         } else {
             response[7] = 0; // No answers
         }
-        Some(response)
+        Ok(response)
     }
     // */
-    fn increment_ip(addr: IpAddr) -> Option<IpAddr> {
+    fn increment_ip(addr: IpAddr) -> Result<IpAddr> {
         let mut ip_bytes = match addr as IpAddr {
             IpAddr::V4(ip) => Vec::<u8>::from(ip.octets()),
             IpAddr::V6(ip) => Vec::<u8>::from(ip.octets()),
@@ -176,36 +171,29 @@ impl VirtualDns {
             }
         }
         let addr = if addr.is_ipv4() {
-            let bytes: [u8; 4] = ip_bytes.as_slice().try_into().ok()?;
+            let bytes: [u8; 4] = ip_bytes.as_slice().try_into()?;
             IpAddr::V4(Ipv4Addr::from(bytes))
         } else {
-            let bytes: [u8; 16] = ip_bytes.as_slice().try_into().ok()?;
+            let bytes: [u8; 16] = ip_bytes.as_slice().try_into()?;
             IpAddr::V6(Ipv6Addr::from(bytes))
         };
-        Some(addr)
+        Ok(addr)
     }
 
     // This is to be called whenever we receive or send a packet on the socket
     // which connects the tun interface to the client, so existing IP address to name
     // mappings to not expire as long as the connection is active.
-    pub fn touch_ip(&mut self, addr: &IpAddr) -> bool {
-        match self.lru_cache.get_mut(addr) {
-            None => false,
-            Some(entry) => {
-                entry.expiry = Instant::now() + Duration::from_secs(MAPPING_TIMEOUT);
-                true
-            }
-        }
+    pub fn touch_ip(&mut self, addr: &IpAddr) {
+        _ = self.lru_cache.get_mut(addr).map(|entry| {
+            entry.expiry = Instant::now() + Duration::from_secs(MAPPING_TIMEOUT);
+        });
     }
 
     pub fn resolve_ip(&mut self, addr: &IpAddr) -> Option<&String> {
-        match self.lru_cache.get(addr) {
-            None => None,
-            Some(entry) => Some(&entry.name),
-        }
+        self.lru_cache.get(addr).map(|entry| &entry.name)
     }
 
-    fn allocate_ip(&mut self, name: String) -> Option<IpAddr> {
+    fn allocate_ip(&mut self, name: String) -> Result<IpAddr> {
         let now = Instant::now();
 
         loop {
@@ -223,9 +211,9 @@ impl VirtualDns {
         }
 
         if let Some(ip) = self.name_to_ip.get(&name) {
-            let result = Some(*ip);
-            self.touch_ip(&ip.clone());
-            return result;
+            let ip = *ip;
+            self.touch_ip(&ip);
+            return Ok(ip);
         }
 
         let started_at = self.next_addr;
@@ -235,16 +223,10 @@ impl VirtualDns {
                 self.lru_cache.raw_entry_mut().from_key(&self.next_addr)
             {
                 let expiry = Instant::now() + Duration::from_secs(MAPPING_TIMEOUT);
-                vacant.insert(
-                    self.next_addr,
-                    NameCacheEntry {
-                        name: name.clone(),
-                        expiry,
-                    },
-                );
-                // e.insert(name.clone());
-                self.name_to_ip.insert(name, self.next_addr);
-                return Some(self.next_addr);
+                let name0 = name.clone();
+                vacant.insert(self.next_addr, NameCacheEntry { name, expiry });
+                self.name_to_ip.insert(name0, self.next_addr);
+                return Ok(self.next_addr);
             }
             self.next_addr = Self::increment_ip(self.next_addr)?;
             if self.next_addr == self.broadcast_addr {
@@ -252,7 +234,7 @@ impl VirtualDns {
                 self.next_addr = self.network_addr;
             }
             if self.next_addr == started_at {
-                return None;
+                return Err("Virtual IP space for DNS exhausted".into());
             }
         }
     }

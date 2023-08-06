@@ -33,6 +33,12 @@ pub enum Error {
     #[error("std::str::Utf8Error {0:?}")]
     Utf8(#[from] std::str::Utf8Error),
 
+    #[error("TryFromSliceError {0:?}")]
+    TryFromSlice(#[from] std::array::TryFromSliceError),
+
+    #[error("ProtoError {0:?}")]
+    ProtoError(#[from] trust_dns_proto::error::ProtoError),
+
     #[cfg(target_os = "android")]
     #[error("jni::errors::Error {0:?}")]
     Jni(#[from] jni::errors::Error),

@@ -1,10 +1,14 @@
-use crate::{error::Error, http::HttpManager, socks::SocksProxyManager, tun2proxy::TunToProxy};
+use crate::{
+    error::Error,
+    http::HttpManager,
+    socks::SocksProxyManager,
+    tun2proxy::{ConnectionManager, TunToProxy},
+};
 use socks5_impl::protocol::{UserKey, Version};
 use std::{
     net::{SocketAddr, ToSocketAddrs},
     rc::Rc,
 };
-use tun2proxy::ConnectionManager;
 
 mod android;
 mod dns;
