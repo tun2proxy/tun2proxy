@@ -508,7 +508,8 @@ impl<'a> TunToProxy<'a> {
                 let port = connection_info.dst.port();
                 if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == 53) {
                     let payload = &frame[payload_offset..payload_offset + payload_size];
-                    if let Some(response) = virtual_dns.receive_query(payload) {
+                    let response = virtual_dns.receive_query(payload)?;
+                    {
                         let rx_buffer =
                             udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
                         let tx_buffer =

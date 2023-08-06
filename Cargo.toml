@@ -25,6 +25,7 @@ prctl = "1.0"
 smoltcp = { version = "0.10.0", features = ["std", "phy-tuntap_interface"] }
 socks5-impl = { version = "0.5", default-features = false }
 thiserror = "1.0"
+trust-dns-proto = "0.22"
 unicase = "2.6.0"
 url = "2.4"
 
