@@ -1,7 +1,7 @@
 on:
   push:
-    branches: [master]
-  workflow_dispatch:
+    tags:
+      - "*"
 
 name: Build and publish executable
 
@@ -24,10 +24,7 @@ jobs:
         run: mkdir build && mv target/x86_64-unknown-linux-gnu/release/tun2proxy build/tun2proxy-x86_64
       - name: Publish
         uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          name: Automated build of ${{ github.sha }}
           files: build/*
-          draft: false
-          prerelease: true
-          body: This is an automated build of commit ${{ github.sha }}.
-          tag_name: r${{ github.sha }}
