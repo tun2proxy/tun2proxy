@@ -449,15 +449,19 @@ impl<'a> TunToProxy<'a> {
                     }
                 }
             };
-            log::trace!("{} ({})", connection_info, dst);
             if connection_info.protocol == IpProtocol::Tcp {
                 let server_addr = self
                     .get_connection_manager(&connection_info)
                     .ok_or("get_connection_manager")?
                     .get_server_addr();
                 if first_packet {
-                    if let Some(manager) = self.connection_managers.iter_mut().next() {
-                        let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info)?;
+                    let mut done = false;
+                    for manager in self.connection_managers.iter_mut() {
+                        let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info);
+                        if tcp_proxy_handler.is_err() {
+                            continue;
+                        }
+                        let tcp_proxy_handler = tcp_proxy_handler?;
                         let mut socket = tcp::Socket::new(
                             tcp::SocketBuffer::new(vec![0; 1024 * 128]),
                             tcp::SocketBuffer::new(vec![0; 1024 * 128]),
@@ -484,10 +488,18 @@ impl<'a> TunToProxy<'a> {
 
                         self.token_to_info.insert(token, connection_info.clone());
 
-                        // log::info!("CONNECT {} ({})", connection_info, dst);
+                        log::info!("Connect done {} ({})", connection_info, dst);
+                        done = true;
+                        break;
+                    }
+                    if !done {
+                        log::debug!("No connection manager for {} ({})", connection_info, dst);
                     }
                 } else if !self.connection_map.contains_key(&connection_info) {
+                    log::debug!("Not found {} ({})", connection_info, dst);
                     return Ok(());
+                } else {
+                    log::trace!("Subsequent packet {} ({})", connection_info, dst);
                 }
 
                 // Inject the packet to advance the smoltcp socket state
@@ -505,6 +517,7 @@ impl<'a> TunToProxy<'a> {
                 // Therefore, we now expect it to write data to the server.
                 self.write_to_server(&connection_info)?;
             } else if connection_info.protocol == IpProtocol::Udp {
+                log::trace!("{} ({})", connection_info, dst);
                 let port = connection_info.dst.port();
                 if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == 53) {
                     let payload = &frame[payload_offset..payload_offset + payload_size];
@@ -525,6 +538,8 @@ impl<'a> TunToProxy<'a> {
                     }
                 }
                 // Otherwise, UDP is not yet supported.
+            } else {
+                log::warn!("Unsupported protocol: {} ({})", connection_info, dst);
             }
             Ok::<(), Error>(())
         };
