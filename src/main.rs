@@ -1,5 +1,4 @@
 use clap::Parser;
-use env_logger::Env;
 use std::{net::IpAddr, process::ExitCode};
 use tun2proxy::{error::Error, main_entry, NetworkInterface, Options, Proxy};
 
@@ -43,6 +42,10 @@ struct Args {
     /// Public proxy IP used in routing setup which should bypassing the tunnel
     #[arg(long, value_name = "IP")]
     bypass_ip: Option<IpAddr>,
+
+    /// Verbosity level
+    #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
+    verbosity: ArgVerbosity,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
@@ -56,10 +59,22 @@ enum ArgSetup {
     Auto,
 }
 
+#[derive(Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+enum ArgVerbosity {
+    Off,
+    Error,
+    Warn,
+    Info,
+    Debug,
+    Trace,
+}
+
 fn main() -> ExitCode {
     dotenvy::dotenv().ok();
-    env_logger::Builder::from_env(Env::default().default_filter_or("info")).init();
     let args = Args::parse();
+
+    let default = format!("{}={:?}", module_path!(), args.verbosity);
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
     let addr = args.proxy.addr;
     let proxy_type = args.proxy.proxy_type;
