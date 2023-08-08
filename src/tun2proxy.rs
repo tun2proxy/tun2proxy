@@ -413,14 +413,12 @@ impl<'a> TunToProxy<'a> {
         }
 
         // This ugliness is due to the way Interest is implemented (as a NonZeroU8 wrapper).
-        let interest;
-        if state.wait_read && !state.wait_write {
-            interest = Interest::READABLE;
-        } else if state.wait_write && !state.wait_read {
-            interest = Interest::WRITABLE;
-        } else {
-            interest = Interest::READABLE | Interest::WRITABLE;
-        }
+        let interest = match (state.wait_read, state.wait_write) {
+            (true, false) => Interest::READABLE,
+            (false, true) => Interest::WRITABLE,
+            (true, true) => Interest::READABLE | Interest::WRITABLE,
+            (false, false) => Interest::READABLE | Interest::WRITABLE,
+        };
 
         poll.registry().register(&mut state.mio_stream, state.token, interest)?;
         Ok(())
