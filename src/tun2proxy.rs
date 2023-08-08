@@ -107,15 +107,16 @@ fn get_transport_info(
             .map_err(|e| e.into()),
         IpProtocol::Tcp => TcpPacket::new_checked(packet)
             .map(|result| {
+                let header_len = result.header_len() as usize;
                 (
                     (result.src_port(), result.dst_port()),
                     result.syn() && !result.ack(),
-                    transport_offset + result.header_len() as usize,
-                    packet.len(),
+                    transport_offset + header_len,
+                    packet.len() - header_len,
                 )
             })
             .map_err(|e| e.into()),
-        _ => Err(format!("Unsupported protocol {protocol}").into()),
+        _ => Err(format!("Unsupported protocol {protocol} in IP packet").into()),
     }
 }
 
