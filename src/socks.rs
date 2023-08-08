@@ -87,7 +87,12 @@ impl SocksProxyImpl {
         let credentials = &self.credentials;
         // Providing unassigned methods is supposed to bypass China's GFW.
         // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
-        let mut methods = vec![AuthMethod::NoAuth, AuthMethod::from(4_u8), AuthMethod::from(100_u8)];
+        #[rustfmt::skip]
+        let mut methods = vec![
+            AuthMethod::NoAuth,
+            AuthMethod::from(4_u8),
+            AuthMethod::from(100_u8),
+        ];
         if credentials.is_some() {
             methods.push(AuthMethod::UserPass);
         }
