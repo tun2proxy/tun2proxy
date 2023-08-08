@@ -120,9 +120,7 @@ impl VirtualDns {
         let started_at = self.next_addr;
 
         loop {
-            if let RawEntryMut::Vacant(vacant) =
-                self.lru_cache.raw_entry_mut().from_key(&self.next_addr)
-            {
+            if let RawEntryMut::Vacant(vacant) = self.lru_cache.raw_entry_mut().from_key(&self.next_addr) {
                 let expiry = Instant::now() + Duration::from_secs(MAPPING_TIMEOUT);
                 let name0 = name.clone();
                 vacant.insert(self.next_addr, NameCacheEntry { name, expiry });

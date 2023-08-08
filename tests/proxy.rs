@@ -22,8 +22,7 @@ mod tests {
     static TUN_TEST_DEVICE: &str = "tun0";
 
     fn proxy_from_env(env_var: &str) -> Result<Proxy, String> {
-        let url =
-            env::var(env_var).map_err(|_| format!("{env_var} environment variable not found"))?;
+        let url = env::var(env_var).map_err(|_| format!("{env_var} environment variable not found"))?;
         Proxy::from_url(url.as_str()).map_err(|_| format!("{env_var} URL cannot be parsed"))
     }
 
@@ -71,15 +70,13 @@ mod tests {
                         Ok(ip_str) => IpAddr::from_str(ip_str.as_str()).unwrap(),
                     };
 
-                    let mut setup =
-                        Setup::new(TUN_TEST_DEVICE, &bypass_ip, get_default_cidrs(), false);
+                    let mut setup = Setup::new(TUN_TEST_DEVICE, &bypass_ip, get_default_cidrs(), false);
                     setup.configure().unwrap();
 
                     match fork::fork() {
                         Ok(Fork::Parent(child)) => {
                             test_function();
-                            signal::kill(Pid::from_raw(child), signal::SIGINT)
-                                .expect("failed to kill child");
+                            signal::kill(Pid::from_raw(child), signal::SIGINT).expect("failed to kill child");
                             setup.restore().unwrap();
                         }
                         Ok(Fork::Child) => {
@@ -109,59 +106,41 @@ mod tests {
     #[test_log::test]
     fn test_socks4() {
         require_var("SOCKS4_SERVER");
-        run_test(
-            |test| test.proxy.proxy_type == ProxyType::Socks4,
-            request_ip_host_http,
-        )
+        run_test(|test| test.proxy.proxy_type == ProxyType::Socks4, request_ip_host_http)
     }
 
     #[serial]
     #[test_log::test]
     fn test_socks5() {
         require_var("SOCKS5_SERVER");
-        run_test(
-            |test| test.proxy.proxy_type == ProxyType::Socks5,
-            request_ip_host_http,
-        )
+        run_test(|test| test.proxy.proxy_type == ProxyType::Socks5, request_ip_host_http)
     }
 
     #[serial]
     #[test_log::test]
     fn test_http() {
         require_var("HTTP_SERVER");
-        run_test(
-            |test| test.proxy.proxy_type == ProxyType::Http,
-            request_ip_host_http,
-        )
+        run_test(|test| test.proxy.proxy_type == ProxyType::Http, request_ip_host_http)
     }
 
     #[serial]
     #[test_log::test]
     fn test_socks4_dns() {
         require_var("SOCKS4_SERVER");
-        run_test(
-            |test| test.proxy.proxy_type == ProxyType::Socks4,
-            request_example_https,
-        )
+        run_test(|test| test.proxy.proxy_type == ProxyType::Socks4, request_example_https)
     }
 
     #[serial]
     #[test_log::test]
     fn test_socks5_dns() {
         require_var("SOCKS5_SERVER");
-        run_test(
-            |test| test.proxy.proxy_type == ProxyType::Socks5,
-            request_example_https,
-        )
+        run_test(|test| test.proxy.proxy_type == ProxyType::Socks5, request_example_https)
     }
 
     #[serial]
     #[test_log::test]
     fn test_http_dns() {
         require_var("HTTP_SERVER");
-        run_test(
-            |test| test.proxy.proxy_type == ProxyType::Http,
-            request_example_https,
-        )
+        run_test(|test| test.proxy.proxy_type == ProxyType::Http, request_example_https)
     }
 }

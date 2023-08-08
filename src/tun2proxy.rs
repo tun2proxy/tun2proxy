@@ -222,25 +222,19 @@ impl<'a> TunToProxy<'a> {
     pub fn new(interface: &NetworkInterface, options: Options) -> Result<Self, Error> {
         let tun = match interface {
             NetworkInterface::Named(name) => TunTapInterface::new(name.as_str(), Medium::Ip)?,
-            NetworkInterface::Fd(fd) => {
-                TunTapInterface::from_fd(*fd, Medium::Ip, options.mtu.unwrap_or(1500))?
-            }
+            NetworkInterface::Fd(fd) => TunTapInterface::from_fd(*fd, Medium::Ip, options.mtu.unwrap_or(1500))?,
         };
         let poll = Poll::new()?;
-        poll.registry().register(
-            &mut SourceFd(&tun.as_raw_fd()),
-            TUN_TOKEN,
-            Interest::READABLE,
-        )?;
+        poll.registry()
+            .register(&mut SourceFd(&tun.as_raw_fd()), TUN_TOKEN, Interest::READABLE)?;
 
         let (exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;
         poll.registry()
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
+        #[rustfmt::skip]
         let config = match tun.capabilities().medium {
-            Medium::Ethernet => Config::new(
-                smoltcp::wire::EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into(),
-            ),
+            Medium::Ethernet =>  Config::new(smoltcp::wire::EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into()),
             Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
             Medium::Ieee802154 => todo!(),
         };
@@ -285,8 +279,7 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn expect_smoltcp_send(&mut self) -> Result<(), Error> {
-        self.iface
-            .poll(Instant::now(), &mut self.device, &mut self.sockets);
+        self.iface.poll(Instant::now(), &mut self.device, &mut self.sockets);
 
         while let Some(vec) = self.device.exfiltrate_packet() {
             let slice = vec.as_slice();
@@ -314,7 +307,7 @@ impl<'a> TunToProxy<'a> {
             let token = &conn.token;
             self.token_to_info.remove(token);
             _ = self.poll.registry().deregister(&mut conn.mio_stream);
-            log::info!("CLOSE {}", info);
+            log::info!("Close {}", info);
         }
         Ok(())
     }
@@ -429,8 +422,7 @@ impl<'a> TunToProxy<'a> {
             interest = Interest::READABLE | Interest::WRITABLE;
         }
 
-        poll.registry()
-            .register(&mut state.mio_stream, state.token, interest)?;
+        poll.registry().register(&mut state.mio_stream, state.token, interest)?;
         Ok(())
     }
 
@@ -524,10 +516,8 @@ impl<'a> TunToProxy<'a> {
                     let payload = &frame[payload_offset..payload_offset + payload_size];
                     let response = virtual_dns.receive_query(payload)?;
                     {
-                        let rx_buffer =
-                            udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
-                        let tx_buffer =
-                            udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
+                        let rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
+                        let tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
                         let mut socket = udp::Socket::new(rx_buffer, tx_buffer);
                         socket.bind(dst)?;
                         let meta = UdpMetadata::from(connection_info.src);
@@ -551,9 +541,7 @@ impl<'a> TunToProxy<'a> {
 
     fn write_to_server(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
         if let Some(state) = self.connection_map.get_mut(info) {
-            let event = state
-                .tcp_proxy_handler
-                .peek_data(OutgoingDirection::ToServer);
+            let event = state.tcp_proxy_handler.peek_data(OutgoingDirection::ToServer);
             let buffer_size = event.buffer.len();
             if buffer_size == 0 {
                 state.wait_write = false;
@@ -590,9 +578,7 @@ impl<'a> TunToProxy<'a> {
                 Some(handle) => handle,
                 None => break,
             };
-            let event = state
-                .tcp_proxy_handler
-                .peek_data(OutgoingDirection::ToClient);
+            let event = state.tcp_proxy_handler.peek_data(OutgoingDirection::ToClient);
             let buflen = event.buffer.len();
             let consumed;
             {
@@ -662,10 +648,7 @@ impl<'a> TunToProxy<'a> {
             }
         };
 
-        let server = self
-            .get_connection_manager(&conn_info)
-            .ok_or(e)?
-            .get_server_addr();
+        let server = self.get_connection_manager(&conn_info).ok_or(e)?.get_server_addr();
 
         let mut block = || -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {

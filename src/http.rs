@@ -1,8 +1,8 @@
 use crate::{
     error::Error,
     tun2proxy::{
-        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
-        OutgoingDataEvent, OutgoingDirection, TcpProxy,
+        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
+        OutgoingDirection, TcpProxy,
     },
 };
 use base64::Engine;
@@ -89,11 +89,9 @@ impl HttpConnection {
 
     fn send_tunnel_request(&mut self) -> Result<(), Error> {
         self.server_outbuf.extend(b"CONNECT ");
-        self.server_outbuf
-            .extend(self.destination.to_string().as_bytes());
+        self.server_outbuf.extend(self.destination.to_string().as_bytes());
         self.server_outbuf.extend(b" HTTP/1.1\r\nHost: ");
-        self.server_outbuf
-            .extend(self.destination.to_string().as_bytes());
+        self.server_outbuf.extend(self.destination.to_string().as_bytes());
         self.server_outbuf.extend(b"\r\n");
 
         self.send_auth_data(if self.digest_state.borrow().is_none() {
@@ -126,14 +124,8 @@ impl HttpConnection {
                 let mut state = self.digest_state.borrow_mut();
                 let response = state.as_mut().unwrap().respond(&context)?;
 
-                self.server_outbuf.extend(
-                    format!(
-                        "{}: {}\r\n",
-                        PROXY_AUTHORIZATION,
-                        response.to_header_string()
-                    )
-                    .as_bytes(),
-                );
+                self.server_outbuf
+                    .extend(format!("{}: {}\r\n", PROXY_AUTHORIZATION, response.to_header_string()).as_bytes());
             }
             AuthenticationScheme::Basic => {
                 let cred = format!("{}:{}", credentials.username, credentials.password);
@@ -198,8 +190,11 @@ impl HttpConnection {
                 }
 
                 if status_code != 407 {
-                    let e =
-                        format!("Expected success status code. Server replied with {status_code} [Reason: {}].", res.reason.unwrap());
+                    let e = format!(
+                        "Expected success status code. Server replied with {} [Reason: {}].",
+                        status_code,
+                        res.reason.unwrap()
+                    );
                     return Err(e.into());
                 }
 
@@ -371,9 +366,7 @@ impl TcpProxy for HttpConnection {
         match dir {
             Direction::Incoming(incoming) => match incoming {
                 IncomingDirection::FromServer => !self.server_inbuf.is_empty(),
-                IncomingDirection::FromClient => {
-                    !self.client_inbuf.is_empty() || !self.data_buf.is_empty()
-                }
+                IncomingDirection::FromClient => !self.client_inbuf.is_empty() || !self.data_buf.is_empty(),
             },
             Direction::Outgoing(outgoing) => match outgoing {
                 OutgoingDirection::ToServer => !self.server_outbuf.is_empty(),

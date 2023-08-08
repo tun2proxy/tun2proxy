@@ -1,14 +1,12 @@
 use crate::{
     error::Error,
     tun2proxy::{
-        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection,
-        OutgoingDataEvent, OutgoingDirection, TcpProxy,
+        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
+        OutgoingDirection, TcpProxy,
     },
 };
 use smoltcp::wire::IpProtocol;
-use socks5_impl::protocol::{
-    self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version,
-};
+use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version};
 use std::{collections::VecDeque, net::SocketAddr};
 
 #[derive(Eq, PartialEq, Debug)]
@@ -36,11 +34,7 @@ struct SocksProxyImpl {
 }
 
 impl SocksProxyImpl {
-    pub fn new(
-        info: &ConnectionInfo,
-        credentials: Option<UserKey>,
-        version: Version,
-    ) -> Result<Self, Error> {
+    fn new(info: &ConnectionInfo, credentials: Option<UserKey>, version: Version) -> Result<Self, Error> {
         let mut result = Self {
             info: info.clone(),
             state: SocksState::ServerHello,
@@ -60,8 +54,7 @@ impl SocksProxyImpl {
         let credentials = &self.credentials;
         self.server_outbuf
             .extend(&[self.version as u8, protocol::Command::Connect.into()]);
-        self.server_outbuf
-            .extend(self.info.dst.port().to_be_bytes());
+        self.server_outbuf.extend(self.info.dst.port().to_be_bytes());
         let mut ip_vec = Vec::<u8>::new();
         let mut name_vec = Vec::<u8>::new();
         match &self.info.dst {
@@ -94,11 +87,7 @@ impl SocksProxyImpl {
         let credentials = &self.credentials;
         // Providing unassigned methods is supposed to bypass China's GFW.
         // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
-        let mut methods = vec![
-            AuthMethod::NoAuth,
-            AuthMethod::from(4_u8),
-            AuthMethod::from(100_u8),
-        ];
+        let mut methods = vec![AuthMethod::NoAuth, AuthMethod::from(4_u8), AuthMethod::from(100_u8)];
         if credentials.is_some() {
             methods.push(AuthMethod::UserPass);
         }
@@ -151,8 +140,7 @@ impl SocksProxyImpl {
         let auth_method = respones.method;
 
         if auth_method != AuthMethod::NoAuth && self.credentials.is_none()
-            || (auth_method != AuthMethod::NoAuth && auth_method != AuthMethod::UserPass)
-                && self.credentials.is_some()
+            || (auth_method != AuthMethod::NoAuth && auth_method != AuthMethod::UserPass) && self.credentials.is_some()
         {
             return Err("SOCKS5 server requires an unsupported authentication method.".into());
         }
@@ -240,7 +228,7 @@ impl SocksProxyImpl {
         Ok(())
     }
 
-    pub fn state_change(&mut self) -> Result<(), Error> {
+    fn state_change(&mut self) -> Result<(), Error> {
         match self.state {
             SocksState::ServerHello => self.receive_server_hello(),
 
@@ -308,9 +296,7 @@ impl TcpProxy for SocksProxyImpl {
         match dir {
             Direction::Incoming(incoming) => match incoming {
                 IncomingDirection::FromServer => !self.server_inbuf.is_empty(),
-                IncomingDirection::FromClient => {
-                    !self.client_inbuf.is_empty() || !self.data_buf.is_empty()
-                }
+                IncomingDirection::FromClient => !self.client_inbuf.is_empty() || !self.data_buf.is_empty(),
             },
             Direction::Outgoing(outgoing) => match outgoing {
                 OutgoingDirection::ToServer => !self.server_outbuf.is_empty(),

@@ -23,9 +23,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
 ) -> jint {
     let log_level = if verbose != 0 { "trace" } else { "info" };
     let filter_str = &format!("off,tun2proxy={log_level}");
-    let filter = android_logger::FilterBuilder::new()
-        .parse(filter_str)
-        .build();
+    let filter = android_logger::FilterBuilder::new().parse(filter_str).build();
     android_logger::init_once(
         android_logger::Config::default()
             .with_tag("tun2proxy")
@@ -61,10 +59,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
 ///
 /// Shutdown tun2proxy
 #[no_mangle]
-pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_stop(
-    _env: JNIEnv,
-    _clazz: JClass,
-) -> jint {
+pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_stop(_env: JNIEnv, _: JClass) -> jint {
     match &mut TUN_TO_PROXY {
         None => {
             log::error!("tun2proxy not started");

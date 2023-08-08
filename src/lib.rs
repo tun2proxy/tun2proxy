@@ -124,24 +124,17 @@ pub fn tun_to_proxy<'a>(
     let mut ttp = TunToProxy::new(interface, options)?;
     let credentials = proxy.credentials.clone();
     let server = proxy.addr;
+    #[rustfmt::skip]
     let mgr = match proxy.proxy_type {
-        ProxyType::Socks4 => Rc::new(SocksProxyManager::new(server, Version::V4, credentials))
-            as Rc<dyn ConnectionManager>,
-        ProxyType::Socks5 => Rc::new(SocksProxyManager::new(server, Version::V5, credentials))
-            as Rc<dyn ConnectionManager>,
-        ProxyType::Http => {
-            Rc::new(HttpManager::new(server, credentials)) as Rc<dyn ConnectionManager>
-        }
+        ProxyType::Socks4 => Rc::new(SocksProxyManager::new(server, Version::V4, credentials)) as Rc<dyn ConnectionManager>,
+        ProxyType::Socks5 => Rc::new(SocksProxyManager::new(server, Version::V5, credentials)) as Rc<dyn ConnectionManager>,
+        ProxyType::Http => Rc::new(HttpManager::new(server, credentials)) as Rc<dyn ConnectionManager>,
     };
     ttp.add_connection_manager(mgr);
     Ok(ttp)
 }
 
-pub fn main_entry(
-    interface: &NetworkInterface,
-    proxy: &Proxy,
-    options: Options,
-) -> Result<(), Error> {
+pub fn main_entry(interface: &NetworkInterface, proxy: &Proxy, options: Options) -> Result<(), Error> {
     let mut ttp = tun_to_proxy(interface, proxy, options)?;
     ttp.run()?;
     Ok(())

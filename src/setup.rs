@@ -59,13 +59,7 @@ where
         cmdline.append(&mut args);
         let command = cmdline.as_slice().join(" ");
         match String::from_utf8(output.stderr.clone()) {
-            Ok(output) => Err(format!(
-                "[{}] Command `{}` failed: {}",
-                nix::unistd::getpid(),
-                command,
-                output
-            )
-            .into()),
+            Ok(output) => Err(format!("[{}] Command `{}` failed: {}", nix::unistd::getpid(), command, output).into()),
             Err(_) => Err(format!(
                 "Command `{:?}` failed with exit code {}",
                 command,
@@ -126,14 +120,7 @@ impl Setup {
             }
 
             let (addr_str, prefix_len_str) = match dst_str.split_once(['/']) {
-                None => (
-                    dst_str,
-                    if self.tunnel_bypass_addr.is_ipv6() {
-                        "128"
-                    } else {
-                        "32"
-                    },
-                ),
+                None => (dst_str, if self.tunnel_bypass_addr.is_ipv6() { "128" } else { "32" }),
                 Some((addr_str, prefix_len_str)) => (addr_str, prefix_len_str),
             };
 
@@ -215,13 +202,8 @@ impl Setup {
 
     fn shutdown(&mut self) -> Result<(), Error> {
         self.set_up = false;
-        log::info!(
-            "[{}] Restoring network configuration",
-            nix::unistd::getpid()
-        );
-        let _ = Command::new("ip")
-            .args(["link", "del", self.tun.as_str()])
-            .output();
+        log::info!("[{}] Restoring network configuration", nix::unistd::getpid());
+        let _ = Command::new("ip").args(["link", "del", self.tun.as_str()]).output();
         if self.delete_proxy_route {
             let _ = Command::new("ip")
                 .args(["route", "del", self.tunnel_bypass_addr.to_string().as_str()])
@@ -235,15 +217,7 @@ impl Setup {
         if let Err(e) = (|| -> Result<(), Error> {
             nix::unistd::close(read_from_child)?;
             run_iproute(
-                [
-                    "ip",
-                    "tuntap",
-                    "add",
-                    "name",
-                    self.tun.as_str(),
-                    "mode",
-                    "tun",
-                ],
+                ["ip", "tuntap", "add", "name", self.tun.as_str(), "mode", "tun"],
                 "failed to create tunnel device",
                 true,
             )?;
@@ -306,10 +280,7 @@ impl Setup {
     }
 
     pub fn configure(&mut self) -> Result<(), Error> {
-        log::info!(
-            "[{}] Setting up network configuration",
-            nix::unistd::getpid()
-        );
+        log::info!("[{}] Setting up network configuration", nix::unistd::getpid());
         if nix::unistd::getuid() != 0.into() {
             return Err("Automatic setup requires root privileges".into());
         }
@@ -345,10 +316,7 @@ impl Setup {
     }
 
     pub fn restore(&mut self) -> Result<(), Error> {
-        nix::sys::signal::kill(
-            nix::unistd::Pid::from_raw(self.child),
-            nix::sys::signal::SIGINT,
-        )?;
+        nix::sys::signal::kill(nix::unistd::Pid::from_raw(self.child), nix::sys::signal::SIGINT)?;
         nix::sys::wait::waitpid(nix::unistd::Pid::from_raw(self.child), None)?;
         Ok(())
     }

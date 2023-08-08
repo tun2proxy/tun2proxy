@@ -7,11 +7,7 @@ use trust_dns_proto::{
 };
 
 #[cfg(feature = "use-rand")]
-pub fn build_dns_request(
-    domain: &str,
-    query_type: RecordType,
-    used_by_tcp: bool,
-) -> Result<Vec<u8>, String> {
+pub fn build_dns_request(domain: &str, query_type: RecordType, used_by_tcp: bool) -> Result<Vec<u8>, String> {
     // [dependencies]
     // rand = "0.8"
     use rand::{rngs::StdRng, Rng, SeedableRng};
@@ -34,12 +30,7 @@ pub fn build_dns_request(
     }
 }
 
-pub fn build_dns_response(
-    mut request: Message,
-    domain: &str,
-    ip: IpAddr,
-    ttl: u32,
-) -> Result<Message, String> {
+pub fn build_dns_response(mut request: Message, domain: &str, ip: IpAddr, ttl: u32) -> Result<Message, String> {
     let record = match ip {
         IpAddr::V4(ip) => {
             let mut record = Record::with(Name::from_str(domain)?, RecordType::A, ttl);
@@ -62,10 +53,7 @@ pub fn extract_ipaddr_from_dns_message(message: &Message) -> Result<IpAddr, Stri
     }
     let mut cname = None;
     for answer in message.answers() {
-        match answer
-            .data()
-            .ok_or("DNS response not contains answer data")?
-        {
+        match answer.data().ok_or("DNS response not contains answer data")? {
             RData::A(addr) => {
                 return Ok(IpAddr::V4(*addr));
             }

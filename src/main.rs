@@ -26,13 +26,7 @@ struct Args {
     proxy: Proxy,
 
     /// DNS handling
-    #[arg(
-        short,
-        long,
-        value_name = "method",
-        value_enum,
-        default_value = "virtual"
-    )]
+    #[arg(short, long, value_name = "method", value_enum, default_value = "virtual")]
     dns: ArgDns,
 
     /// Routing and system setup
@@ -102,12 +96,7 @@ fn main() -> ExitCode {
                     Some(addr) => addr,
                     None => args.proxy.addr.ip(),
                 };
-                setup = Setup::new(
-                    &args.tun,
-                    &bypass_tun_ip,
-                    get_default_cidrs(),
-                    args.bypass_ip.is_some(),
-                );
+                setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs(), args.bypass_ip.is_some());
 
                 setup.configure()?;
 
