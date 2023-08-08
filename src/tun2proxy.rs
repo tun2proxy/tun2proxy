@@ -530,9 +530,8 @@ impl<'a> TunToProxy<'a> {
                             udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
                         let mut socket = udp::Socket::new(rx_buffer, tx_buffer);
                         socket.bind(dst)?;
-                        socket
-                            .send_slice(response.as_slice(), UdpMetadata::from(connection_info.src))
-                            .expect("failed to send DNS response");
+                        let meta = UdpMetadata::from(connection_info.src);
+                        socket.send_slice(response.as_slice(), meta)?;
                         let handle = self.sockets.add(socket);
                         self.expect_smoltcp_send()?;
                         self.sockets.remove(handle);
