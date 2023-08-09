@@ -194,6 +194,13 @@ impl SocksProxyImpl {
         self.state_change()
     }
 
+    fn send_request_socks5(&mut self) -> Result<(), Error> {
+        protocol::Request::new(protocol::Command::Connect, self.info.dst.clone())
+            .write_to_stream(&mut self.server_outbuf)?;
+        self.state = SocksState::ReceiveResponse;
+        self.state_change()
+    }
+
     fn receive_connection_status(&mut self) -> Result<(), Error> {
         let response = protocol::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
         if let Err(e) = &response {
@@ -214,14 +221,6 @@ impl SocksProxyImpl {
         self.data_buf.clear();
 
         self.state = SocksState::Established;
-        self.state_change()
-    }
-
-    fn send_request_socks5(&mut self) -> Result<(), Error> {
-        // self.server_outbuf.extend(&[self.version as u8, self.command as u8, 0]);
-        protocol::Request::new(protocol::Command::Connect, self.info.dst.clone())
-            .write_to_stream(&mut self.server_outbuf)?;
-        self.state = SocksState::ReceiveResponse;
         self.state_change()
     }
 

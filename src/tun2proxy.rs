@@ -12,7 +12,7 @@ use std::{
     collections::{HashMap, HashSet},
     convert::{From, TryFrom},
     io::{Read, Write},
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, Shutdown::Both, SocketAddr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr},
     os::unix::io::AsRawFd,
     rc::Rc,
     str::FromStr,
@@ -278,6 +278,7 @@ impl<'a> TunToProxy<'a> {
         self.connection_managers.push(manager);
     }
 
+    /// Read data from virtual device (remote server) and inject it into tun interface.
     fn expect_smoltcp_send(&mut self) -> Result<(), Error> {
         self.iface.poll(Instant::now(), &mut self.device, &mut self.sockets);
 
@@ -297,7 +298,7 @@ impl<'a> TunToProxy<'a> {
 
     fn remove_connection(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
         if let Some(mut conn) = self.connection_map.remove(info) {
-            _ = conn.mio_stream.shutdown(Both);
+            _ = conn.mio_stream.shutdown(Shutdown::Both);
             if let Some(handle) = conn.smoltcp_handle {
                 let socket = self.sockets.get_mut::<tcp::Socket>(handle);
                 socket.close();
@@ -322,11 +323,10 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn check_change_close_state(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
-        let state = self.connection_map.get_mut(info);
-        if state.is_none() {
-            return Ok(());
-        }
-        let state = state.unwrap();
+        let state = match self.connection_map.get_mut(info) {
+            None => return Ok(()),
+            Some(state) => state,
+        };
         let mut closed_ends = 0;
         if (state.close_state & SERVER_WRITE_CLOSED) == SERVER_WRITE_CLOSED
             && !state
@@ -492,7 +492,7 @@ impl<'a> TunToProxy<'a> {
                     log::trace!("Subsequent packet {} ({})", connection_info, dst);
                 }
 
-                // Inject the packet to advance the smoltcp socket state
+                // Inject the packet to advance the remote proxy server smoltcp socket state
                 self.device.inject_packet(frame);
 
                 // Having advanced the socket state, we expect the socket to ACK
@@ -509,8 +509,8 @@ impl<'a> TunToProxy<'a> {
             } else if connection_info.protocol == IpProtocol::Udp {
                 log::trace!("{} ({})", connection_info, dst);
                 let port = connection_info.dst.port();
+                let payload = &frame[payload_offset..payload_offset + payload_size];
                 if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == 53) {
-                    let payload = &frame[payload_offset..payload_offset + payload_size];
                     let response = virtual_dns.receive_query(payload)?;
                     {
                         let rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
@@ -680,7 +680,7 @@ impl<'a> TunToProxy<'a> {
                     if state.tcp_proxy_handler.reset_connection() {
                         _ = self.poll.registry().deregister(&mut state.mio_stream);
                         // Closes the connection with the proxy
-                        state.mio_stream.shutdown(Both)?;
+                        state.mio_stream.shutdown(Shutdown::Both)?;
 
                         log::info!("RESET {}", conn_info);
 
