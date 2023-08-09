@@ -416,8 +416,7 @@ impl<'a> TunToProxy<'a> {
         let interest = match (state.wait_read, state.wait_write) {
             (true, false) => Interest::READABLE,
             (false, true) => Interest::WRITABLE,
-            (true, true) => Interest::READABLE | Interest::WRITABLE,
-            (false, false) => Interest::READABLE | Interest::WRITABLE,
+            _ => Interest::READABLE | Interest::WRITABLE,
         };
 
         poll.registry().register(&mut state.mio_stream, state.token, interest)?;
