@@ -209,7 +209,6 @@ pub struct TunToProxy<'a> {
     connection_map: HashMap<ConnectionInfo, TcpConnectState>,
     connection_managers: Vec<Rc<dyn ConnectionManager>>,
     next_token: usize,
-    token_to_info: HashMap<Token, ConnectionInfo>,
     sockets: SocketSet<'a>,
     device: VirtualTunDevice,
     options: Options,
@@ -256,7 +255,6 @@ impl<'a> TunToProxy<'a> {
             iface,
             connection_map: HashMap::default(),
             next_token: usize::from(EXIT_TOKEN) + 1,
-            token_to_info: HashMap::default(),
             connection_managers: Vec::default(),
             sockets: SocketSet::new([]),
             device,
@@ -296,18 +294,27 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
+    fn find_info_by_token(&self, token: Token) -> Option<&ConnectionInfo> {
+        self.connection_map
+            .iter()
+            .find_map(|(info, state)| if state.token == token { Some(info) } else { None })
+    }
+
+    /// Destroy connection state machine
     fn remove_connection(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
-        if let Some(mut conn) = self.connection_map.remove(info) {
-            _ = conn.mio_stream.shutdown(Shutdown::Both);
-            if let Some(handle) = conn.smoltcp_handle {
+        if let Some(mut state) = self.connection_map.remove(info) {
+            _ = state.mio_stream.shutdown(Shutdown::Both);
+            if let Some(handle) = state.smoltcp_handle {
                 let socket = self.sockets.get_mut::<tcp::Socket>(handle);
                 socket.close();
                 self.sockets.remove(handle);
             }
+
+            // FIXME: Does this line should be moved up to the beginning of this function?
             self.expect_smoltcp_send()?;
-            let token = &conn.token;
-            self.token_to_info.remove(token);
-            _ = self.poll.registry().deregister(&mut conn.mio_stream);
+
+            _ = self.poll.registry().deregister(&mut state.mio_stream);
+
             log::info!("Close {}", info);
         }
         Ok(())
@@ -322,10 +329,11 @@ impl<'a> TunToProxy<'a> {
         None
     }
 
+    /// Scan connection state machine and check if any connection should be closed.
     fn check_change_close_state(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
         let state = match self.connection_map.get_mut(info) {
-            None => return Ok(()),
             Some(state) => state,
+            None => return Ok(()),
         };
         let mut closed_ends = 0;
         if (state.close_state & SERVER_WRITE_CLOSED) == SERVER_WRITE_CLOSED
@@ -336,8 +344,9 @@ impl<'a> TunToProxy<'a> {
                 .tcp_proxy_handler
                 .have_data(Direction::Outgoing(OutgoingDirection::ToClient))
         {
-            if let Some(socket_handle) = state.smoltcp_handle {
-                let socket = self.sockets.get_mut::<tcp::Socket>(socket_handle);
+            if let Some(handle) = state.smoltcp_handle {
+                // Close tun interface
+                let socket = self.sockets.get_mut::<tcp::Socket>(handle);
                 socket.close();
             }
             closed_ends += 1;
@@ -351,17 +360,20 @@ impl<'a> TunToProxy<'a> {
                 .tcp_proxy_handler
                 .have_data(Direction::Outgoing(OutgoingDirection::ToServer))
         {
+            // Close remote server
             _ = state.mio_stream.shutdown(Shutdown::Write);
             closed_ends += 1;
         }
 
         if closed_ends == 2 {
+            // Close connection state machine
             self.remove_connection(info)?;
         }
         Ok(())
     }
 
     fn tunsocket_read_and_forward(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
+        // 1. Read data from tun and write to proxy handler (remote server).
         // Scope for mutable borrow of self.
         {
             let state = match self.connection_map.get_mut(info) {
@@ -393,10 +405,10 @@ impl<'a> TunToProxy<'a> {
                 // need to send data.
                 state.close_state |= CLIENT_WRITE_CLOSED;
             }
-
-            // Expect ACKs etc. from smoltcp sockets.
-            self.expect_smoltcp_send()?;
         }
+        // 2. Write data from proxy handler (remote server) to tun.
+        // Expect ACKs etc. from smoltcp sockets.
+        self.expect_smoltcp_send()?;
 
         self.check_change_close_state(info)?;
 
@@ -554,7 +566,6 @@ impl<'a> TunToProxy<'a> {
         };
         self.connection_map.insert(connection_info.clone(), state);
 
-        self.token_to_info.insert(token, connection_info.clone());
         Ok(())
     }
 
@@ -593,7 +604,7 @@ impl<'a> TunToProxy<'a> {
 
     fn write_to_client(&mut self, token: Token, info: &ConnectionInfo) -> Result<(), Error> {
         while let Some(state) = self.connection_map.get_mut(info) {
-            let socket_handle = match state.smoltcp_handle {
+            let handle = match state.smoltcp_handle {
                 Some(handle) => handle,
                 None => break,
             };
@@ -601,7 +612,7 @@ impl<'a> TunToProxy<'a> {
             let buflen = event.buffer.len();
             let consumed;
             {
-                let socket = self.sockets.get_mut::<tcp::Socket>(socket_handle);
+                let socket = self.sockets.get_mut::<tcp::Socket>(handle);
                 if socket.may_send() {
                     if let Some(virtual_dns) = &mut self.options.virtual_dns {
                         // Unwrapping is fine because every smoltcp socket is bound to an.
@@ -641,11 +652,10 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn send_to_smoltcp(&mut self) -> Result<(), Error> {
-        let cloned = self.write_sockets.clone();
-        for token in cloned.iter() {
-            if let Some(connection) = self.token_to_info.get(token) {
+        for token in self.write_sockets.clone().into_iter() {
+            if let Some(connection) = self.find_info_by_token(token) {
                 let connection = connection.clone();
-                if let Err(error) = self.write_to_client(*token, &connection) {
+                if let Err(error) = self.write_to_client(token, &connection) {
                     self.remove_connection(&connection)?;
                     log::error!("Write to client: {}: ", error);
                 }
@@ -656,7 +666,7 @@ impl<'a> TunToProxy<'a> {
 
     fn mio_socket_event(&mut self, event: &Event) -> Result<(), Error> {
         let e = "connection not found";
-        let conn_info = match self.token_to_info.get(&event.token()) {
+        let conn_info = match self.find_info_by_token(event.token()) {
             Some(conn_info) => conn_info.clone(),
             None => {
                 // We may have closed the connection in an earlier iteration over the poll events,
