@@ -263,6 +263,10 @@ impl SocksProxyImpl {
 }
 
 impl TcpProxy for SocksProxyImpl {
+    fn get_connection_info(&self) -> &ConnectionInfo {
+        &self.info
+    }
+
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
         let direction = event.direction;
         let buffer = event.buffer;

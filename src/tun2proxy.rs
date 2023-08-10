@@ -18,7 +18,7 @@ use std::{
     str::FromStr,
 };
 
-#[derive(Hash, Clone, Eq, PartialEq, Debug)]
+#[derive(Hash, Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
 pub(crate) struct ConnectionInfo {
     pub(crate) src: SocketAddr,
     pub(crate) dst: Address,
@@ -36,7 +36,6 @@ impl Default for ConnectionInfo {
 }
 
 impl ConnectionInfo {
-    #[allow(dead_code)]
     pub fn new(src: SocketAddr, dst: Address, protocol: IpProtocol) -> Self {
         Self { src, dst, protocol }
     }
@@ -133,11 +132,11 @@ fn connection_tuple(frame: &[u8]) -> Result<(ConnectionInfo, bool, usize, usize)
 
         let (ports, first_packet, payload_offset, payload_size) =
             get_transport_info(protocol, header_len, &frame[header_len..])?;
-        let info = ConnectionInfo {
-            src: SocketAddr::new(src_addr, ports.0),
-            dst: SocketAddr::new(dst_addr, ports.1).into(),
+        let info = ConnectionInfo::new(
+            SocketAddr::new(src_addr, ports.0),
+            SocketAddr::new(dst_addr, ports.1).into(),
             protocol,
-        };
+        );
         return Ok((info, first_packet, payload_offset, payload_size));
     }
 
@@ -154,11 +153,11 @@ fn connection_tuple(frame: &[u8]) -> Result<(ConnectionInfo, bool, usize, usize)
 
         let (ports, first_packet, payload_offset, payload_size) =
             get_transport_info(protocol, header_len, &frame[header_len..])?;
-        let info = ConnectionInfo {
-            src: SocketAddr::new(src_addr, ports.0),
-            dst: SocketAddr::new(dst_addr, ports.1).into(),
+        let info = ConnectionInfo::new(
+            SocketAddr::new(src_addr, ports.0),
+            SocketAddr::new(dst_addr, ports.1).into(),
             protocol,
-        };
+        );
         return Ok((info, first_packet, payload_offset, payload_size));
     }
     Err("Neither IPv6 nor IPv4 packet".into())
@@ -178,6 +177,7 @@ struct TcpConnectState {
 }
 
 pub(crate) trait TcpProxy {
+    fn get_connection_info(&self) -> &ConnectionInfo;
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error>;
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent;
@@ -193,7 +193,7 @@ pub(crate) trait UdpProxy {
 
 pub(crate) trait ConnectionManager {
     fn handles_connection(&self, info: &ConnectionInfo) -> bool;
-    fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>, Error>;
+    fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>>;
     fn close_connection(&self, info: &ConnectionInfo);
     fn get_server_addr(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<UserKey>;
