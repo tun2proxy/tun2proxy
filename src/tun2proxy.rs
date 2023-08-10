@@ -193,7 +193,7 @@ pub(crate) trait UdpProxy {
 
 pub(crate) trait ConnectionManager {
     fn handles_connection(&self, info: &ConnectionInfo) -> bool;
-    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error>;
+    fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>, Error>;
     fn close_connection(&self, info: &ConnectionInfo);
     fn get_server_addr(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<UserKey>;
@@ -447,7 +447,7 @@ impl<'a> TunToProxy<'a> {
                 if first_packet {
                     let mut done = false;
                     for manager in self.connection_managers.iter_mut() {
-                        let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info);
+                        let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, false);
                         if tcp_proxy_handler.is_err() {
                             continue;
                         }
@@ -504,8 +504,14 @@ impl<'a> TunToProxy<'a> {
                         self.expect_smoltcp_send()?;
                         self.sockets.remove(handle);
                     }
+                } else {
+                    // Another UDP packet
+                    let cm = self.get_connection_manager(&connection_info);
+                    if cm.is_none() {
+                        return Ok(());
+                    }
+                    // TODO: Handle UDP packets
                 }
-                // Otherwise, UDP is not yet supported.
             } else {
                 log::warn!("Unsupported protocol: {} ({})", connection_info, dst);
             }

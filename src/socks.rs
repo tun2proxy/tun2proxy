@@ -1,5 +1,5 @@
 use crate::{
-    error::Error,
+    error::{Error, Result},
     tun2proxy::{
         ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
         OutgoingDirection, TcpProxy,
@@ -7,7 +7,7 @@ use crate::{
 };
 use smoltcp::wire::IpProtocol;
 use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version};
-use std::{collections::VecDeque, net::SocketAddr};
+use std::{collections::VecDeque, convert::TryFrom, net::SocketAddr};
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -31,10 +31,17 @@ struct SocksProxyImpl {
     data_buf: VecDeque<u8>,
     version: Version,
     credentials: Option<UserKey>,
+    command: protocol::Command,
+    udp_associate: Option<SocketAddr>,
 }
 
 impl SocksProxyImpl {
-    fn new(info: &ConnectionInfo, credentials: Option<UserKey>, version: Version) -> Result<Self, Error> {
+    fn new(
+        info: &ConnectionInfo,
+        credentials: Option<UserKey>,
+        version: Version,
+        command: protocol::Command,
+    ) -> Result<Self> {
         let mut result = Self {
             info: info.clone(),
             state: SocksState::ServerHello,
@@ -45,6 +52,8 @@ impl SocksProxyImpl {
             data_buf: VecDeque::default(),
             version,
             credentials,
+            command,
+            udp_associate: None,
         };
         result.send_client_hello()?;
         Ok(result)
@@ -195,8 +204,7 @@ impl SocksProxyImpl {
     }
 
     fn send_request_socks5(&mut self) -> Result<(), Error> {
-        protocol::Request::new(protocol::Command::Connect, self.info.dst.clone())
-            .write_to_stream(&mut self.server_outbuf)?;
+        protocol::Request::new(self.command, self.info.dst.clone()).write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveResponse;
         self.state_change()
     }
@@ -215,6 +223,9 @@ impl SocksProxyImpl {
         self.server_inbuf.drain(0..response.len());
         if response.reply != protocol::Reply::Succeeded {
             return Err(format!("SOCKS connection failed: {}", response.reply).into());
+        }
+        if self.command == protocol::Command::UdpAssociate {
+            self.udp_associate = Some(SocketAddr::try_from(response.address)?);
         }
 
         self.server_outbuf.append(&mut self.data_buf);
@@ -325,14 +336,17 @@ impl ConnectionManager for SocksProxyManager {
         info.protocol == IpProtocol::Tcp
     }
 
-    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error> {
+    fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>> {
         if info.protocol != IpProtocol::Tcp {
             return Err("Invalid protocol".into());
         }
+        use socks5_impl::protocol::Command::{Connect, UdpAssociate};
+        let command = if udp_associate { UdpAssociate } else { Connect };
         Ok(Box::new(SocksProxyImpl::new(
             info,
             self.credentials.clone(),
             self.version,
+            command,
         )?))
     }
 

@@ -391,7 +391,7 @@ impl ConnectionManager for HttpManager {
         info.protocol == IpProtocol::Tcp
     }
 
-    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error> {
+    fn new_tcp_proxy(&self, info: &ConnectionInfo, _: bool) -> Result<Box<dyn TcpProxy>, Error> {
         if info.protocol != IpProtocol::Tcp {
             return Err("Invalid protocol".into());
         }
