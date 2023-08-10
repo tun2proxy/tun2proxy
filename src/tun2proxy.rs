@@ -452,31 +452,12 @@ impl<'a> TunToProxy<'a> {
                             continue;
                         }
                         let tcp_proxy_handler = tcp_proxy_handler?;
-                        let mut socket = tcp::Socket::new(
-                            tcp::SocketBuffer::new(vec![0; 1024 * 128]),
-                            tcp::SocketBuffer::new(vec![0; 1024 * 128]),
-                        );
-                        socket.set_ack_delay(None);
-                        socket.listen(dst)?;
-                        let handle = self.sockets.add(socket);
-
-                        let mut client = TcpStream::connect(server_addr)?;
-                        let token = self.new_token();
-                        let i = Interest::READABLE;
-                        self.poll.registry().register(&mut client, token, i)?;
-
-                        let state = TcpConnectState {
-                            smoltcp_handle: Some(handle),
-                            mio_stream: client,
-                            token,
+                        self.create_new_tcp_proxy_connection(
+                            server_addr,
+                            dst,
                             tcp_proxy_handler,
-                            close_state: 0,
-                            wait_read: true,
-                            wait_write: false,
-                        };
-                        self.connection_map.insert(connection_info.clone(), state);
-
-                        self.token_to_info.insert(token, connection_info.clone());
+                            connection_info.clone(),
+                        )?;
 
                         log::info!("Connect done {} ({})", connection_info, dst);
                         done = true;
@@ -533,6 +514,41 @@ impl<'a> TunToProxy<'a> {
         if let Err(error) = handler() {
             log::error!("{}", error);
         }
+        Ok(())
+    }
+
+    fn create_new_tcp_proxy_connection(
+        &mut self,
+        server_addr: SocketAddr,
+        dst: SocketAddr,
+        tcp_proxy_handler: Box<dyn TcpProxy>,
+        connection_info: ConnectionInfo,
+    ) -> Result<()> {
+        let mut socket = tcp::Socket::new(
+            tcp::SocketBuffer::new(vec![0; 1024 * 128]),
+            tcp::SocketBuffer::new(vec![0; 1024 * 128]),
+        );
+        socket.set_ack_delay(None);
+        socket.listen(dst)?;
+        let handle = self.sockets.add(socket);
+
+        let mut client = TcpStream::connect(server_addr)?;
+        let token = self.new_token();
+        let i = Interest::READABLE;
+        self.poll.registry().register(&mut client, token, i)?;
+
+        let state = TcpConnectState {
+            smoltcp_handle: Some(handle),
+            mio_stream: client,
+            token,
+            tcp_proxy_handler,
+            close_state: 0,
+            wait_read: true,
+            wait_write: false,
+        };
+        self.connection_map.insert(connection_info.clone(), state);
+
+        self.token_to_info.insert(token, connection_info.clone());
         Ok(())
     }
 
