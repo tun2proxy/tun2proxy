@@ -3,6 +3,7 @@ use smoltcp::{
     time::Instant,
 };
 
+/// Virtual device representing the remote proxy server.
 #[derive(Default)]
 pub struct VirtualTunDevice {
     capabilities: DeviceCapabilities,
