@@ -464,12 +464,8 @@ impl<'a> TunToProxy<'a> {
                             continue;
                         }
                         let tcp_proxy_handler = tcp_proxy_handler?;
-                        self.create_new_tcp_proxy_connection(
-                            server_addr,
-                            dst,
-                            tcp_proxy_handler,
-                            connection_info.clone(),
-                        )?;
+                        let state = self.create_new_tcp_connection_state(server_addr, dst, tcp_proxy_handler)?;
+                        self.connection_map.insert(connection_info.clone(), state);
 
                         log::info!("Connect done {} ({})", connection_info, dst);
                         done = true;
@@ -518,10 +514,16 @@ impl<'a> TunToProxy<'a> {
                     }
                 } else {
                     // Another UDP packet
-                    let cm = self.get_connection_manager(&connection_info);
-                    if cm.is_none() {
+                    let manager = self.get_connection_manager(&connection_info);
+                    if manager.is_none() {
                         return Ok(());
                     }
+                    let manager = manager.ok_or("")?;
+                    let server_addr = manager.get_server_addr();
+                    let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, true)?;
+                    let state = self.create_new_tcp_connection_state(server_addr, dst, tcp_proxy_handler)?;
+                    self.connection_map.insert(connection_info.clone(), state);
+
                     // TODO: Handle UDP packets
                 }
             } else {
@@ -535,13 +537,12 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn create_new_tcp_proxy_connection(
+    fn create_new_tcp_connection_state(
         &mut self,
         server_addr: SocketAddr,
         dst: SocketAddr,
         tcp_proxy_handler: Box<dyn TcpProxy>,
-        connection_info: ConnectionInfo,
-    ) -> Result<()> {
+    ) -> Result<TcpConnectState> {
         let mut socket = tcp::Socket::new(
             tcp::SocketBuffer::new(vec![0; 1024 * 128]),
             tcp::SocketBuffer::new(vec![0; 1024 * 128]),
@@ -564,9 +565,7 @@ impl<'a> TunToProxy<'a> {
             wait_read: true,
             wait_write: false,
         };
-        self.connection_map.insert(connection_info.clone(), state);
-
-        Ok(())
+        Ok(state)
     }
 
     fn write_to_server(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
