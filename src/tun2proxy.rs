@@ -7,7 +7,7 @@ use smoltcp::{
     time::Instant,
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
 };
-use socks5_impl::protocol::{Address, UserKey};
+use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
 use std::{
     collections::{HashMap, HashSet},
     convert::{From, TryFrom},
@@ -184,6 +184,7 @@ pub(crate) trait TcpProxy {
     fn connection_established(&self) -> bool;
     fn have_data(&mut self, dir: Direction) -> bool;
     fn reset_connection(&self) -> bool;
+    fn get_udp_associate(&self) -> Option<SocketAddr>;
 }
 
 pub(crate) trait UdpProxy {
@@ -496,11 +497,28 @@ impl<'a> TunToProxy<'a> {
                     }
                 } else {
                     // Another UDP packet
-                    let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, true)?;
-                    let state = self.create_new_tcp_connection_state(server_addr, dst, tcp_proxy_handler)?;
-                    self.connection_map.insert(connection_info.clone(), state);
+                    if !self.connection_map.contains_key(&connection_info) {
+                        log::trace!("New UDP connection {} ({})", connection_info, dst);
+                        let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, true)?;
+                        let state = self.create_new_tcp_connection_state(server_addr, dst, tcp_proxy_handler)?;
+                        self.connection_map.insert(connection_info.clone(), state);
+                    }
 
-                    // TODO: Handle UDP packets
+                    self.expect_smoltcp_send()?;
+                    self.tunsocket_read_and_forward(&connection_info)?;
+                    self.write_to_server(&connection_info)?;
+
+                    let mut s5_udp_data = Vec::<u8>::new();
+                    UdpHeader::new(0, connection_info.dst.clone()).write_to_stream(&mut s5_udp_data)?;
+                    s5_udp_data.extend_from_slice(payload);
+
+                    let state = self.connection_map.get(&connection_info).ok_or("udp associate state")?;
+                    if let Some(udp_associate) = state.tcp_proxy_handler.get_udp_associate() {
+                        log::debug!("UDP associate address: {}", udp_associate);
+                        // Send packets via UDP associate...
+                    } else {
+                        // UDP associate tunnel not ready yet, we must cache the packet...
+                    }
                 }
             } else {
                 log::warn!("Unsupported protocol: {} ({})", connection_info, dst);

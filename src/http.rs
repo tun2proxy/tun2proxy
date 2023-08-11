@@ -382,6 +382,10 @@ impl TcpProxy for HttpConnection {
     fn reset_connection(&self) -> bool {
         self.state == HttpState::Reset
     }
+
+    fn get_udp_associate(&self) -> Option<SocketAddr> {
+        None
+    }
 }
 
 pub(crate) struct HttpManager {

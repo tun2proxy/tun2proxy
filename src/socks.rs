@@ -224,7 +224,9 @@ impl SocksProxyImpl {
             return Err(format!("SOCKS connection failed: {}", response.reply).into());
         }
         if self.command == protocol::Command::UdpAssociate {
-            self.udp_associate = Some(SocketAddr::try_from(response.address)?);
+            self.udp_associate = Some(SocketAddr::try_from(&response.address)?);
+            assert!(self.data_buf.is_empty());
+            log::debug!("UDP associate: {}", response.address);
         }
 
         self.server_outbuf.append(&mut self.data_buf);
@@ -325,6 +327,10 @@ impl TcpProxy for SocksProxyImpl {
 
     fn reset_connection(&self) -> bool {
         false
+    }
+
+    fn get_udp_associate(&self) -> Option<SocketAddr> {
+        self.udp_associate
     }
 }
 
