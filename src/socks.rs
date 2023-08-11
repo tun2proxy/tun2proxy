@@ -5,7 +5,6 @@ use crate::{
         OutgoingDirection, TcpProxy,
     },
 };
-use smoltcp::wire::IpProtocol;
 use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version};
 use std::{collections::VecDeque, convert::TryFrom, net::SocketAddr};
 
@@ -336,14 +335,7 @@ pub(crate) struct SocksProxyManager {
 }
 
 impl ConnectionManager for SocksProxyManager {
-    fn handles_connection(&self, info: &ConnectionInfo) -> bool {
-        info.protocol == IpProtocol::Tcp
-    }
-
     fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>> {
-        if info.protocol != IpProtocol::Tcp {
-            return Err("Invalid protocol".into());
-        }
         use socks5_impl::protocol::Command::{Connect, UdpAssociate};
         let command = if udp_associate { UdpAssociate } else { Connect };
         Ok(Box::new(SocksProxyImpl::new(

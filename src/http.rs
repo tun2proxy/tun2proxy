@@ -391,10 +391,6 @@ pub(crate) struct HttpManager {
 }
 
 impl ConnectionManager for HttpManager {
-    fn handles_connection(&self, info: &ConnectionInfo) -> bool {
-        info.protocol == IpProtocol::Tcp
-    }
-
     fn new_tcp_proxy(&self, info: &ConnectionInfo, _: bool) -> Result<Box<dyn TcpProxy>, Error> {
         if info.protocol != IpProtocol::Tcp {
             return Err("Invalid protocol".into());

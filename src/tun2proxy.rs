@@ -192,7 +192,6 @@ pub(crate) trait UdpProxy {
 }
 
 pub(crate) trait ConnectionManager {
-    fn handles_connection(&self, info: &ConnectionInfo) -> bool;
     fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>>;
     fn close_connection(&self, info: &ConnectionInfo);
     fn get_server_addr(&self) -> SocketAddr;
@@ -207,7 +206,7 @@ pub struct TunToProxy<'a> {
     poll: Poll,
     iface: Interface,
     connection_map: HashMap<ConnectionInfo, TcpConnectState>,
-    connection_managers: Vec<Rc<dyn ConnectionManager>>,
+    connection_manager: Option<Rc<dyn ConnectionManager>>,
     next_token: usize,
     sockets: SocketSet<'a>,
     device: VirtualTunDevice,
@@ -255,7 +254,7 @@ impl<'a> TunToProxy<'a> {
             iface,
             connection_map: HashMap::default(),
             next_token: usize::from(EXIT_TOKEN) + 1,
-            connection_managers: Vec::default(),
+            connection_manager: None,
             sockets: SocketSet::new([]),
             device,
             options,
@@ -272,8 +271,8 @@ impl<'a> TunToProxy<'a> {
         token
     }
 
-    pub(crate) fn add_connection_manager(&mut self, manager: Rc<dyn ConnectionManager>) {
-        self.connection_managers.push(manager);
+    pub(crate) fn set_connection_manager(&mut self, manager: Option<Rc<dyn ConnectionManager>>) {
+        self.connection_manager = manager;
     }
 
     /// Read data from virtual device (remote server) and inject it into tun interface.
@@ -320,13 +319,8 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn get_connection_manager(&self, info: &ConnectionInfo) -> Option<Rc<dyn ConnectionManager>> {
-        for manager in self.connection_managers.iter() {
-            if manager.handles_connection(info) {
-                return Some(manager.clone());
-            }
-        }
-        None
+    fn get_connection_manager(&self) -> Option<Rc<dyn ConnectionManager>> {
+        self.connection_manager.clone()
     }
 
     /// Scan connection state machine and check if any connection should be closed.
@@ -451,29 +445,17 @@ impl<'a> TunToProxy<'a> {
                     }
                 }
             };
-            if connection_info.protocol == IpProtocol::Tcp {
-                let server_addr = self
-                    .get_connection_manager(&connection_info)
-                    .ok_or("get_connection_manager")?
-                    .get_server_addr();
-                if first_packet {
-                    let mut done = false;
-                    for manager in self.connection_managers.iter_mut() {
-                        let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, false);
-                        if tcp_proxy_handler.is_err() {
-                            continue;
-                        }
-                        let tcp_proxy_handler = tcp_proxy_handler?;
-                        let state = self.create_new_tcp_connection_state(server_addr, dst, tcp_proxy_handler)?;
-                        self.connection_map.insert(connection_info.clone(), state);
 
-                        log::info!("Connect done {} ({})", connection_info, dst);
-                        done = true;
-                        break;
-                    }
-                    if !done {
-                        log::debug!("No connection manager for {} ({})", connection_info, dst);
-                    }
+            let manager = self.get_connection_manager().ok_or("get connection manager")?;
+            let server_addr = manager.get_server_addr();
+
+            if connection_info.protocol == IpProtocol::Tcp {
+                if first_packet {
+                    let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, false)?;
+                    let state = self.create_new_tcp_connection_state(server_addr, dst, tcp_proxy_handler)?;
+                    self.connection_map.insert(connection_info.clone(), state);
+
+                    log::info!("Connect done {} ({})", connection_info, dst);
                 } else if !self.connection_map.contains_key(&connection_info) {
                     log::debug!("Not found {} ({})", connection_info, dst);
                     return Ok(());
@@ -514,12 +496,6 @@ impl<'a> TunToProxy<'a> {
                     }
                 } else {
                     // Another UDP packet
-                    let manager = self.get_connection_manager(&connection_info);
-                    if manager.is_none() {
-                        return Ok(());
-                    }
-                    let manager = manager.ok_or("")?;
-                    let server_addr = manager.get_server_addr();
                     let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, true)?;
                     let state = self.create_new_tcp_connection_state(server_addr, dst, tcp_proxy_handler)?;
                     self.connection_map.insert(connection_info.clone(), state);
@@ -664,19 +640,19 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn mio_socket_event(&mut self, event: &Event) -> Result<(), Error> {
-        let e = "connection not found";
         let conn_info = match self.find_info_by_token(event.token()) {
             Some(conn_info) => conn_info.clone(),
             None => {
                 // We may have closed the connection in an earlier iteration over the poll events,
                 // e.g. because an event through the tunnel interface indicated that the connection
                 // should be closed.
-                log::trace!("{e}");
+                log::trace!("Connection info not found");
                 return Ok(());
             }
         };
 
-        let server = self.get_connection_manager(&conn_info).ok_or(e)?.get_server_addr();
+        let e = "connection manager not found";
+        let server = self.get_connection_manager().ok_or(e)?.get_server_addr();
 
         let mut block = || -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {
