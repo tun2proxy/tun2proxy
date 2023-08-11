@@ -158,11 +158,11 @@ impl SocksProxyImpl {
             return Err("SOCKS5 server requires an unsupported authentication method.".into());
         }
 
-        if auth_method == AuthMethod::UserPass {
-            self.state = SocksState::SendAuthData;
+        self.state = if auth_method == AuthMethod::UserPass {
+            SocksState::SendAuthData
         } else {
-            self.state = SocksState::SendRequest;
-        }
+            SocksState::SendRequest
+        };
         self.state_change()
     }
 
@@ -344,12 +344,8 @@ impl ConnectionManager for SocksProxyManager {
     fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>> {
         use socks5_impl::protocol::Command::{Connect, UdpAssociate};
         let command = if udp_associate { UdpAssociate } else { Connect };
-        Ok(Box::new(SocksProxyImpl::new(
-            info,
-            self.credentials.clone(),
-            self.version,
-            command,
-        )?))
+        let credentials = self.credentials.clone();
+        Ok(Box::new(SocksProxyImpl::new(info, credentials, self.version, command)?))
     }
 
     fn close_connection(&self, _: &ConnectionInfo) {}

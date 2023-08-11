@@ -484,17 +484,7 @@ impl<'a> TunToProxy<'a> {
                 let payload = &frame[payload_offset..payload_offset + payload_size];
                 if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == 53) {
                     let response = virtual_dns.receive_query(payload)?;
-                    {
-                        let rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
-                        let tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
-                        let mut socket = udp::Socket::new(rx_buffer, tx_buffer);
-                        socket.bind(dst)?;
-                        let meta = UdpMetadata::from(connection_info.src);
-                        socket.send_slice(response.as_slice(), meta)?;
-                        let handle = self.sockets.add(socket);
-                        self.expect_smoltcp_send()?;
-                        self.sockets.remove(handle);
-                    }
+                    self.send_udp_packet(dst, connection_info.src, response.as_slice())?;
                 } else {
                     // Another UDP packet
                     if !self.connection_map.contains_key(&connection_info) {
@@ -516,6 +506,7 @@ impl<'a> TunToProxy<'a> {
                     if let Some(udp_associate) = state.tcp_proxy_handler.get_udp_associate() {
                         log::debug!("UDP associate address: {}", udp_associate);
                         // Send packets via UDP associate...
+                        // self.send_udp_packet(connection_info.src, udp_associate, &s5_udp_data)?;
                     } else {
                         // UDP associate tunnel not ready yet, we must cache the packet...
                     }
@@ -560,6 +551,18 @@ impl<'a> TunToProxy<'a> {
             wait_write: false,
         };
         Ok(state)
+    }
+
+    fn send_udp_packet(&mut self, src: SocketAddr, dst: SocketAddr, data: &[u8]) -> Result<()> {
+        let rx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
+        let tx_buffer = udp::PacketBuffer::new(vec![udp::PacketMetadata::EMPTY], vec![0; 4096]);
+        let mut socket = udp::Socket::new(rx_buffer, tx_buffer);
+        socket.bind(src)?;
+        socket.send_slice(data, UdpMetadata::from(dst))?;
+        let handle = self.sockets.add(socket);
+        self.expect_smoltcp_send()?;
+        self.sockets.remove(handle);
+        Ok(())
     }
 
     fn write_to_server(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
