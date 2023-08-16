@@ -1,13 +1,12 @@
 use crate::{
-    error::Error,
+    error::{Error, Result},
     tun2proxy::{
         ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
         OutgoingDirection, TcpProxy,
     },
 };
-use smoltcp::wire::IpProtocol;
 use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version};
-use std::{collections::VecDeque, net::SocketAddr};
+use std::{collections::VecDeque, convert::TryFrom, net::SocketAddr};
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
@@ -31,10 +30,17 @@ struct SocksProxyImpl {
     data_buf: VecDeque<u8>,
     version: Version,
     credentials: Option<UserKey>,
+    command: protocol::Command,
+    udp_associate: Option<SocketAddr>,
 }
 
 impl SocksProxyImpl {
-    fn new(info: &ConnectionInfo, credentials: Option<UserKey>, version: Version) -> Result<Self, Error> {
+    fn new(
+        info: &ConnectionInfo,
+        credentials: Option<UserKey>,
+        version: Version,
+        command: protocol::Command,
+    ) -> Result<Self> {
         let mut result = Self {
             info: info.clone(),
             state: SocksState::ServerHello,
@@ -45,6 +51,8 @@ impl SocksProxyImpl {
             data_buf: VecDeque::default(),
             version,
             credentials,
+            command,
+            udp_associate: None,
         };
         result.send_client_hello()?;
         Ok(result)
@@ -150,11 +158,11 @@ impl SocksProxyImpl {
             return Err("SOCKS5 server requires an unsupported authentication method.".into());
         }
 
-        if auth_method == AuthMethod::UserPass {
-            self.state = SocksState::SendAuthData;
+        self.state = if auth_method == AuthMethod::UserPass {
+            SocksState::SendAuthData
         } else {
-            self.state = SocksState::SendRequest;
-        }
+            SocksState::SendRequest
+        };
         self.state_change()
     }
 
@@ -195,8 +203,7 @@ impl SocksProxyImpl {
     }
 
     fn send_request_socks5(&mut self) -> Result<(), Error> {
-        protocol::Request::new(protocol::Command::Connect, self.info.dst.clone())
-            .write_to_stream(&mut self.server_outbuf)?;
+        protocol::Request::new(self.command, self.info.dst.clone()).write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveResponse;
         self.state_change()
     }
@@ -215,6 +222,11 @@ impl SocksProxyImpl {
         self.server_inbuf.drain(0..response.len());
         if response.reply != protocol::Reply::Succeeded {
             return Err(format!("SOCKS connection failed: {}", response.reply).into());
+        }
+        if self.command == protocol::Command::UdpAssociate {
+            self.udp_associate = Some(SocketAddr::try_from(&response.address)?);
+            assert!(self.data_buf.is_empty());
+            log::debug!("UDP associate: {}", response.address);
         }
 
         self.server_outbuf.append(&mut self.data_buf);
@@ -252,6 +264,10 @@ impl SocksProxyImpl {
 }
 
 impl TcpProxy for SocksProxyImpl {
+    fn get_connection_info(&self) -> &ConnectionInfo {
+        &self.info
+    }
+
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
         let direction = event.direction;
         let buffer = event.buffer;
@@ -312,6 +328,10 @@ impl TcpProxy for SocksProxyImpl {
     fn reset_connection(&self) -> bool {
         false
     }
+
+    fn get_udp_associate(&self) -> Option<SocketAddr> {
+        self.udp_associate
+    }
 }
 
 pub(crate) struct SocksProxyManager {
@@ -321,19 +341,11 @@ pub(crate) struct SocksProxyManager {
 }
 
 impl ConnectionManager for SocksProxyManager {
-    fn handles_connection(&self, info: &ConnectionInfo) -> bool {
-        info.protocol == IpProtocol::Tcp
-    }
-
-    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error> {
-        if info.protocol != IpProtocol::Tcp {
-            return Err("Invalid protocol".into());
-        }
-        Ok(Box::new(SocksProxyImpl::new(
-            info,
-            self.credentials.clone(),
-            self.version,
-        )?))
+    fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>> {
+        use socks5_impl::protocol::Command::{Connect, UdpAssociate};
+        let command = if udp_associate { UdpAssociate } else { Connect };
+        let credentials = self.credentials.clone();
+        Ok(Box::new(SocksProxyImpl::new(info, credentials, self.version, command)?))
     }
 
     fn close_connection(&self, _: &ConnectionInfo) {}

@@ -130,7 +130,7 @@ pub fn tun_to_proxy<'a>(
         ProxyType::Socks5 => Rc::new(SocksProxyManager::new(server, Version::V5, credentials)) as Rc<dyn ConnectionManager>,
         ProxyType::Http => Rc::new(HttpManager::new(server, credentials)) as Rc<dyn ConnectionManager>,
     };
-    ttp.add_connection_manager(mgr);
+    ttp.set_connection_manager(Some(mgr));
     Ok(ttp)
 }
 

@@ -8,7 +8,7 @@ use crate::{
 use base64::Engine;
 use httparse::Response;
 use smoltcp::wire::IpProtocol;
-use socks5_impl::protocol::{Address, UserKey};
+use socks5_impl::protocol::UserKey;
 use std::{
     cell::RefCell,
     collections::{hash_map::RandomState, HashMap, VecDeque},
@@ -52,7 +52,7 @@ pub struct HttpConnection {
     digest_state: Rc<RefCell<Option<DigestState>>>,
     before: bool,
     credentials: Option<UserKey>,
-    destination: Address,
+    info: ConnectionInfo,
 }
 
 static PROXY_AUTHENTICATE: &str = "Proxy-Authenticate";
@@ -80,7 +80,7 @@ impl HttpConnection {
             digest_state,
             before: false,
             credentials,
-            destination: info.dst.clone(),
+            info: info.clone(),
         };
 
         res.send_tunnel_request()?;
@@ -89,9 +89,9 @@ impl HttpConnection {
 
     fn send_tunnel_request(&mut self) -> Result<(), Error> {
         self.server_outbuf.extend(b"CONNECT ");
-        self.server_outbuf.extend(self.destination.to_string().as_bytes());
+        self.server_outbuf.extend(self.info.dst.to_string().as_bytes());
         self.server_outbuf.extend(b" HTTP/1.1\r\nHost: ");
-        self.server_outbuf.extend(self.destination.to_string().as_bytes());
+        self.server_outbuf.extend(self.info.dst.to_string().as_bytes());
         self.server_outbuf.extend(b"\r\n");
 
         self.send_auth_data(if self.digest_state.borrow().is_none() {
@@ -111,7 +111,7 @@ impl HttpConnection {
 
         match scheme {
             AuthenticationScheme::Digest => {
-                let uri = self.destination.to_string();
+                let uri = self.info.dst.to_string();
 
                 let context = digest_auth::AuthContext::new_with_method(
                     &credentials.username,
@@ -318,6 +318,10 @@ impl HttpConnection {
 }
 
 impl TcpProxy for HttpConnection {
+    fn get_connection_info(&self) -> &ConnectionInfo {
+        &self.info
+    }
+
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
         let direction = event.direction;
         let buffer = event.buffer;
@@ -378,6 +382,10 @@ impl TcpProxy for HttpConnection {
     fn reset_connection(&self) -> bool {
         self.state == HttpState::Reset
     }
+
+    fn get_udp_associate(&self) -> Option<SocketAddr> {
+        None
+    }
 }
 
 pub(crate) struct HttpManager {
@@ -387,11 +395,7 @@ pub(crate) struct HttpManager {
 }
 
 impl ConnectionManager for HttpManager {
-    fn handles_connection(&self, info: &ConnectionInfo) -> bool {
-        info.protocol == IpProtocol::Tcp
-    }
-
-    fn new_tcp_proxy(&self, info: &ConnectionInfo) -> Result<Box<dyn TcpProxy>, Error> {
+    fn new_tcp_proxy(&self, info: &ConnectionInfo, _: bool) -> Result<Box<dyn TcpProxy>, Error> {
         if info.protocol != IpProtocol::Tcp {
             return Err("Invalid protocol".into());
         }
