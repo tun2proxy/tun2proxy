@@ -433,7 +433,12 @@ impl<'a> TunToProxy<'a> {
     // A raw packet was received on the tunnel interface.
     fn receive_tun(&mut self, frame: &mut [u8]) -> Result<(), Error> {
         let mut handler = || -> Result<(), Error> {
-            let (info, first_packet, payload_offset, payload_size) = connection_tuple(frame)?;
+            let result = connection_tuple(frame);
+            if let Err(error) = result {
+                log::info!("{}, ignored", error);
+                return Ok(());
+            }
+            let (info, _first_packet, payload_offset, payload_size) = result?;
             let dst = SocketAddr::try_from(&info.dst)?;
             let connection_info = match &mut self.options.virtual_dns {
                 None => info.clone(),
@@ -451,7 +456,7 @@ impl<'a> TunToProxy<'a> {
             let server_addr = manager.get_server_addr();
 
             if connection_info.protocol == IpProtocol::Tcp {
-                if first_packet {
+                if _first_packet {
                     let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, false)?;
                     let state = self.create_new_tcp_connection_state(server_addr, dst, tcp_proxy_handler)?;
                     self.connection_map.insert(connection_info.clone(), state);
