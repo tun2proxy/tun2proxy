@@ -588,7 +588,7 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn clearup_expired_udp_associate(&mut self) -> Result<()> {
-        let keys = self.connection_map.keys().map(|key| key.clone()).collect::<Vec<_>>();
+        let keys = self.connection_map.keys().cloned().collect::<Vec<_>>();
         for key in keys {
             if self.udp_associate_timeout_expired(&key) {
                 log::debug!("UDP associate timeout: {}", key);
