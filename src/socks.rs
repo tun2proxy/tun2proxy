@@ -142,7 +142,7 @@ impl SocksProxyImpl {
         let response = handshake::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
         if let Err(e) = &response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                log::trace!("receive_server_hello_socks5 needs more data \"{}\"...", e);
+                // log::trace!("receive_server_hello_socks5 needs more data \"{}\"...", e);
                 return Ok(());
             } else {
                 return Err(e.to_string().into());
@@ -212,7 +212,7 @@ impl SocksProxyImpl {
         let response = protocol::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
         if let Err(e) = &response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                log::trace!("receive_connection_status needs more data \"{}\"...", e);
+                // log::trace!("receive_connection_status needs more data \"{}\"...", e);
                 return Ok(());
             } else {
                 return Err(e.to_string().into());
@@ -226,7 +226,7 @@ impl SocksProxyImpl {
         if self.command == protocol::Command::UdpAssociate {
             self.udp_associate = Some(SocketAddr::try_from(&response.address)?);
             assert!(self.data_buf.is_empty());
-            log::debug!("UDP associate: {}", response.address);
+            // log::debug!("UDP associate: {}", response.address);
         }
 
         self.server_outbuf.append(&mut self.data_buf);
