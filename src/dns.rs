@@ -50,6 +50,12 @@ pub fn build_dns_response(mut request: Message, domain: &str, ip: IpAddr, ttl: u
     Ok(request)
 }
 
+pub fn remove_ipv6_entries(message: &mut Message) {
+    message
+        .answers_mut()
+        .retain(|answer| !matches!(answer.data(), Some(RData::AAAA(_))));
+}
+
 pub fn extract_ipaddr_from_dns_message(message: &Message) -> Result<IpAddr, String> {
     if message.response_code() != ResponseCode::NoError {
         return Err(format!("{:?}", message.response_code()));

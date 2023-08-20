@@ -771,9 +771,17 @@ impl<'a> TunToProxy<'a> {
                 let buf = buf[..packet_size].to_vec();
                 let header = UdpHeader::retrieve_from_stream(&mut &buf[..])?;
 
+                let buf = if info.dst.port() == 53 {
+                    let mut message = dns::parse_data_to_dns_message(&buf[header.len()..], false)?;
+                    dns::remove_ipv6_entries(&mut message); // TODO: Configurable
+                    message.to_vec()?
+                } else {
+                    buf[header.len()..].to_vec()
+                };
+
                 // Write to client
                 let src = state.udp_origin_dst.ok_or("udp address")?;
-                self.send_udp_packet_to_client(src, info.src, &buf[header.len()..])?;
+                self.send_udp_packet_to_client(src, info.src, &buf)?;
             }
 
             return Ok(());
