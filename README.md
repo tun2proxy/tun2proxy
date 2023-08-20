@@ -124,5 +124,4 @@ or through `ip -6 route del default`, which causes the `libc` resolver (and othe
 requests for IPv6 addresses.
 
 ## TODO
-- Increase error robustness (reduce `unwrap` and `expect` usage)
 - Native support for proxying DNS over TCP or TLS
