@@ -8,6 +8,7 @@ A tunnel interface for HTTP and SOCKS proxies on Linux based on [smoltcp](https:
 - Minimal configuration setup for routing all traffic
 - IPv4 and IPv6 support
 - GFW evasion mechanism for certain use cases (see [issue #35](https://github.com/blechschmidt/tun2proxy/issues/35))
+- SOCKS5 UDP support
 
 ## Build
 Clone the repository and `cd` into the project folder. Then run the following:
@@ -124,5 +125,4 @@ requests for IPv6 addresses.
 
 ## TODO
 - Increase error robustness (reduce `unwrap` and `expect` usage)
-- UDP support for SOCKS
 - Native support for proxying DNS over TCP or TLS
