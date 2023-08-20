@@ -203,7 +203,13 @@ impl SocksProxyImpl {
     }
 
     fn send_request_socks5(&mut self) -> Result<(), Error> {
-        protocol::Request::new(self.command, self.info.dst.clone()).write_to_stream(&mut self.server_outbuf)?;
+        use socks5_impl::protocol::Command::UdpAssociate;
+        let addr = if self.command == UdpAssociate {
+            Address::unspecified()
+        } else {
+            self.info.dst.clone()
+        };
+        protocol::Request::new(self.command, addr).write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveResponse;
         self.state_change()
     }
