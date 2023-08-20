@@ -1,4 +1,4 @@
-use crate::{error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
+use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
 use mio::{event::Event, net::TcpStream, net::UdpSocket, unix::SourceFd, Events, Interest, Poll, Token};
 use smoltcp::{
     iface::{Config, Interface, SocketHandle, SocketSet},
@@ -468,7 +468,15 @@ impl<'a> TunToProxy<'a> {
             let (info, _first_packet, payload_offset, payload_size) = result?;
             let origin_dst = SocketAddr::try_from(&info.dst)?;
             let connection_info = match &mut self.options.virtual_dns {
-                None => info,
+                None => {
+                    let mut info = info;
+                    let port = origin_dst.port();
+                    if port == 53 && info.protocol == IpProtocol::Udp && dns::addr_is_private(&origin_dst) {
+                        let dns_addr: SocketAddr = "8.8.8.8:53".parse()?; // TODO: Configurable
+                        info.dst = Address::from(dns_addr);
+                    }
+                    info
+                }
                 Some(virtual_dns) => {
                     let dst_ip = origin_dst.ip();
                     virtual_dns.touch_ip(&dst_ip);
@@ -763,9 +771,17 @@ impl<'a> TunToProxy<'a> {
                 let buf = buf[..packet_size].to_vec();
                 let header = UdpHeader::retrieve_from_stream(&mut &buf[..])?;
 
+                let buf = if info.dst.port() == 53 {
+                    let mut message = dns::parse_data_to_dns_message(&buf[header.len()..], false)?;
+                    dns::remove_ipv6_entries(&mut message); // TODO: Configurable
+                    message.to_vec()?
+                } else {
+                    buf[header.len()..].to_vec()
+                };
+
                 // Write to client
                 let src = state.udp_origin_dst.ok_or("udp address")?;
-                self.send_udp_packet_to_client(src, info.src, &buf[header.len()..])?;
+                self.send_udp_packet_to_client(src, info.src, &buf)?;
             }
 
             return Ok(());
@@ -798,7 +814,7 @@ impl<'a> TunToProxy<'a> {
                         Ok(read_result) => read_result,
                         Err(error) => {
                             if error.kind() != std::io::ErrorKind::WouldBlock {
-                                log::error!("Read from proxy: {}", error);
+                                log::error!("{} Read from proxy: {}", conn_info.dst, error);
                             }
                             vecbuf.len()
                         }
