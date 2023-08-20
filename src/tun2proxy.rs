@@ -541,8 +541,7 @@ impl<'a> TunToProxy<'a> {
                         self.tunsocket_read_and_forward(&connection_info)?;
                         self.write_to_server(&connection_info)?;
                     } else {
-                        log::info!("Subsequent udp packet {} ({})", connection_info, origin_dst);
-                        // log::trace!("Subsequent udp packet {} ({})", connection_info, origin_dst);
+                        log::trace!("Subsequent udp packet {} ({})", connection_info, origin_dst);
                     }
 
                     let err = "udp associate state not find";
@@ -561,8 +560,8 @@ impl<'a> TunToProxy<'a> {
                             socket.send_to(&s5_udp_data, udp_associate)?;
                         }
                     } else {
-                        log::info!("Cache udp packet {} ({})", connection_info, origin_dst);
                         // UDP associate tunnel not ready yet, we must cache the packet...
+                        log::trace!("Cache udp packet {} ({})", connection_info, origin_dst);
                         state.udp_data_cache.push_back(s5_udp_data);
                     }
                 }
@@ -766,25 +765,31 @@ impl<'a> TunToProxy<'a> {
             let err = "udp connection state not found";
             let state = self.connection_map.get_mut(&info).ok_or(err)?;
             state.expiry = Some(Self::udp_associate_timeout());
+            let src = state.udp_origin_dst.ok_or("udp address")?;
+            let mut to_send: LinkedList<Vec<u8>> = LinkedList::new();
             if let Some(udp_socket) = state.udp_socket.as_ref() {
                 let mut buf = [0; 1 << 16];
                 // Receive UDP packet from remote SOCKS5 server
-                let (packet_size, _svr_addr) = udp_socket.recv_from(&mut buf)?;
+                while let Ok((packet_size, _svr_addr)) = udp_socket.recv_from(&mut buf) {
+                    let buf = buf[..packet_size].to_vec();
+                    let header = UdpHeader::retrieve_from_stream(&mut &buf[..])?;
 
-                let buf = buf[..packet_size].to_vec();
-                let header = UdpHeader::retrieve_from_stream(&mut &buf[..])?;
+                    let buf = if info.dst.port() == 53 {
+                        let mut message = dns::parse_data_to_dns_message(&buf[header.len()..], false)?;
+                        dns::remove_ipv6_entries(&mut message); // TODO: Configurable
+                        message.to_vec()?
+                    } else {
+                        buf[header.len()..].to_vec()
+                    };
 
-                let buf = if info.dst.port() == 53 {
-                    let mut message = dns::parse_data_to_dns_message(&buf[header.len()..], false)?;
-                    dns::remove_ipv6_entries(&mut message); // TODO: Configurable
-                    message.to_vec()?
-                } else {
-                    buf[header.len()..].to_vec()
-                };
+                    // Escape the borrow checker madness
+                    to_send.push_back(buf);
+                }
+            }
 
-                // Write to client
-                let src = state.udp_origin_dst.ok_or("udp address")?;
-                self.send_udp_packet_to_client(src, info.src, &buf)?;
+            // Write to client
+            while let Some(packet) = to_send.pop_front() {
+                self.send_udp_packet_to_client(src, info.src, &packet)?;
             }
 
             return Ok(());
