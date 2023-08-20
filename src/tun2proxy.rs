@@ -8,6 +8,7 @@ use smoltcp::{
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
 };
 use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
+use std::collections::LinkedList;
 use std::{
     collections::{HashMap, HashSet},
     convert::{From, TryFrom},
@@ -17,7 +18,6 @@ use std::{
     rc::Rc,
     str::FromStr,
 };
-use std::collections::LinkedList;
 
 #[derive(Hash, Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
 pub(crate) struct ConnectionInfo {
@@ -874,7 +874,7 @@ impl<'a> TunToProxy<'a> {
                     if let Some(udp_socket) = state.udp_socket.as_ref() {
                         if let Some(addr) = state.tcp_proxy_handler.get_udp_associate() {
                             // Take ownership of udp_data_cache
-                            while let Some(buf) = state.udp_data_cache.pop_front(){
+                            while let Some(buf) = state.udp_data_cache.pop_front() {
                                 udp_socket.send_to(&buf, addr)?;
                             }
                         }
