@@ -17,6 +17,7 @@ use std::{
     rc::Rc,
     str::FromStr,
 };
+use std::collections::LinkedList;
 
 #[derive(Hash, Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
 pub(crate) struct ConnectionInfo {
@@ -180,7 +181,7 @@ struct TcpConnectState {
     udp_socket: Option<UdpSocket>,
     udp_token: Option<Token>,
     udp_origin_dst: Option<SocketAddr>,
-    udp_data_cache: Option<Vec<u8>>,
+    udp_data_cache: LinkedList<Vec<u8>>,
 }
 
 pub(crate) trait TcpProxy {
@@ -540,6 +541,7 @@ impl<'a> TunToProxy<'a> {
                         self.tunsocket_read_and_forward(&connection_info)?;
                         self.write_to_server(&connection_info)?;
                     } else {
+                        log::info!("Subsequent udp packet {} ({})", connection_info, origin_dst);
                         // log::trace!("Subsequent udp packet {} ({})", connection_info, origin_dst);
                     }
 
@@ -559,8 +561,9 @@ impl<'a> TunToProxy<'a> {
                             socket.send_to(&s5_udp_data, udp_associate)?;
                         }
                     } else {
+                        log::info!("Cache udp packet {} ({})", connection_info, origin_dst);
                         // UDP associate tunnel not ready yet, we must cache the packet...
-                        state.udp_data_cache = Some(s5_udp_data);
+                        state.udp_data_cache.push_back(s5_udp_data);
                     }
                 }
             } else {
@@ -621,7 +624,7 @@ impl<'a> TunToProxy<'a> {
             udp_socket,
             udp_token,
             udp_origin_dst: None,
-            udp_data_cache: None,
+            udp_data_cache: LinkedList::new(),
         };
         Ok(state)
     }
@@ -871,7 +874,7 @@ impl<'a> TunToProxy<'a> {
                     if let Some(udp_socket) = state.udp_socket.as_ref() {
                         if let Some(addr) = state.tcp_proxy_handler.get_udp_associate() {
                             // Take ownership of udp_data_cache
-                            if let Some(buf) = state.udp_data_cache.take() {
+                            while let Some(buf) = state.udp_data_cache.pop_front(){
                                 udp_socket.send_to(&buf, addr)?;
                             }
                         }
