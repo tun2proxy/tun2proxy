@@ -168,6 +168,7 @@ const SERVER_WRITE_CLOSED: u8 = 1;
 const CLIENT_WRITE_CLOSED: u8 = 2;
 
 const UDP_ASSO_TIMEOUT: u64 = 10; // seconds
+const DNS_PORT: u16 = 53;
 
 struct TcpConnectState {
     smoltcp_handle: Option<SocketHandle>,
@@ -334,12 +335,12 @@ impl<'a> TunToProxy<'a> {
 
             if let Err(e) = self.poll.registry().deregister(&mut state.mio_stream) {
                 // FIXME: The function `deregister` will frequently fail for unknown reasons.
-                log::debug!("{}", e);
+                log::trace!("{}", e);
             }
 
             if let Some(mut udp_socket) = state.udp_socket {
                 if let Err(e) = self.poll.registry().deregister(&mut udp_socket) {
-                    log::debug!("{}", e);
+                    log::trace!("{}", e);
                 }
             }
 
@@ -440,7 +441,9 @@ impl<'a> TunToProxy<'a> {
 
     fn update_mio_socket_interest(poll: &mut Poll, state: &mut TcpConnectState) -> Result<()> {
         // Maybe we did not listen for any events before. Therefore, just swallow the error.
-        _ = poll.registry().deregister(&mut state.mio_stream);
+        if let Err(err) = poll.registry().deregister(&mut state.mio_stream) {
+            log::trace!("{}", err);
+        }
 
         // If we do not wait for read or write events, we do not need to register them.
         if !state.wait_read && !state.wait_write {
@@ -472,7 +475,7 @@ impl<'a> TunToProxy<'a> {
                 None => {
                     let mut info = info;
                     let port = origin_dst.port();
-                    if port == 53 && info.protocol == IpProtocol::Udp && dns::addr_is_private(&origin_dst) {
+                    if port == DNS_PORT && info.protocol == IpProtocol::Udp && dns::addr_is_private(&origin_dst) {
                         let dns_addr: SocketAddr = "8.8.8.8:53".parse()?; // TODO: Configurable
                         info.dst = Address::from(dns_addr);
                     }
@@ -523,7 +526,7 @@ impl<'a> TunToProxy<'a> {
             } else if connection_info.protocol == IpProtocol::Udp {
                 let port = connection_info.dst.port();
                 let payload = &frame[payload_offset..payload_offset + payload_size];
-                if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == 53) {
+                if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == DNS_PORT) {
                     log::info!("DNS query via virtual DNS {} ({})", connection_info, origin_dst);
                     let response = virtual_dns.receive_query(payload)?;
                     self.send_udp_packet_to_client(origin_dst, connection_info.src, response.as_slice())?;
@@ -560,7 +563,7 @@ impl<'a> TunToProxy<'a> {
                             socket.send_to(&s5_udp_data, udp_associate)?;
                         }
                     } else {
-                        // UDP associate tunnel not ready yet, we must cache the packet...
+                        // UDP associate tunnel not ready yet, we must cache the packets...
                         log::trace!("Cache udp packet {} ({})", connection_info, origin_dst);
                         state.udp_data_cache.push_back(s5_udp_data);
                     }
@@ -645,7 +648,7 @@ impl<'a> TunToProxy<'a> {
         let keys = self.connection_map.keys().cloned().collect::<Vec<_>>();
         for key in keys {
             if self.udp_associate_timeout_expired(&key) {
-                log::debug!("UDP associate timeout: {}", key);
+                log::trace!("UDP associate timeout: {}", key);
                 self.remove_connection(&key)?;
             }
         }
@@ -765,7 +768,6 @@ impl<'a> TunToProxy<'a> {
             let err = "udp connection state not found";
             let state = self.connection_map.get_mut(&info).ok_or(err)?;
             state.expiry = Some(Self::udp_associate_timeout());
-            let src = state.udp_origin_dst.ok_or("udp address")?;
             let mut to_send: LinkedList<Vec<u8>> = LinkedList::new();
             if let Some(udp_socket) = state.udp_socket.as_ref() {
                 let mut buf = [0; 1 << 16];
@@ -774,7 +776,7 @@ impl<'a> TunToProxy<'a> {
                     let buf = buf[..packet_size].to_vec();
                     let header = UdpHeader::retrieve_from_stream(&mut &buf[..])?;
 
-                    let buf = if info.dst.port() == 53 {
+                    let buf = if info.dst.port() == DNS_PORT {
                         let mut message = dns::parse_data_to_dns_message(&buf[header.len()..], false)?;
                         dns::remove_ipv6_entries(&mut message); // TODO: Configurable
                         message.to_vec()?
@@ -788,6 +790,7 @@ impl<'a> TunToProxy<'a> {
             }
 
             // Write to client
+            let src = state.udp_origin_dst.ok_or("udp address")?;
             while let Some(packet) = to_send.pop_front() {
                 self.send_udp_packet_to_client(src, info.src, &packet)?;
             }
@@ -878,7 +881,7 @@ impl<'a> TunToProxy<'a> {
                 if let Some(state) = self.connection_map.get_mut(&conn_info) {
                     if let Some(udp_socket) = state.udp_socket.as_ref() {
                         if let Some(addr) = state.tcp_proxy_handler.get_udp_associate() {
-                            // Take ownership of udp_data_cache
+                            // Consume udp_data_cache data
                             while let Some(buf) = state.udp_data_cache.pop_front() {
                                 udp_socket.send_to(&buf, addr)?;
                             }

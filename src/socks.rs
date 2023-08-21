@@ -203,8 +203,7 @@ impl SocksProxyImpl {
     }
 
     fn send_request_socks5(&mut self) -> Result<(), Error> {
-        use socks5_impl::protocol::Command::UdpAssociate;
-        let addr = if self.command == UdpAssociate {
+        let addr = if self.command == protocol::Command::UdpAssociate {
             Address::unspecified()
         } else {
             self.info.dst.clone()
