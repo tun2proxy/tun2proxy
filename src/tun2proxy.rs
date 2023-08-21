@@ -196,11 +196,6 @@ pub(crate) trait TcpProxy {
     fn get_udp_associate(&self) -> Option<SocketAddr>;
 }
 
-pub(crate) trait UdpProxy {
-    fn send_frame(&mut self, destination: &Address, frame: &[u8]) -> Result<(), Error>;
-    fn receive_frame(&mut self, source: &SocketAddr, frame: &[u8]) -> Result<(), Error>;
-}
-
 pub(crate) trait ConnectionManager {
     fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>>;
     fn close_connection(&self, info: &ConnectionInfo);
