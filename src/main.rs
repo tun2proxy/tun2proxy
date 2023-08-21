@@ -40,6 +40,10 @@ struct Args {
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     verbosity: ArgVerbosity,
+
+    /// DNS over TCP
+    #[arg(long)]
+    dns_over_tcp: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
@@ -77,6 +81,10 @@ fn main() -> ExitCode {
     let mut options = Options::new();
     if args.dns == ArgDns::Virtual {
         options = options.with_virtual_dns();
+    }
+
+    if args.dns_over_tcp {
+        options = options.with_dns_over_tcp();
     }
 
     let interface = match args.tun_fd {

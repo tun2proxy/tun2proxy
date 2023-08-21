@@ -527,6 +527,30 @@ impl<'a> TunToProxy<'a> {
                     self.send_udp_packet_to_client(origin_dst, connection_info.src, response.as_slice())?;
                 } else {
                     // Another UDP packet
+                    if self.options.dns_over_tcp && port == DNS_PORT {
+                        if !self.connection_map.contains_key(&connection_info) {
+                            log::info!("DNS over TCP {} ({})", connection_info, origin_dst);
+                            let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, false)?;
+                            #[rustfmt::skip]
+                            let state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
+                            self.connection_map.insert(connection_info.clone(), state);
+                        } else {
+                            log::trace!("Subsequent dns over tcp packet {} ({})", connection_info, origin_dst);
+                        }
+
+                        let len = payload.len() as u16;
+                        let mut buf = Vec::with_capacity(2 + len as usize);
+                        buf.extend_from_slice(&len.to_be_bytes());
+                        buf.extend_from_slice(payload);
+
+                        // TODO: Build an IP packet and inject it into the device.
+                        self.device.inject_packet(&buf);
+
+                        self.expect_smoltcp_send()?;
+                        self.tunsocket_read_and_forward(&connection_info)?;
+                        self.write_to_server(&connection_info)?;
+                        return Ok(());
+                    }
                     if !self.connection_map.contains_key(&connection_info) {
                         log::info!("UDP associate session {} ({})", connection_info, origin_dst);
                         let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, true)?;
