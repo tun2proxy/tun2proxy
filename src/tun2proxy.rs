@@ -581,23 +581,23 @@ impl<'a> TunToProxy<'a> {
             }
             let (info, _first_packet, payload_offset, payload_size) = result?;
             let origin_dst = SocketAddr::try_from(&info.dst)?;
-            let connection_info = self.preprocess_origin_connection_info(info)?;
+            let info = self.preprocess_origin_connection_info(info)?;
 
             let manager = self.get_connection_manager().ok_or("get connection manager")?;
 
-            if connection_info.protocol == IpProtocol::Tcp {
+            if info.protocol == IpProtocol::Tcp {
                 if _first_packet {
-                    let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, false)?;
+                    let tcp_proxy_handler = manager.new_tcp_proxy(&info, false)?;
                     let server = manager.get_server_addr();
                     let state = self.create_new_tcp_connection_state(server, origin_dst, tcp_proxy_handler, false)?;
-                    self.connection_map.insert(connection_info.clone(), state);
+                    self.connection_map.insert(info.clone(), state);
 
-                    log::info!("Connect done {} ({})", connection_info, origin_dst);
-                } else if !self.connection_map.contains_key(&connection_info) {
-                    // log::debug!("Drop middle session {} ({})", connection_info, origin_dst);
+                    log::info!("Connect done {} ({})", info, origin_dst);
+                } else if !self.connection_map.contains_key(&info) {
+                    // log::debug!("Drop middle session {} ({})", info, origin_dst);
                     return Ok(());
                 } else {
-                    // log::trace!("Subsequent packet {} ({})", connection_info, origin_dst);
+                    // log::trace!("Subsequent packet {} ({})", info, origin_dst);
                 }
 
                 // Inject the packet to advance the remote proxy server smoltcp socket state
@@ -609,29 +609,28 @@ impl<'a> TunToProxy<'a> {
                 self.expect_smoltcp_send()?;
 
                 // Read from the smoltcp socket and push the data to the connection handler.
-                self.tunsocket_read_and_forward(&connection_info)?;
+                self.tunsocket_read_and_forward(&info)?;
 
                 // The connection handler builds up the connection or encapsulates the data.
                 // Therefore, we now expect it to write data to the server.
-                self.write_to_server(&connection_info)?;
-            } else if connection_info.protocol == IpProtocol::Udp {
-                let port = connection_info.dst.port();
+                self.write_to_server(&info)?;
+            } else if info.protocol == IpProtocol::Udp {
+                let port = info.dst.port();
                 let payload = &frame[payload_offset..payload_offset + payload_size];
                 if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == DNS_PORT) {
-                    log::info!("DNS query via virtual DNS {} ({})", connection_info, origin_dst);
+                    log::info!("DNS query via virtual DNS {} ({})", info, origin_dst);
                     let response = virtual_dns.receive_query(payload)?;
-                    self.send_udp_packet_to_client(origin_dst, connection_info.src, response.as_slice())?;
+                    self.send_udp_packet_to_client(origin_dst, info.src, response.as_slice())?;
                 } else {
                     // Another UDP packet
                     if self.options.dns_over_tcp && origin_dst.port() == DNS_PORT {
-                        let info = &connection_info;
-                        self.process_incoming_udp_packets_dns_over_tcp(&manager, info, origin_dst, payload)?;
+                        self.process_incoming_udp_packets_dns_over_tcp(&manager, &info, origin_dst, payload)?;
                     } else {
-                        self.process_incoming_udp_packets(&manager, &connection_info, origin_dst, payload)?;
+                        self.process_incoming_udp_packets(&manager, &info, origin_dst, payload)?;
                     }
                 }
             } else {
-                log::warn!("Unsupported protocol: {} ({})", connection_info, origin_dst);
+                log::warn!("Unsupported protocol: {} ({})", info, origin_dst);
             }
             Ok::<(), Error>(())
         };
