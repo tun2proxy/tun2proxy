@@ -41,7 +41,7 @@ struct Args {
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     verbosity: ArgVerbosity,
 
-    /// DNS over TCP
+    /// Enable DNS over TCP
     #[arg(long)]
     dns_over_tcp: bool,
 }

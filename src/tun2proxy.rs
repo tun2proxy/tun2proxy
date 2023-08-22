@@ -8,7 +8,7 @@ use smoltcp::{
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
 };
 use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
-use std::collections::LinkedList;
+use std::{collections::LinkedList, convert::TryInto};
 use std::{
     collections::{HashMap, HashSet},
     convert::{From, TryFrom},
@@ -535,6 +535,77 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
+    fn receive_dns_over_tcp_packet_and_write_to_client(&mut self, info: &ConnectionInfo) -> Result<()> {
+        let err = "udp connection state not found";
+        let state = self.connection_map.get_mut(info).ok_or(err)?;
+        assert!(state.udp_over_tcp_expiry.is_some());
+        state.udp_over_tcp_expiry = Some(Self::common_udp_life_timeout());
+
+        let mut buf = Vec::<u8>::new();
+        let read = match state.mio_stream.read_to_end(&mut buf) {
+            Ok(read_result) => read_result,
+            Err(error) => {
+                if error.kind() != std::io::ErrorKind::WouldBlock {
+                    log::error!("{} Read from proxy: {}", info.dst, error);
+                }
+                buf.len()
+            }
+        };
+        if read == 0 {
+            return Ok(());
+        }
+        let mut buf = buf[..read].to_vec();
+        let mut to_send: LinkedList<Vec<u8>> = LinkedList::new();
+        loop {
+            if buf.len() < 2 {
+                break;
+            }
+            let len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
+            if buf.len() < len + 2 {
+                break;
+            }
+            let data = buf[2..len + 2].to_vec();
+
+            let message = dns::parse_data_to_dns_message(&data, false)?;
+            let name = dns::extract_domain_from_dns_message(&message)?;
+            let ip = dns::extract_ipaddr_from_dns_message(&message)?;
+            log::trace!("DNS over TCP ======== {} -> {}", name, ip);
+
+            to_send.push_back(data);
+            if len + 2 == buf.len() {
+                break;
+            }
+            buf = buf[len + 2..].to_vec();
+        }
+
+        // Write to client
+        let src = info.dst.clone().try_into()?;
+        while let Some(packet) = to_send.pop_front() {
+            self.send_udp_packet_to_client(src, info.src, &packet)?;
+        }
+        Ok(())
+    }
+
+    fn udp_over_tcp_timeout_expired(&self, info: &ConnectionInfo) -> bool {
+        if let Some(state) = self.connection_map.get(info) {
+            if let Some(expiry) = state.udp_over_tcp_expiry {
+                return expiry < ::std::time::Instant::now();
+            }
+        }
+        false
+    }
+
+    fn clearup_expired_udp_over_tcp(&mut self) -> Result<()> {
+        let keys = self.connection_map.keys().cloned().collect::<Vec<_>>();
+        for key in keys {
+            if self.udp_over_tcp_timeout_expired(&key) {
+                log::trace!("UDP over TCP timeout: {}", key);
+                self.remove_connection(&key)?;
+            }
+        }
+        Ok(())
+    }
+
     fn process_incoming_udp_packets(
         &mut self,
         manager: &Rc<dyn ConnectionManager>,
@@ -904,7 +975,15 @@ impl<'a> TunToProxy<'a> {
 
         let mut block = || -> Result<(), Error> {
             if event.is_readable() || event.is_read_closed() {
-                {
+                let established = self
+                    .connection_map
+                    .get(&conn_info)
+                    .ok_or("")?
+                    .tcp_proxy_handler
+                    .connection_established();
+                if self.options.dns_over_tcp && conn_info.dst.port() == DNS_PORT && established {
+                    self.receive_dns_over_tcp_packet_and_write_to_client(&conn_info)?;
+                } else {
                     let e = "connection state not found";
                     let state = self.connection_map.get_mut(&conn_info).ok_or(e)?;
 
@@ -1005,6 +1084,7 @@ impl<'a> TunToProxy<'a> {
             }
             self.send_to_smoltcp()?;
             self.clearup_expired_udp_associate()?;
+            self.clearup_expired_udp_over_tcp()?;
         }
     }
 
