@@ -183,6 +183,8 @@ struct TcpConnectState {
     udp_token: Option<Token>,
     udp_origin_dst: Option<SocketAddr>,
     udp_data_cache: LinkedList<Vec<u8>>,
+    udp_over_tcp_expiry: Option<::std::time::Instant>,
+    udp_over_tcp_data_cache: LinkedList<Vec<u8>>,
 }
 
 pub(crate) trait TcpProxy {
@@ -488,7 +490,7 @@ impl<'a> TunToProxy<'a> {
         payload: &[u8],
     ) -> Result<()> {
         if self.options.dns_over_tcp && origin_dst.port() == DNS_PORT {
-            dns::parse_data_to_dns_message(payload, false)?;
+            _ = dns::parse_data_to_dns_message(payload, false)?;
 
             if !self.connection_map.contains_key(info) {
                 log::info!("DNS over TCP {} ({})", info, origin_dst);
@@ -512,12 +514,14 @@ impl<'a> TunToProxy<'a> {
 
             let err = "udp over tcp state not find";
             let state = self.connection_map.get_mut(info).ok_or(err)?;
+            state.udp_over_tcp_expiry = Some(Self::common_udp_life_timeout());
             if state.tcp_proxy_handler.connection_established() {
                 _ = state.mio_stream.write(&buf)?;
             } else {
                 // FIXME: Build an IP packet with TCP and inject it into the device,
                 //        or cache them and send them when the connection is established?
-                self.device.inject_packet(&buf);
+                // self.device.inject_packet(&buf);
+                state.udp_over_tcp_data_cache.push_back(buf);
             }
 
             return Ok(());
@@ -541,7 +545,7 @@ impl<'a> TunToProxy<'a> {
         let err = "udp associate state not find";
         let state = self.connection_map.get_mut(info).ok_or(err)?;
         assert!(state.udp_acco_expiry.is_some());
-        state.udp_acco_expiry = Some(Self::udp_associate_timeout());
+        state.udp_acco_expiry = Some(Self::common_udp_life_timeout());
 
         // Add SOCKS5 UDP header to the incoming data
         let mut s5_udp_data = Vec::<u8>::new();
@@ -647,7 +651,7 @@ impl<'a> TunToProxy<'a> {
         self.poll.registry().register(&mut client, token, i)?;
 
         let expiry = if udp_associate {
-            Some(Self::udp_associate_timeout())
+            Some(Self::common_udp_life_timeout())
         } else {
             None
         };
@@ -674,11 +678,13 @@ impl<'a> TunToProxy<'a> {
             udp_token,
             udp_origin_dst: None,
             udp_data_cache: LinkedList::new(),
+            udp_over_tcp_expiry: None,
+            udp_over_tcp_data_cache: LinkedList::new(),
         };
         Ok(state)
     }
 
-    fn udp_associate_timeout() -> ::std::time::Instant {
+    fn common_udp_life_timeout() -> ::std::time::Instant {
         ::std::time::Instant::now() + ::std::time::Duration::from_secs(UDP_ASSO_TIMEOUT)
     }
 
@@ -813,7 +819,7 @@ impl<'a> TunToProxy<'a> {
         let err = "udp connection state not found";
         let state = self.connection_map.get_mut(info).ok_or(err)?;
         assert!(state.udp_acco_expiry.is_some());
-        state.udp_acco_expiry = Some(Self::udp_associate_timeout());
+        state.udp_acco_expiry = Some(Self::common_udp_life_timeout());
         let mut to_send: LinkedList<Vec<u8>> = LinkedList::new();
         if let Some(udp_socket) = state.udp_socket.as_ref() {
             let mut buf = [0; 1 << 16];
