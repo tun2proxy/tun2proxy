@@ -8,7 +8,7 @@ use smoltcp::{
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
 };
 use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
-use std::{collections::LinkedList, convert::TryInto};
+use std::collections::LinkedList;
 use std::{
     collections::{HashMap, HashSet},
     convert::{From, TryFrom},
@@ -185,6 +185,7 @@ struct TcpConnectState {
     udp_data_cache: LinkedList<Vec<u8>>,
     udp_over_tcp_expiry: Option<::std::time::Instant>,
     udp_over_tcp_data_cache: LinkedList<Vec<u8>>,
+    is_tcp_dns: bool,
 }
 
 pub(crate) trait TcpProxy {
@@ -461,15 +462,7 @@ impl<'a> TunToProxy<'a> {
     fn preprocess_origin_connection_info(&mut self, info: ConnectionInfo) -> Result<ConnectionInfo> {
         let origin_dst = SocketAddr::try_from(&info.dst)?;
         let connection_info = match &mut self.options.virtual_dns {
-            None => {
-                let mut info = info;
-                let port = origin_dst.port();
-                if port == DNS_PORT && info.protocol == IpProtocol::Udp && dns::addr_is_private(&origin_dst) {
-                    let dns_addr: SocketAddr = "8.8.8.8:53".parse()?; // TODO: Configurable
-                    info.dst = Address::from(dns_addr);
-                }
-                info
-            }
+            None => info,
             Some(virtual_dns) => {
                 let dst_ip = origin_dst.ip();
                 virtual_dns.touch_ip(&dst_ip);
@@ -485,17 +478,25 @@ impl<'a> TunToProxy<'a> {
     fn process_incoming_udp_packets_dns_over_tcp(
         &mut self,
         manager: &Rc<dyn ConnectionManager>,
-        info: &ConnectionInfo,
+        original_info: &ConnectionInfo,
         origin_dst: SocketAddr,
         payload: &[u8],
     ) -> Result<()> {
         _ = dns::parse_data_to_dns_message(payload, false)?;
+        let mut new_info = original_info.clone();
+        let dns_addr: SocketAddr = "8.8.8.8:53".parse()?;
+        new_info.dst = Address::from(dns_addr);
+
+        let info = &new_info;
 
         if !self.connection_map.contains_key(info) {
             log::info!("DNS over TCP {} ({})", info, origin_dst);
+
             let tcp_proxy_handler = manager.new_tcp_proxy(info, false)?;
             let server_addr = manager.get_server_addr();
-            let state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
+            let mut state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
+            state.is_tcp_dns = true;
+            state.udp_origin_dst = Some(SocketAddr::try_from(original_info.dst.clone())?);
             self.connection_map.insert(info.clone(), state);
 
             self.expect_smoltcp_send()?;
@@ -538,20 +539,33 @@ impl<'a> TunToProxy<'a> {
         assert!(state.udp_over_tcp_expiry.is_some());
         state.udp_over_tcp_expiry = Some(Self::common_udp_life_timeout());
 
-        let mut buf = Vec::<u8>::new();
-        let read = match state.mio_stream.read_to_end(&mut buf) {
+        // Code similar to the code in parent function. TODO: Cleanup.
+        let mut vecbuf = Vec::<u8>::new();
+        let read_result = state.mio_stream.read_to_end(&mut vecbuf);
+        let read = match read_result {
             Ok(read_result) => read_result,
             Err(error) => {
                 if error.kind() != std::io::ErrorKind::WouldBlock {
                     log::error!("{} Read from proxy: {}", info.dst, error);
                 }
-                buf.len()
+                vecbuf.len()
             }
         };
-        if read == 0 {
+
+        let data = vecbuf.as_slice();
+        let data_event = IncomingDataEvent {
+            direction: IncomingDirection::FromServer,
+            buffer: &data[0..read],
+        };
+        if let Err(error) = state.tcp_proxy_handler.push_data(data_event) {
+            log::error!("{}", error);
+            self.remove_connection(&info.clone())?;
             return Ok(());
         }
-        let mut buf = buf[..read].to_vec();
+
+        let dns_event = state.tcp_proxy_handler.peek_data(OutgoingDirection::ToClient);
+
+        let mut buf = dns_event.buffer.to_vec();
         let mut to_send: LinkedList<Vec<u8>> = LinkedList::new();
         loop {
             if buf.len() < 2 {
@@ -566,8 +580,10 @@ impl<'a> TunToProxy<'a> {
             let message = dns::parse_data_to_dns_message(&data, false)?;
             let name = dns::extract_domain_from_dns_message(&message)?;
             let ip = dns::extract_ipaddr_from_dns_message(&message)?;
-            log::trace!("DNS over TCP ======== {} -> {}", name, ip);
-
+            log::info!("DNS over TCP ======== {} -> {}", name, ip);
+            state
+                .tcp_proxy_handler
+                .consume_data(OutgoingDirection::ToClient, len + 2);
             to_send.push_back(data);
             if len + 2 == buf.len() {
                 break;
@@ -576,7 +592,7 @@ impl<'a> TunToProxy<'a> {
         }
 
         // Write to client
-        let src = info.dst.clone().try_into()?;
+        let src = state.udp_origin_dst.ok_or("Expected UDP addr")?;
         while let Some(packet) = to_send.pop_front() {
             self.send_udp_packet_to_client(src, info.src, &packet)?;
         }
@@ -767,6 +783,7 @@ impl<'a> TunToProxy<'a> {
             udp_data_cache: LinkedList::new(),
             udp_over_tcp_expiry: None,
             udp_over_tcp_data_cache: LinkedList::new(),
+            is_tcp_dns: false,
         };
         Ok(state)
     }
@@ -980,6 +997,7 @@ impl<'a> TunToProxy<'a> {
                     .connection_established();
                 if self.options.dns_over_tcp && conn_info.dst.port() == DNS_PORT && established {
                     self.receive_dns_over_tcp_packet_and_write_to_client(&conn_info)?;
+                    return Ok(());
                 } else {
                     let e = "connection state not found";
                     let state = self.connection_map.get_mut(&conn_info).ok_or(e)?;
