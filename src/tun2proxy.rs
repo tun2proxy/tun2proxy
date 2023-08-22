@@ -480,7 +480,7 @@ impl<'a> TunToProxy<'a> {
         Ok(connection_info)
     }
 
-    fn deal_with_incoming_udp_packets(
+    fn process_incoming_udp_packets(
         &mut self,
         manager: &Rc<dyn ConnectionManager>,
         info: &ConnectionInfo,
@@ -538,13 +538,12 @@ impl<'a> TunToProxy<'a> {
             let connection_info = self.preprocess_origin_connection_info(info)?;
 
             let manager = self.get_connection_manager().ok_or("get connection manager")?;
-            let server_addr = manager.get_server_addr();
 
             if connection_info.protocol == IpProtocol::Tcp {
                 if _first_packet {
                     let tcp_proxy_handler = manager.new_tcp_proxy(&connection_info, false)?;
-                    #[rustfmt::skip]
-                    let state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
+                    let server = manager.get_server_addr();
+                    let state = self.create_new_tcp_connection_state(server, origin_dst, tcp_proxy_handler, false)?;
                     self.connection_map.insert(connection_info.clone(), state);
 
                     log::info!("Connect done {} ({})", connection_info, origin_dst);
@@ -578,7 +577,7 @@ impl<'a> TunToProxy<'a> {
                     self.send_udp_packet_to_client(origin_dst, connection_info.src, response.as_slice())?;
                 } else {
                     // Another UDP packet
-                    self.deal_with_incoming_udp_packets(&manager, &connection_info, origin_dst, payload)?;
+                    self.process_incoming_udp_packets(&manager, &connection_info, origin_dst, payload)?;
                 }
             } else {
                 log::warn!("Unsupported protocol: {} ({})", connection_info, origin_dst);
