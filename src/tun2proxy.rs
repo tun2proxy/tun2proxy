@@ -496,6 +496,10 @@ impl<'a> TunToProxy<'a> {
                 let server_addr = manager.get_server_addr();
                 let state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
                 self.connection_map.insert(info.clone(), state);
+
+                self.expect_smoltcp_send()?;
+                self.tunsocket_read_and_forward(info)?;
+                self.write_to_server(info)?;
             } else {
                 log::trace!("DNS over TCP subsequent packet {} ({})", info, origin_dst);
             }
@@ -506,12 +510,16 @@ impl<'a> TunToProxy<'a> {
             buf.extend_from_slice(&len.to_be_bytes());
             buf.extend_from_slice(payload);
 
-            // FIXME: Build an IP packet with TCP and inject it into the device.
-            self.device.inject_packet(&buf);
+            let err = "udp over tcp state not find";
+            let state = self.connection_map.get_mut(info).ok_or(err)?;
+            if state.tcp_proxy_handler.connection_established() {
+                _ = state.mio_stream.write(&buf)?;
+            } else {
+                // FIXME: Build an IP packet with TCP and inject it into the device,
+                //        or cache them and send them when the connection is established?
+                self.device.inject_packet(&buf);
+            }
 
-            self.expect_smoltcp_send()?;
-            self.tunsocket_read_and_forward(info)?;
-            self.write_to_server(info)?;
             return Ok(());
         }
 
