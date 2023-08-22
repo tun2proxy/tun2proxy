@@ -178,7 +178,7 @@ struct TcpConnectState {
     close_state: u8,
     wait_read: bool,
     wait_write: bool,
-    expiry: Option<::std::time::Instant>,
+    udp_acco_expiry: Option<::std::time::Instant>,
     udp_socket: Option<UdpSocket>,
     udp_token: Option<Token>,
     udp_origin_dst: Option<SocketAddr>,
@@ -504,8 +504,8 @@ impl<'a> TunToProxy<'a> {
 
         let err = "udp associate state not find";
         let state = self.connection_map.get_mut(info).ok_or(err)?;
-        assert!(state.expiry.is_some());
-        state.expiry = Some(Self::udp_associate_timeout());
+        assert!(state.udp_acco_expiry.is_some());
+        state.udp_acco_expiry = Some(Self::udp_associate_timeout());
 
         // Add SOCKS5 UDP header to the incoming data
         let mut s5_udp_data = Vec::<u8>::new();
@@ -633,7 +633,7 @@ impl<'a> TunToProxy<'a> {
             close_state: 0,
             wait_read: true,
             wait_write: false,
-            expiry,
+            udp_acco_expiry: expiry,
             udp_socket,
             udp_token,
             udp_origin_dst: None,
@@ -648,7 +648,7 @@ impl<'a> TunToProxy<'a> {
 
     fn udp_associate_timeout_expired(&self, info: &ConnectionInfo) -> bool {
         if let Some(state) = self.connection_map.get(info) {
-            if let Some(expiry) = state.expiry {
+            if let Some(expiry) = state.udp_acco_expiry {
                 return expiry < ::std::time::Instant::now();
             }
         }
@@ -776,7 +776,8 @@ impl<'a> TunToProxy<'a> {
     fn receive_udp_packet_and_write_to_client(&mut self, info: &ConnectionInfo) -> Result<()> {
         let err = "udp connection state not found";
         let state = self.connection_map.get_mut(info).ok_or(err)?;
-        state.expiry = Some(Self::udp_associate_timeout());
+        assert!(state.udp_acco_expiry.is_some());
+        state.udp_acco_expiry = Some(Self::udp_associate_timeout());
         let mut to_send: LinkedList<Vec<u8>> = LinkedList::new();
         if let Some(udp_socket) = state.udp_socket.as_ref() {
             let mut buf = [0; 1 << 16];
