@@ -1,13 +1,3 @@
-use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
-use mio::{event::Event, net::TcpStream, net::UdpSocket, unix::SourceFd, Events, Interest, Poll, Token};
-use smoltcp::{
-    iface::{Config, Interface, SocketHandle, SocketSet},
-    phy::{Device, Medium, RxToken, TunTapInterface, TxToken},
-    socket::{tcp, tcp::State, udp, udp::UdpMetadata},
-    time::Instant,
-    wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
-};
-use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
 use std::collections::LinkedList;
 use std::{
     collections::{HashMap, HashSet},
@@ -18,6 +8,18 @@ use std::{
     rc::Rc,
     str::FromStr,
 };
+
+use mio::{event::Event, net::TcpStream, net::UdpSocket, unix::SourceFd, Events, Interest, Poll, Token};
+use smoltcp::{
+    iface::{Config, Interface, SocketHandle, SocketSet},
+    phy::{Device, Medium, RxToken, TunTapInterface, TxToken},
+    socket::{tcp, tcp::State, udp, udp::UdpMetadata},
+    time::Instant,
+    wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
+};
+use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
+
+use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
 
 #[derive(Hash, Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
 pub(crate) struct ConnectionInfo {
@@ -167,7 +169,8 @@ fn connection_tuple(frame: &[u8]) -> Result<(ConnectionInfo, bool, usize, usize)
 const SERVER_WRITE_CLOSED: u8 = 1;
 const CLIENT_WRITE_CLOSED: u8 = 2;
 
-const UDP_ASSO_TIMEOUT: u64 = 10; // seconds
+const UDP_ASSO_TIMEOUT: u64 = 10;
+// seconds
 const DNS_PORT: u16 = 53;
 
 struct TcpConnectState {
@@ -239,8 +242,8 @@ impl<'a> TunToProxy<'a> {
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
         #[rustfmt::skip]
-        let config = match tun.capabilities().medium {
-            Medium::Ethernet =>  Config::new(smoltcp::wire::EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into()),
+            let config = match tun.capabilities().medium {
+            Medium::Ethernet => Config::new(smoltcp::wire::EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into()),
             Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
             Medium::Ieee802154 => todo!(),
         };
@@ -578,9 +581,13 @@ impl<'a> TunToProxy<'a> {
             let data = buf[2..len + 2].to_vec();
 
             let message = dns::parse_data_to_dns_message(&data, false)?;
-            let name = dns::extract_domain_from_dns_message(&message)?;
-            let ip = dns::extract_ipaddr_from_dns_message(&message)?;
-            log::info!("DNS over TCP ======== {} -> {}", name, ip);
+
+            if let (Ok(name), Ok(ip)) = (
+                dns::extract_domain_from_dns_message(&message),
+                dns::extract_ipaddr_from_dns_message(&message),
+            ) {
+                log::info!("DNS over TCP ======== {} -> {}", name, ip);
+            }
             state
                 .tcp_proxy_handler
                 .consume_data(OutgoingDirection::ToClient, len + 2);
