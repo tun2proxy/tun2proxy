@@ -456,6 +456,30 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
+    fn preprocess_origin_connection_info(&mut self, info: ConnectionInfo) -> Result<ConnectionInfo> {
+        let origin_dst = SocketAddr::try_from(&info.dst)?;
+        let connection_info = match &mut self.options.virtual_dns {
+            None => {
+                let mut info = info;
+                let port = origin_dst.port();
+                if port == DNS_PORT && info.protocol == IpProtocol::Udp && dns::addr_is_private(&origin_dst) {
+                    let dns_addr: SocketAddr = "8.8.8.8:53".parse()?; // TODO: Configurable
+                    info.dst = Address::from(dns_addr);
+                }
+                info
+            }
+            Some(virtual_dns) => {
+                let dst_ip = origin_dst.ip();
+                virtual_dns.touch_ip(&dst_ip);
+                match virtual_dns.resolve_ip(&dst_ip) {
+                    None => info,
+                    Some(name) => info.to_named(name.clone()),
+                }
+            }
+        };
+        Ok(connection_info)
+    }
+
     fn deal_with_incoming_udp_packets(
         &mut self,
         manager: &Rc<dyn ConnectionManager>,
@@ -511,25 +535,7 @@ impl<'a> TunToProxy<'a> {
             }
             let (info, _first_packet, payload_offset, payload_size) = result?;
             let origin_dst = SocketAddr::try_from(&info.dst)?;
-            let connection_info = match &mut self.options.virtual_dns {
-                None => {
-                    let mut info = info;
-                    let port = origin_dst.port();
-                    if port == DNS_PORT && info.protocol == IpProtocol::Udp && dns::addr_is_private(&origin_dst) {
-                        let dns_addr: SocketAddr = "8.8.8.8:53".parse()?; // TODO: Configurable
-                        info.dst = Address::from(dns_addr);
-                    }
-                    info
-                }
-                Some(virtual_dns) => {
-                    let dst_ip = origin_dst.ip();
-                    virtual_dns.touch_ip(&dst_ip);
-                    match virtual_dns.resolve_ip(&dst_ip) {
-                        None => info,
-                        Some(name) => info.to_named(name.clone()),
-                    }
-                }
-            };
+            let connection_info = self.preprocess_origin_connection_info(info)?;
 
             let manager = self.get_connection_manager().ok_or("get connection manager")?;
             let server_addr = manager.get_server_addr();
