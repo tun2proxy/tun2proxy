@@ -514,15 +514,12 @@ impl<'a> TunToProxy<'a> {
         let err = "udp over tcp state not find";
         let state = self.connection_map.get_mut(info).ok_or(err)?;
         state.udp_over_tcp_expiry = Some(Self::common_udp_life_timeout());
-        if state.tcp_proxy_handler.connection_established() {
-            _ = state.mio_stream.write(&buf)?;
-        } else {
-            // FIXME: Build an IP packet with TCP and inject it into the device,
-            //        or cache them and send them when the connection is established?
-            // self.device.inject_packet(&buf);
-            state.udp_over_tcp_data_cache.push_back(buf);
-        }
 
+        let data_event = IncomingDataEvent {
+            direction: IncomingDirection::FromClient,
+            buffer: &buf,
+        };
+        state.tcp_proxy_handler.push_data(data_event)?;
         Ok(())
     }
 
