@@ -526,6 +526,15 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
+    fn consume_cached_dns_over_tcp_packets(&mut self, info: &ConnectionInfo) -> Result<()> {
+        if let Some(state) = self.connection_map.get_mut(info) {
+            while let Some(buf) = state.udp_over_tcp_data_cache.pop_front() {
+                _ = state.mio_stream.write(&buf)?;
+            }
+        }
+        Ok(())
+    }
+
     fn process_incoming_udp_packets(
         &mut self,
         manager: &Rc<dyn ConnectionManager>,
@@ -859,7 +868,7 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn comsume_cached_udp_packets(&mut self, info: &ConnectionInfo) -> Result<()> {
+    fn consume_cached_udp_packets(&mut self, info: &ConnectionInfo) -> Result<()> {
         // Try to send the first UDP packets to remote SOCKS5 server for UDP associate session
         if let Some(state) = self.connection_map.get_mut(info) {
             if let Some(udp_socket) = state.udp_socket.as_ref() {
@@ -958,7 +967,8 @@ impl<'a> TunToProxy<'a> {
                 // server.
                 self.write_to_server(&conn_info)?;
 
-                self.comsume_cached_udp_packets(&conn_info)?;
+                self.consume_cached_dns_over_tcp_packets(&conn_info)?;
+                self.consume_cached_udp_packets(&conn_info)?;
             }
 
             if event.is_writable() {
