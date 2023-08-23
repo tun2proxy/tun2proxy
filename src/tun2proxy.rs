@@ -495,7 +495,7 @@ impl<'a> TunToProxy<'a> {
 
             let tcp_proxy_handler = manager.new_tcp_proxy(info, false)?;
             let server_addr = manager.get_server_addr();
-            let mut state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
+            let state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
             self.connection_map.insert(info.clone(), state);
 
             // TODO: Move this 3 lines to the function end?
@@ -628,7 +628,7 @@ impl<'a> TunToProxy<'a> {
             log::info!("UDP associate session {} ({})", info, origin_dst);
             let tcp_proxy_handler = manager.new_tcp_proxy(info, true)?;
             let server_addr = manager.get_server_addr();
-            let mut state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, true)?;
+            let state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, true)?;
             self.connection_map.insert(info.clone(), state);
 
             self.expect_smoltcp_send()?;
