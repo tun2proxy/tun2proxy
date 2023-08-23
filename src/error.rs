@@ -9,6 +9,9 @@ pub enum Error {
     #[error("std::io::Error {0}")]
     Io(#[from] std::io::Error),
 
+    #[error("TryFromIntError {0:?}")]
+    TryFromInt(#[from] std::num::TryFromIntError),
+
     #[error("std::net::AddrParseError {0}")]
     AddrParse(#[from] std::net::AddrParseError),
 
