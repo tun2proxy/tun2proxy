@@ -712,13 +712,10 @@ impl<'a> TunToProxy<'a> {
                     let virtual_dns = self.options.virtual_dns.as_mut().ok_or("")?;
                     let response = virtual_dns.receive_query(payload)?;
                     self.send_udp_packet_to_client(origin_dst, info.src, response.as_slice())?;
+                } else if self.options.dns_over_tcp && port == DNS_PORT {
+                    self.process_incoming_dns_over_tcp_packets(&manager, &info, origin_dst, payload)?;
                 } else {
-                    // Another UDP packet
-                    if self.options.dns_over_tcp && origin_dst.port() == DNS_PORT {
-                        self.process_incoming_dns_over_tcp_packets(&manager, &info, origin_dst, payload)?;
-                    } else {
-                        self.process_incoming_udp_packets(&manager, &info, origin_dst, payload)?;
-                    }
+                    self.process_incoming_udp_packets(&manager, &info, origin_dst, payload)?;
                 }
             } else {
                 log::warn!("Unsupported protocol: {} ({})", info, origin_dst);
