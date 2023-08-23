@@ -119,7 +119,7 @@ impl Options {
         self
     }
 
-    pub fn with_ipv6(mut self) -> Self {
+    pub fn with_ipv6_enabled(mut self) -> Self {
         self.ipv6_enabled = true;
         self
     }

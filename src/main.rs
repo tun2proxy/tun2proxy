@@ -92,7 +92,7 @@ fn main() -> ExitCode {
     }
 
     if args.ipv6_enabled {
-        options = options.with_ipv6();
+        options = options.with_ipv6_enabled();
     }
 
     let interface = match args.tun_fd {
