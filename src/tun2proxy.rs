@@ -570,7 +570,7 @@ impl<'a> TunToProxy<'a> {
 
             let name = dns::extract_domain_from_dns_message(&message)?;
             let ip = dns::extract_ipaddr_from_dns_message(&message);
-            log::info!("DNS over TCP query result: {} -> {:?}", name, ip);
+            log::trace!("DNS over TCP query result: {} -> {:?}", name, ip);
 
             state
                 .tcp_proxy_handler

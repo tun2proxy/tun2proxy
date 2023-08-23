@@ -37,12 +37,12 @@ pub fn build_dns_response(mut request: Message, domain: &str, ip: IpAddr, ttl: u
     let record = match ip {
         IpAddr::V4(ip) => {
             let mut record = Record::with(Name::from_str(domain)?, RecordType::A, ttl);
-            record.set_data(Some(RData::A(ip)));
+            record.set_data(Some(RData::A(ip.into())));
             record
         }
         IpAddr::V6(ip) => {
             let mut record = Record::with(Name::from_str(domain)?, RecordType::AAAA, ttl);
-            record.set_data(Some(RData::AAAA(ip)));
+            record.set_data(Some(RData::AAAA(ip.into())));
             record
         }
     };
@@ -64,10 +64,10 @@ pub fn extract_ipaddr_from_dns_message(message: &Message) -> Result<IpAddr, Stri
     for answer in message.answers() {
         match answer.data().ok_or("DNS response not contains answer data")? {
             RData::A(addr) => {
-                return Ok(IpAddr::V4(*addr));
+                return Ok(IpAddr::V4((*addr).into()));
             }
             RData::AAAA(addr) => {
-                return Ok(IpAddr::V6(*addr));
+                return Ok(IpAddr::V6((*addr).into()));
             }
             RData::CNAME(name) => {
                 cname = Some(name.to_utf8());
