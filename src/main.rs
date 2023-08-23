@@ -29,6 +29,14 @@ struct Args {
     #[arg(short, long, value_name = "method", value_enum, default_value = "virtual")]
     dns: ArgDns,
 
+    /// Enable DNS over TCP
+    #[arg(long)]
+    dns_over_tcp: bool,
+
+    /// IPv6 enabled
+    #[arg(short = '6', long)]
+    ipv6_enabled: bool,
+
     /// Routing and system setup
     #[arg(short, long, value_name = "method", value_enum)]
     setup: Option<ArgSetup>,
@@ -40,10 +48,6 @@ struct Args {
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     verbosity: ArgVerbosity,
-
-    /// Enable DNS over TCP
-    #[arg(long)]
-    dns_over_tcp: bool,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
@@ -85,6 +89,10 @@ fn main() -> ExitCode {
 
     if args.dns_over_tcp {
         options = options.with_dns_over_tcp();
+    }
+
+    if args.ipv6_enabled {
+        options = options.with_ipv6();
     }
 
     let interface = match args.tun_fd {

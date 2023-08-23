@@ -99,6 +99,7 @@ pub struct Options {
     virtual_dns: Option<virtdns::VirtualDns>,
     mtu: Option<usize>,
     dns_over_tcp: bool,
+    ipv6_enabled: bool,
 }
 
 impl Options {
@@ -115,6 +116,11 @@ impl Options {
     pub fn with_dns_over_tcp(mut self) -> Self {
         self.dns_over_tcp = true;
         self.virtual_dns = None;
+        self
+    }
+
+    pub fn with_ipv6(mut self) -> Self {
+        self.ipv6_enabled = true;
         self
     }
 

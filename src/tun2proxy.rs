@@ -184,7 +184,6 @@ struct ConnectionState {
     udp_origin_dst: Option<SocketAddr>,
     udp_data_cache: LinkedList<Vec<u8>>,
     udp_over_tcp_expiry: Option<::std::time::Instant>,
-    is_tcp_dns: bool,
 }
 
 pub(crate) trait TcpProxy {
@@ -494,7 +493,6 @@ impl<'a> TunToProxy<'a> {
             let tcp_proxy_handler = manager.new_tcp_proxy(info, false)?;
             let server_addr = manager.get_server_addr();
             let mut state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
-            state.is_tcp_dns = true;
             state.udp_origin_dst = Some(SocketAddr::try_from(original_info.dst.clone())?);
             self.connection_map.insert(info.clone(), state);
 
@@ -578,7 +576,9 @@ impl<'a> TunToProxy<'a> {
                 .tcp_proxy_handler
                 .consume_data(OutgoingDirection::ToClient, len + 2);
 
-            dns::remove_ipv6_entries(&mut message); // TODO: Configurable
+            if !self.options.ipv6_enabled {
+                dns::remove_ipv6_entries(&mut message);
+            }
 
             to_send.push_back(message.to_vec()?);
             if len + 2 == buf.len() {
@@ -778,7 +778,6 @@ impl<'a> TunToProxy<'a> {
             udp_origin_dst: None,
             udp_data_cache: LinkedList::new(),
             udp_over_tcp_expiry: None,
-            is_tcp_dns: false,
         };
         Ok(state)
     }
@@ -929,7 +928,9 @@ impl<'a> TunToProxy<'a> {
 
                 let buf = if info.dst.port() == DNS_PORT {
                     let mut message = dns::parse_data_to_dns_message(&buf[header.len()..], false)?;
-                    dns::remove_ipv6_entries(&mut message); // TODO: Configurable
+                    if !self.options.ipv6_enabled {
+                        dns::remove_ipv6_entries(&mut message);
+                    }
                     message.to_vec()?
                 } else {
                     buf[header.len()..].to_vec()
