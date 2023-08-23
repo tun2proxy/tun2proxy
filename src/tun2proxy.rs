@@ -460,7 +460,15 @@ impl<'a> TunToProxy<'a> {
     fn preprocess_origin_connection_info(&mut self, info: ConnectionInfo) -> Result<ConnectionInfo> {
         let origin_dst = SocketAddr::try_from(&info.dst)?;
         let connection_info = match &mut self.options.virtual_dns {
-            None => info,
+            None => {
+                let mut info = info;
+                let port = origin_dst.port();
+                if port == DNS_PORT && info.protocol == IpProtocol::Udp && dns::addr_is_private(&origin_dst) {
+                    let dns_addr: SocketAddr = "8.8.8.8:53".parse()?; // TODO: Configurable
+                    info.dst = Address::from(dns_addr);
+                }
+                info
+            }
             Some(virtual_dns) => {
                 let dst_ip = origin_dst.ip();
                 virtual_dns.touch_ip(&dst_ip);
@@ -476,16 +484,11 @@ impl<'a> TunToProxy<'a> {
     fn process_incoming_dns_over_tcp_packets(
         &mut self,
         manager: &Rc<dyn ConnectionManager>,
-        original_info: &ConnectionInfo,
+        info: &ConnectionInfo,
         origin_dst: SocketAddr,
         payload: &[u8],
     ) -> Result<()> {
         _ = dns::parse_data_to_dns_message(payload, false)?;
-        let mut new_info = original_info.clone();
-        let dns_addr: SocketAddr = "8.8.8.8:53".parse()?;
-        new_info.dst = Address::from(dns_addr);
-
-        let info = &new_info;
 
         if !self.connection_map.contains_key(info) {
             log::info!("DNS over TCP {} ({})", info, origin_dst);
@@ -493,7 +496,7 @@ impl<'a> TunToProxy<'a> {
             let tcp_proxy_handler = manager.new_tcp_proxy(info, false)?;
             let server_addr = manager.get_server_addr();
             let mut state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
-            state.udp_origin_dst = Some(SocketAddr::try_from(original_info.dst.clone())?);
+            state.udp_origin_dst = Some(origin_dst);
             self.connection_map.insert(info.clone(), state);
 
             // TODO: Move this 3 lines to the function end?
