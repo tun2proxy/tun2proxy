@@ -181,7 +181,7 @@ struct ConnectionState {
     udp_acco_expiry: Option<::std::time::Instant>,
     udp_socket: Option<UdpSocket>,
     udp_token: Option<Token>,
-    udp_origin_dst: Option<SocketAddr>,
+    origin_dst: SocketAddr,
     udp_data_cache: LinkedList<Vec<u8>>,
     udp_over_tcp_expiry: Option<::std::time::Instant>,
 }
@@ -496,7 +496,6 @@ impl<'a> TunToProxy<'a> {
             let tcp_proxy_handler = manager.new_tcp_proxy(info, false)?;
             let server_addr = manager.get_server_addr();
             let mut state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, false)?;
-            state.udp_origin_dst = Some(origin_dst);
             self.connection_map.insert(info.clone(), state);
 
             // TODO: Move this 3 lines to the function end?
@@ -591,7 +590,7 @@ impl<'a> TunToProxy<'a> {
         }
 
         // Write to client
-        let src = state.udp_origin_dst.ok_or("Expected UDP addr")?;
+        let src = state.origin_dst;
         while let Some(packet) = to_send.pop_front() {
             self.send_udp_packet_to_client(src, info.src, &packet)?;
         }
@@ -630,7 +629,6 @@ impl<'a> TunToProxy<'a> {
             let tcp_proxy_handler = manager.new_tcp_proxy(info, true)?;
             let server_addr = manager.get_server_addr();
             let mut state = self.create_new_tcp_connection_state(server_addr, origin_dst, tcp_proxy_handler, true)?;
-            state.udp_origin_dst = Some(origin_dst);
             self.connection_map.insert(info.clone(), state);
 
             self.expect_smoltcp_send()?;
@@ -778,7 +776,7 @@ impl<'a> TunToProxy<'a> {
             udp_acco_expiry: expiry,
             udp_socket,
             udp_token,
-            udp_origin_dst: None,
+            origin_dst: dst,
             udp_data_cache: LinkedList::new(),
             udp_over_tcp_expiry: None,
         };
@@ -945,7 +943,7 @@ impl<'a> TunToProxy<'a> {
         }
 
         // Write to client
-        let src = state.udp_origin_dst.ok_or("udp address")?;
+        let src = state.origin_dst;
         while let Some(packet) = to_send.pop_front() {
             self.send_udp_packet_to_client(src, info.src, &packet)?;
         }
