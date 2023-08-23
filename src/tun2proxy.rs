@@ -1,3 +1,13 @@
+use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
+use mio::{event::Event, net::TcpStream, net::UdpSocket, unix::SourceFd, Events, Interest, Poll, Token};
+use smoltcp::{
+    iface::{Config, Interface, SocketHandle, SocketSet},
+    phy::{Device, Medium, RxToken, TunTapInterface, TxToken},
+    socket::{tcp, tcp::State, udp, udp::UdpMetadata},
+    time::Instant,
+    wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
+};
+use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
 use std::collections::LinkedList;
 use std::{
     collections::{HashMap, HashSet},
@@ -8,18 +18,6 @@ use std::{
     rc::Rc,
     str::FromStr,
 };
-
-use mio::{event::Event, net::TcpStream, net::UdpSocket, unix::SourceFd, Events, Interest, Poll, Token};
-use smoltcp::{
-    iface::{Config, Interface, SocketHandle, SocketSet},
-    phy::{Device, Medium, RxToken, TunTapInterface, TxToken},
-    socket::{tcp, tcp::State, udp, udp::UdpMetadata},
-    time::Instant,
-    wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
-};
-use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
-
-use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
 
 #[derive(Hash, Clone, Eq, PartialEq, PartialOrd, Ord, Debug)]
 pub(crate) struct ConnectionInfo {
@@ -169,11 +167,10 @@ fn connection_tuple(frame: &[u8]) -> Result<(ConnectionInfo, bool, usize, usize)
 const SERVER_WRITE_CLOSED: u8 = 1;
 const CLIENT_WRITE_CLOSED: u8 = 2;
 
-const UDP_ASSO_TIMEOUT: u64 = 10;
-// seconds
+const UDP_ASSO_TIMEOUT: u64 = 10; // seconds
 const DNS_PORT: u16 = 53;
 
-struct TcpConnectState {
+struct ConnectionState {
     smoltcp_handle: Option<SocketHandle>,
     mio_stream: TcpStream,
     token: Token,
@@ -187,7 +184,6 @@ struct TcpConnectState {
     udp_origin_dst: Option<SocketAddr>,
     udp_data_cache: LinkedList<Vec<u8>>,
     udp_over_tcp_expiry: Option<::std::time::Instant>,
-    udp_over_tcp_data_cache: LinkedList<Vec<u8>>,
     is_tcp_dns: bool,
 }
 
@@ -216,7 +212,7 @@ pub struct TunToProxy<'a> {
     tun: TunTapInterface,
     poll: Poll,
     iface: Interface,
-    connection_map: HashMap<ConnectionInfo, TcpConnectState>,
+    connection_map: HashMap<ConnectionInfo, ConnectionState>,
     connection_manager: Option<Rc<dyn ConnectionManager>>,
     next_token: usize,
     sockets: SocketSet<'a>,
@@ -242,7 +238,7 @@ impl<'a> TunToProxy<'a> {
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
         #[rustfmt::skip]
-            let config = match tun.capabilities().medium {
+        let config = match tun.capabilities().medium {
             Medium::Ethernet => Config::new(smoltcp::wire::EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into()),
             Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
             Medium::Ieee802154 => todo!(),
@@ -440,7 +436,7 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn update_mio_socket_interest(poll: &mut Poll, state: &mut TcpConnectState) -> Result<()> {
+    fn update_mio_socket_interest(poll: &mut Poll, state: &mut ConnectionState) -> Result<()> {
         // Maybe we did not listen for any events before. Therefore, just swallow the error.
         if let Err(err) = poll.registry().deregister(&mut state.mio_stream) {
             log::trace!("{}", err);
@@ -478,7 +474,7 @@ impl<'a> TunToProxy<'a> {
         Ok(connection_info)
     }
 
-    fn process_incoming_udp_packets_dns_over_tcp(
+    fn process_incoming_dns_over_tcp_packets(
         &mut self,
         manager: &Rc<dyn ConnectionManager>,
         original_info: &ConnectionInfo,
@@ -502,6 +498,7 @@ impl<'a> TunToProxy<'a> {
             state.udp_origin_dst = Some(SocketAddr::try_from(original_info.dst.clone())?);
             self.connection_map.insert(info.clone(), state);
 
+            // TODO: Move this 3 lines to the function end?
             self.expect_smoltcp_send()?;
             self.tunsocket_read_and_forward(info)?;
             self.write_to_server(info)?;
@@ -524,15 +521,6 @@ impl<'a> TunToProxy<'a> {
             buffer: &buf,
         };
         state.tcp_proxy_handler.push_data(data_event)?;
-        Ok(())
-    }
-
-    fn consume_cached_dns_over_tcp_packets(&mut self, info: &ConnectionInfo) -> Result<()> {
-        if let Some(state) = self.connection_map.get_mut(info) {
-            while let Some(buf) = state.udp_over_tcp_data_cache.pop_front() {
-                _ = state.mio_stream.write(&buf)?;
-            }
-        }
         Ok(())
     }
 
@@ -580,18 +568,19 @@ impl<'a> TunToProxy<'a> {
             }
             let data = buf[2..len + 2].to_vec();
 
-            let message = dns::parse_data_to_dns_message(&data, false)?;
+            let mut message = dns::parse_data_to_dns_message(&data, false)?;
 
-            if let (Ok(name), Ok(ip)) = (
-                dns::extract_domain_from_dns_message(&message),
-                dns::extract_ipaddr_from_dns_message(&message),
-            ) {
-                log::info!("DNS over TCP ======== {} -> {}", name, ip);
-            }
+            let name = dns::extract_domain_from_dns_message(&message)?;
+            let ip = dns::extract_ipaddr_from_dns_message(&message);
+            log::info!("DNS over TCP query result: {} -> {:?}", name, ip);
+
             state
                 .tcp_proxy_handler
                 .consume_data(OutgoingDirection::ToClient, len + 2);
-            to_send.push_back(data);
+
+            dns::remove_ipv6_entries(&mut message); // TODO: Configurable
+
+            to_send.push_back(message.to_vec()?);
             if len + 2 == buf.len() {
                 break;
             }
@@ -615,7 +604,7 @@ impl<'a> TunToProxy<'a> {
         false
     }
 
-    fn clearup_expired_udp_over_tcp(&mut self) -> Result<()> {
+    fn clearup_expired_dns_over_tcp(&mut self) -> Result<()> {
         let keys = self.connection_map.keys().cloned().collect::<Vec<_>>();
         for key in keys {
             if self.udp_over_tcp_timeout_expired(&key) {
@@ -724,7 +713,7 @@ impl<'a> TunToProxy<'a> {
                 } else {
                     // Another UDP packet
                     if self.options.dns_over_tcp && origin_dst.port() == DNS_PORT {
-                        self.process_incoming_udp_packets_dns_over_tcp(&manager, &info, origin_dst, payload)?;
+                        self.process_incoming_dns_over_tcp_packets(&manager, &info, origin_dst, payload)?;
                     } else {
                         self.process_incoming_udp_packets(&manager, &info, origin_dst, payload)?;
                     }
@@ -746,7 +735,7 @@ impl<'a> TunToProxy<'a> {
         dst: SocketAddr,
         tcp_proxy_handler: Box<dyn TcpProxy>,
         udp_associate: bool,
-    ) -> Result<TcpConnectState> {
+    ) -> Result<ConnectionState> {
         let mut socket = tcp::Socket::new(
             tcp::SocketBuffer::new(vec![0; 1024 * 128]),
             tcp::SocketBuffer::new(vec![0; 1024 * 128]),
@@ -775,7 +764,7 @@ impl<'a> TunToProxy<'a> {
         } else {
             (None, None)
         };
-        let state = TcpConnectState {
+        let state = ConnectionState {
             smoltcp_handle: Some(handle),
             mio_stream: client,
             token,
@@ -789,7 +778,6 @@ impl<'a> TunToProxy<'a> {
             udp_origin_dst: None,
             udp_data_cache: LinkedList::new(),
             udp_over_tcp_expiry: None,
-            udp_over_tcp_data_cache: LinkedList::new(),
             is_tcp_dns: false,
         };
         Ok(state)
@@ -1068,7 +1056,6 @@ impl<'a> TunToProxy<'a> {
                 // server.
                 self.write_to_server(&conn_info)?;
 
-                self.consume_cached_dns_over_tcp_packets(&conn_info)?;
                 self.consume_cached_udp_packets(&conn_info)?;
             }
 
@@ -1106,7 +1093,7 @@ impl<'a> TunToProxy<'a> {
             }
             self.send_to_smoltcp()?;
             self.clearup_expired_udp_associate()?;
-            self.clearup_expired_udp_over_tcp()?;
+            self.clearup_expired_dns_over_tcp()?;
         }
     }
 

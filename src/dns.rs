@@ -78,7 +78,6 @@ pub fn extract_ipaddr_from_dns_message(message: &Message) -> Result<IpAddr, Stri
     if let Some(cname) = cname {
         return Err(cname);
     }
-
     Err(format!("{:?}", message.answers()))
 }
 
