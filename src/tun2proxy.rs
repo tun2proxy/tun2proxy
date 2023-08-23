@@ -707,8 +707,9 @@ impl<'a> TunToProxy<'a> {
             } else if info.protocol == IpProtocol::Udp {
                 let port = info.dst.port();
                 let payload = &frame[payload_offset..payload_offset + payload_size];
-                if let (Some(virtual_dns), true) = (&mut self.options.virtual_dns, port == DNS_PORT) {
+                if self.options.virtual_dns.is_some() && port == DNS_PORT {
                     log::info!("DNS query via virtual DNS {} ({})", info, origin_dst);
+                    let virtual_dns = self.options.virtual_dns.as_mut().ok_or("")?;
                     let response = virtual_dns.receive_query(payload)?;
                     self.send_udp_packet_to_client(origin_dst, info.src, response.as_slice())?;
                 } else {
