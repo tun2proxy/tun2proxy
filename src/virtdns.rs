@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 use crate::error::Result;
 use hashlink::{linked_hash_map::RawEntryMut, LruCache};
 use smoltcp::wire::Ipv4Cidr;

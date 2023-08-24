@@ -52,6 +52,7 @@ pub enum Error {
     #[error("{0}")]
     String(String),
 
+    #[cfg(target_family = "unix")]
     #[error("nix::errno::Errno {0:?}")]
     OSError(#[from] nix::errno::Errno),
 

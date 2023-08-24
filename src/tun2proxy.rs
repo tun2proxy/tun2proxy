@@ -1,20 +1,32 @@
+#![allow(dead_code)]
+
 use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
-use mio::{event::Event, net::TcpStream, net::UdpSocket, unix::SourceFd, Events, Interest, Poll, Token};
+#[cfg(target_family = "unix")]
+use mio::unix::SourceFd;
+use mio::{event::Event, net::TcpStream, net::UdpSocket, Events, Interest, Poll, Token};
+#[cfg(not(target_family = "unix"))]
+use smoltcp::phy::DeviceCapabilities;
+#[cfg(any(target_os = "macos", target_os = "ios"))]
+use smoltcp::phy::RawSocket;
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use smoltcp::phy::TunTapInterface;
+#[cfg(target_family = "unix")]
+use smoltcp::phy::{Device, Medium, RxToken, TxToken};
 use smoltcp::{
     iface::{Config, Interface, SocketHandle, SocketSet},
-    phy::{Device, Medium, RxToken, TunTapInterface, TxToken},
     socket::{tcp, tcp::State, udp, udp::UdpMetadata},
     time::Instant,
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
 };
 use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
 use std::collections::LinkedList;
+#[cfg(target_family = "unix")]
+use std::os::unix::io::AsRawFd;
 use std::{
     collections::{HashMap, HashSet},
     convert::{From, TryFrom},
     io::{Read, Write},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, Shutdown, SocketAddr},
-    os::unix::io::AsRawFd,
     rc::Rc,
     str::FromStr,
 };
@@ -208,7 +220,10 @@ const TUN_TOKEN: Token = Token(0);
 const EXIT_TOKEN: Token = Token(2);
 
 pub struct TunToProxy<'a> {
+    #[cfg(any(target_os = "linux", target_os = "android"))]
     tun: TunTapInterface,
+    #[cfg(any(target_os = "macos", target_os = "ios"))]
+    tun: RawSocket,
     poll: Poll,
     iface: Interface,
     connection_map: HashMap<ConnectionInfo, ConnectionState>,
@@ -218,31 +233,53 @@ pub struct TunToProxy<'a> {
     device: VirtualTunDevice,
     options: Options,
     write_sockets: HashSet<Token>,
+    #[cfg(target_family = "unix")]
     _exit_receiver: mio::unix::pipe::Receiver,
+    #[cfg(target_family = "unix")]
     exit_sender: mio::unix::pipe::Sender,
 }
 
 impl<'a> TunToProxy<'a> {
-    pub fn new(interface: &NetworkInterface, options: Options) -> Result<Self, Error> {
-        let tun = match interface {
+    pub fn new(_interface: &NetworkInterface, options: Options) -> Result<Self, Error> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let tun = match _interface {
             NetworkInterface::Named(name) => TunTapInterface::new(name.as_str(), Medium::Ip)?,
             NetworkInterface::Fd(fd) => TunTapInterface::from_fd(*fd, Medium::Ip, options.mtu.unwrap_or(1500))?,
         };
+
+        #[cfg(any(target_os = "macos", target_os = "ios"))]
+        let tun = match _interface {
+            NetworkInterface::Named(name) => RawSocket::new(name.as_str(), Medium::Ip)?,
+            NetworkInterface::Fd(_fd) => panic!("Not supported"),
+        };
+
         let poll = Poll::new()?;
+
+        #[cfg(target_family = "unix")]
         poll.registry()
             .register(&mut SourceFd(&tun.as_raw_fd()), TUN_TOKEN, Interest::READABLE)?;
 
+        #[cfg(target_family = "unix")]
         let (exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;
+        #[cfg(target_family = "unix")]
         poll.registry()
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
+        #[cfg(target_family = "unix")]
         #[rustfmt::skip]
         let config = match tun.capabilities().medium {
             Medium::Ethernet => Config::new(smoltcp::wire::EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into()),
             Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
             Medium::Ieee802154 => todo!(),
         };
+        #[cfg(not(target_family = "unix"))]
+        let config = Config::new(smoltcp::wire::HardwareAddress::Ip);
+
+        #[cfg(target_family = "unix")]
         let mut device = VirtualTunDevice::new(tun.capabilities());
+        #[cfg(not(target_family = "unix"))]
+        let mut device = VirtualTunDevice::new(DeviceCapabilities::default());
+
         let gateway4: Ipv4Addr = Ipv4Addr::from_str("0.0.0.1")?;
         let gateway6: Ipv6Addr = Ipv6Addr::from_str("::1")?;
         let mut iface = Interface::new(config, &mut device, Instant::now());
@@ -255,6 +292,7 @@ impl<'a> TunToProxy<'a> {
         iface.set_any_ip(true);
 
         let tun = Self {
+            #[cfg(target_family = "unix")]
             tun,
             poll,
             iface,
@@ -265,7 +303,9 @@ impl<'a> TunToProxy<'a> {
             device,
             options,
             write_sockets: HashSet::default(),
+            #[cfg(target_family = "unix")]
             _exit_receiver: exit_receiver,
+            #[cfg(target_family = "unix")]
             exit_sender,
         };
         Ok(tun)
@@ -286,14 +326,15 @@ impl<'a> TunToProxy<'a> {
         self.iface.poll(Instant::now(), &mut self.device, &mut self.sockets);
 
         while let Some(vec) = self.device.exfiltrate_packet() {
-            let slice = vec.as_slice();
+            let _slice = vec.as_slice();
 
             // TODO: Actual write. Replace.
+            #[cfg(target_family = "unix")]
             self.tun
                 .transmit(Instant::now())
                 .ok_or("tx token not available")?
-                .consume(slice.len(), |buf| {
-                    buf[..].clone_from_slice(slice);
+                .consume(_slice.len(), |buf| {
+                    buf[..].clone_from_slice(_slice);
                 });
         }
         Ok(())
@@ -892,6 +933,7 @@ impl<'a> TunToProxy<'a> {
 
     fn tun_event(&mut self, event: &Event) -> Result<(), Error> {
         if event.is_readable() {
+            #[cfg(target_family = "unix")]
             while let Some((rx_token, _)) = self.tun.receive(Instant::now()) {
                 rx_token.consume(|frame| self.receive_tun(frame))?;
             }
@@ -1098,6 +1140,7 @@ impl<'a> TunToProxy<'a> {
     }
 
     pub fn shutdown(&mut self) -> Result<(), Error> {
+        #[cfg(target_family = "unix")]
         self.exit_sender.write_all(&[1])?;
         Ok(())
     }

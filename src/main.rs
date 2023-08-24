@@ -95,11 +95,15 @@ fn main() -> ExitCode {
         options = options.with_ipv6_enabled();
     }
 
+    #[allow(unused_assignments)]
     let interface = match args.tun_fd {
         None => NetworkInterface::Named(args.tun.clone()),
-        Some(fd) => {
+        Some(_fd) => {
             options = options.with_mtu(args.tun_mtu);
-            NetworkInterface::Fd(fd)
+            #[cfg(not(target_family = "unix"))]
+            panic!("Not supported");
+            #[cfg(target_family = "unix")]
+            NetworkInterface::Fd(_fd)
         }
     };
 
