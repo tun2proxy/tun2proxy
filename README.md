@@ -102,6 +102,30 @@ Currently, tun2proxy supports HTTP, SOCKS4/SOCKS4a and SOCKS5. A proxy is suppli
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is
 supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogously to curl's `--proxy` argument.
 
+## Docker Support
+
+```bash
+docker run -d \
+	-e PROXY=PROXY_TYPE://PROXY_IP:PROXY_PORT \
+	-v /dev/net/tun:/dev/net/tun \
+	--sysctl net.ipv6.conf.all.disable_ipv6=0 \
+	--sysctl net.ipv6.conf.default.disable_ipv6=0 \
+	--cap-add NET_ADMIN \
+	--name tun2proxy \
+	image:tags
+```
+
+Provide a network to another worker container. (share netns).
+
+```bash
+docker run -it \
+	-d \
+	--network "container:tun2proxy" \
+	worker-example:tags
+```
+
+
+
 ## Configuration Tips
 ### DNS
 When DNS resolution is performed by a service on your machine or through a server in your local network, DNS resolution
