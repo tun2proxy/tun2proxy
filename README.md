@@ -91,13 +91,18 @@ Tunnel interface to proxy.
 Usage: tun2proxy [OPTIONS] --proxy <URL>
 
 Options:
-  -t, --tun <name>      Name of the tun interface [default: tun0]
-  -p, --proxy <URL>     Proxy URL in the form proto://[username[:password]@]host:port
-  -d, --dns <method>    DNS handling [default: virtual] [possible values: virtual, none]
-  -s, --setup <method>  Routing and system setup [possible values: auto]
-      --bypass-ip <IP>  Public proxy IP used in routing setup which should bypassing the tunnel
-  -h, --help            Print help
-  -V, --version         Print version
+  -t, --tun <name>         Name of the tun interface [default: tun0]
+      --tun-fd <fd>        File descriptor of the tun interface
+      --tun-mtu <mtu>      MTU of the tun interface (only with tunnel file descriptor) [default: 1500]
+  -p, --proxy <URL>        Proxy URL in the form proto://[username[:password]@]host:port
+  -d, --dns <strategy>     DNS handling strategy [default: virtual] [possible values: virtual, over-tcp, direct]
+      --dns-addr <IP>      DNS resolver address [default: 8.8.8.8]
+  -6, --ipv6-enabled       IPv6 enabled
+  -s, --setup <method>     Routing and system setup [possible values: auto]
+      --bypass-ip <IP>     Public proxy IP used in routing setup which should bypassing the tunnel
+  -v, --verbosity <level>  Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
+  -h, --help               Print help
+  -V, --version            Print version
 ```
 Currently, tun2proxy supports HTTP, SOCKS4/SOCKS4a and SOCKS5. A proxy is supplied to the `--proxy` argument in the
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is

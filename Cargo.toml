@@ -1,8 +1,8 @@
 [package]
 authors = ["B. Blechschmidt"]
-edition = "2018"
+edition = "2021"
 name = "tun2proxy"
-version = "0.1.5"
+version = "0.1.6"
 
 [lib]
 crate-type = ["cdylib", "lib"]
@@ -19,7 +19,7 @@ httparse = "1.8"
 libc = "0.2"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
-nix = { version = "0.26", features = ["process", "signal"] }
+nix = { version = "0.27", features = ["process", "signal"] }
 prctl = "1.0"
 smoltcp = { version = "0.10", features = ["std", "phy-tuntap_interface"] }
 socks5-impl = { version = "0.5", default-features = false }
