@@ -9,6 +9,7 @@ A tunnel interface for HTTP and SOCKS proxies on Linux based on [smoltcp](https:
 - IPv4 and IPv6 support
 - GFW evasion mechanism for certain use cases (see [issue #35](https://github.com/blechschmidt/tun2proxy/issues/35))
 - SOCKS5 UDP support
+- Native support for proxying DNS over TCP
 
 ## Build
 Clone the repository and `cd` into the project folder. Then run the following:
@@ -122,6 +123,3 @@ asked to open connections to IPv6 destinations. In such a case, you can disable 
 either through `sysctl -w net.ipv6.conf.all.disable_ipv6=1` and `sysctl -w net.ipv6.conf.default.disable_ipv6=1`
 or through `ip -6 route del default`, which causes the `libc` resolver (and other software) to not issue DNS AAAA
 requests for IPv6 addresses.
-
-## TODO
-- Native support for proxying DNS over TCP or TLS

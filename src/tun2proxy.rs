@@ -505,7 +505,7 @@ impl<'a> TunToProxy<'a> {
                 let mut info = info;
                 let port = origin_dst.port();
                 if port == DNS_PORT && info.protocol == IpProtocol::Udp && dns::addr_is_private(&origin_dst) {
-                    let dns_addr: SocketAddr = "8.8.8.8:53".parse()?; // TODO: Configurable
+                    let dns_addr: SocketAddr = (self.options.dns_addr.ok_or("dns_addr")?, DNS_PORT).into();
                     info.dst = Address::from(dns_addr);
                 }
                 info

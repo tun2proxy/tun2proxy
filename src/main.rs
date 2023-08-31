@@ -25,13 +25,13 @@ struct Args {
     #[arg(short, long, value_parser = Proxy::from_url, value_name = "URL")]
     proxy: Proxy,
 
-    /// DNS handling
-    #[arg(short, long, value_name = "method", value_enum, default_value = "virtual")]
+    /// DNS handling strategy
+    #[arg(short, long, value_name = "strategy", value_enum, default_value = "virtual")]
     dns: ArgDns,
 
-    /// Enable DNS over TCP
-    #[arg(long)]
-    dns_over_tcp: bool,
+    /// DNS resolver address
+    #[arg(long, value_name = "IP", default_value = "8.8.8.8")]
+    dns_addr: IpAddr,
 
     /// IPv6 enabled
     #[arg(short = '6', long)]
@@ -50,10 +50,15 @@ struct Args {
     verbosity: ArgVerbosity,
 }
 
+/// DNS query handling strategy
+/// - Virtual: Intercept DNS queries and resolve them locally with a fake IP address
+/// - OverTcp: Use TCP to send DNS queries to the DNS server
+/// - Direct: Looks as general UDP traffic but change the destination to the DNS server
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 enum ArgDns {
     Virtual,
-    None,
+    OverTcp,
+    Direct,
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
@@ -83,13 +88,17 @@ fn main() -> ExitCode {
     log::info!("Proxy {proxy_type} server: {addr}");
 
     let mut options = Options::new();
-    if args.dns == ArgDns::Virtual {
-        options = options.with_virtual_dns();
+    match args.dns {
+        ArgDns::Virtual => {
+            options = options.with_virtual_dns();
+        }
+        ArgDns::OverTcp => {
+            options = options.with_dns_over_tcp();
+        }
+        _ => {}
     }
 
-    if args.dns_over_tcp {
-        options = options.with_dns_over_tcp();
-    }
+    options = options.with_dns_addr(Some(args.dns_addr));
 
     if args.ipv6_enabled {
         options = options.with_ipv6_enabled();
