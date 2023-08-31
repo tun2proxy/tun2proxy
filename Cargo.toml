@@ -9,7 +9,7 @@ crate-type = ["cdylib", "lib"]
 
 [dependencies]
 base64 = { version = "0.21" }
-clap = { version = "4.3", features = ["derive"] }
+clap = { version = "4.4", features = ["derive"] }
 ctrlc = "3.4"
 digest_auth = "0.3"
 dotenvy = "0.15"
@@ -19,7 +19,13 @@ httparse = "1.8"
 libc = "0.2"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
-nix = { version = "0.27", features = ["process", "signal"] }
+nix = { version = "0.27", features = [
+    "process",
+    "signal",
+    "fs",
+    "mount",
+    "user",
+] }
 prctl = "1.0"
 smoltcp = { version = "0.10", features = ["std", "phy-tuntap_interface"] }
 socks5-impl = { version = "0.5", default-features = false }
