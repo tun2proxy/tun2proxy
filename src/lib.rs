@@ -29,6 +29,7 @@ pub struct Proxy {
 
 pub enum NetworkInterface {
     Named(String),
+    #[cfg(target_family = "unix")]
     Fd(std::os::fd::RawFd),
 }
 

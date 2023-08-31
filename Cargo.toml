@@ -14,7 +14,6 @@ ctrlc = "3.4"
 digest_auth = "0.3"
 dotenvy = "0.15"
 env_logger = "0.10"
-fork = "0.1"
 hashlink = "0.8"
 httparse = "1.8"
 libc = "0.2"
@@ -28,6 +27,9 @@ thiserror = "1.0"
 trust-dns-proto = "0.23"
 unicase = "2.7"
 url = "2.4"
+
+[target.'cfg(target_family="unix")'.dependencies]
+fork = "0.1"
 
 [target.'cfg(target_os="android")'.dependencies]
 android_logger = "0.13"
