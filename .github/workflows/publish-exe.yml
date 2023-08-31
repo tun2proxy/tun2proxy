@@ -3,28 +3,77 @@ on:
     tags:
       - "*"
 
-name: Build and publish executable
+name: Publish Releases
 
 jobs:
   build_publish:
-    name: Build and publish executable
-    runs-on: ubuntu-latest
+    name: Publishing Tasks
+    strategy:
+      matrix:
+        target:
+          - x86_64-unknown-linux-gnu
+          - x86_64-unknown-linux-musl
+          - i686-unknown-linux-musl
+          - aarch64-unknown-linux-gnu
+          - armv7-unknown-linux-gnueabihf
+          - x86_64-apple-darwin
+          - aarch64-apple-darwin
+          - x86_64-pc-windows-msvc
+          - i686-pc-windows-msvc
+
+        include:
+          - target: x86_64-unknown-linux-gnu
+            host_os: ubuntu-latest
+          - target: x86_64-unknown-linux-musl
+            host_os: ubuntu-latest
+          - target: i686-unknown-linux-musl
+            host_os: ubuntu-latest
+          - target: aarch64-unknown-linux-gnu
+            host_os: ubuntu-latest
+          - target: armv7-unknown-linux-gnueabihf
+            host_os: ubuntu-latest
+          - target: x86_64-apple-darwin
+            host_os: macos-latest
+          - target: aarch64-apple-darwin
+            host_os: macos-latest
+          - target: x86_64-pc-windows-msvc
+            host_os: windows-latest
+          - target: i686-pc-windows-msvc
+            host_os: windows-latest
+
+    runs-on: ${{ matrix.host_os }}
     steps:
-      - uses: actions/checkout@v2
-      - uses: actions-rs/toolchain@v1
-        with:
-          profile: minimal
-          toolchain: stable
-          override: true
-      - uses: actions-rs/cargo@v1
-        with:
-          command: build
-          args: --release --target x86_64-unknown-linux-gnu
-      - name: Rename
-        run: mkdir build && mv target/x86_64-unknown-linux-gnu/release/tun2proxy build/tun2proxy-x86_64
+      - uses: actions/checkout@v3
+
+      - name: Prepare
+        shell: bash
+        run: |
+          mkdir publishdir
+          rustup target add ${{ matrix.target }}
+          if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
+            sudo .github/workflows/install-cross.sh
+          fi
+
+      - name: Build
+        shell: bash
+        run: |
+          if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
+            cross build --all-features --release --target ${{ matrix.target }}
+          else
+            cargo build --all-features --release --target ${{ matrix.target }}
+          fi
+          if [[ "${{ matrix.host_os }}" == "windows-latest" ]]; then
+            powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy.exe -DestinationPath publishdir/tun2proxy-${{ matrix.target }}.zip
+          elif [[ "${{ matrix.host_os }}" == "macos-latest" ]]; then
+            zip -j publishdir/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy
+          elif [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
+            zip -j publishdir/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy
+          fi
+
       - name: Publish
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: build/*
+          files: publishdir/*
+

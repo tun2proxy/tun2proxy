@@ -51,3 +51,5 @@ jobs:
         with:
           command: clippy
           args: -- -D warnings
+      - name: Build
+        run: cargo build --verbose
