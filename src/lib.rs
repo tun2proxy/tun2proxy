@@ -29,6 +29,7 @@ pub struct Proxy {
 
 pub enum NetworkInterface {
     Named(String),
+    #[cfg(target_family = "unix")]
     Fd(std::os::fd::RawFd),
 }
 
@@ -99,6 +100,7 @@ pub struct Options {
     virtual_dns: Option<virtdns::VirtualDns>,
     mtu: Option<usize>,
     dns_over_tcp: bool,
+    dns_addr: Option<std::net::IpAddr>,
     ipv6_enabled: bool,
 }
 
@@ -116,6 +118,11 @@ impl Options {
     pub fn with_dns_over_tcp(mut self) -> Self {
         self.dns_over_tcp = true;
         self.virtual_dns = None;
+        self
+    }
+
+    pub fn with_dns_addr(mut self, addr: Option<std::net::IpAddr>) -> Self {
+        self.dns_addr = addr;
         self
     }
 

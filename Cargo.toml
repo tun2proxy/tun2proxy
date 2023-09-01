@@ -1,26 +1,31 @@
 [package]
 authors = ["B. Blechschmidt"]
-edition = "2018"
+edition = "2021"
 name = "tun2proxy"
-version = "0.1.5"
+version = "0.1.6"
 
 [lib]
 crate-type = ["cdylib", "lib"]
 
 [dependencies]
 base64 = { version = "0.21" }
-clap = { version = "4.3", features = ["derive"] }
+clap = { version = "4.4", features = ["derive"] }
 ctrlc = "3.4"
 digest_auth = "0.3"
 dotenvy = "0.15"
 env_logger = "0.10"
-fork = "0.1"
 hashlink = "0.8"
 httparse = "1.8"
 libc = "0.2"
 log = "0.4"
 mio = { version = "0.8", features = ["os-poll", "net", "os-ext"] }
-nix = { version = "0.26", features = ["process", "signal"] }
+nix = { version = "0.27", features = [
+    "process",
+    "signal",
+    "fs",
+    "mount",
+    "user",
+] }
 prctl = "1.0"
 smoltcp = { version = "0.10", features = ["std", "phy-tuntap_interface"] }
 socks5-impl = { version = "0.5", default-features = false }
@@ -28,6 +33,9 @@ thiserror = "1.0"
 trust-dns-proto = "0.23"
 unicase = "2.7"
 url = "2.4"
+
+[target.'cfg(target_family="unix")'.dependencies]
+fork = "0.1"
 
 [target.'cfg(target_os="android")'.dependencies]
 android_logger = "0.13"

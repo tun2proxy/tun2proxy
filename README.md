@@ -9,6 +9,7 @@ A tunnel interface for HTTP and SOCKS proxies on Linux based on [smoltcp](https:
 - IPv4 and IPv6 support
 - GFW evasion mechanism for certain use cases (see [issue #35](https://github.com/blechschmidt/tun2proxy/issues/35))
 - SOCKS5 UDP support
+- Native support for proxying DNS over TCP
 
 ## Build
 Clone the repository and `cd` into the project folder. Then run the following:
@@ -90,13 +91,18 @@ Tunnel interface to proxy.
 Usage: tun2proxy [OPTIONS] --proxy <URL>
 
 Options:
-  -t, --tun <name>      Name of the tun interface [default: tun0]
-  -p, --proxy <URL>     Proxy URL in the form proto://[username[:password]@]host:port
-  -d, --dns <method>    DNS handling [default: virtual] [possible values: virtual, none]
-  -s, --setup <method>  Routing and system setup [possible values: auto]
-      --bypass-ip <IP>  Public proxy IP used in routing setup which should bypassing the tunnel
-  -h, --help            Print help
-  -V, --version         Print version
+  -t, --tun <name>         Name of the tun interface [default: tun0]
+      --tun-fd <fd>        File descriptor of the tun interface
+      --tun-mtu <mtu>      MTU of the tun interface (only with tunnel file descriptor) [default: 1500]
+  -p, --proxy <URL>        Proxy URL in the form proto://[username[:password]@]host:port
+  -d, --dns <strategy>     DNS handling strategy [default: virtual] [possible values: virtual, over-tcp, direct]
+      --dns-addr <IP>      DNS resolver address [default: 8.8.8.8]
+  -6, --ipv6-enabled       IPv6 enabled
+  -s, --setup <method>     Routing and system setup [possible values: auto]
+      --bypass-ip <IP>     Public proxy IP used in routing setup which should bypassing the tunnel
+  -v, --verbosity <level>  Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
+  -h, --help               Print help
+  -V, --version            Print version
 ```
 Currently, tun2proxy supports HTTP, SOCKS4/SOCKS4a and SOCKS5. A proxy is supplied to the `--proxy` argument in the
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is
@@ -146,6 +152,3 @@ asked to open connections to IPv6 destinations. In such a case, you can disable 
 either through `sysctl -w net.ipv6.conf.all.disable_ipv6=1` and `sysctl -w net.ipv6.conf.default.disable_ipv6=1`
 or through `ip -6 route del default`, which causes the `libc` resolver (and other software) to not issue DNS AAAA
 requests for IPv6 addresses.
-
-## TODO
-- Native support for proxying DNS over TCP or TLS
