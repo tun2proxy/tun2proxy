@@ -195,7 +195,7 @@ struct ConnectionState {
     udp_token: Option<Token>,
     origin_dst: SocketAddr,
     udp_data_cache: LinkedList<Vec<u8>>,
-    udp_over_tcp_expiry: Option<::std::time::Instant>,
+    dns_over_tcp_expiry: Option<::std::time::Instant>,
 }
 
 pub(crate) trait TcpProxy {
@@ -555,7 +555,7 @@ impl<'a> TunToProxy<'a> {
 
         let err = "udp over tcp state not find";
         let state = self.connection_map.get_mut(info).ok_or(err)?;
-        state.udp_over_tcp_expiry = Some(Self::common_udp_life_timeout());
+        state.dns_over_tcp_expiry = Some(Self::common_udp_life_timeout());
 
         let data_event = IncomingDataEvent {
             direction: IncomingDirection::FromClient,
@@ -568,8 +568,8 @@ impl<'a> TunToProxy<'a> {
     fn receive_dns_over_tcp_packet_and_write_to_client(&mut self, info: &ConnectionInfo) -> Result<()> {
         let err = "udp connection state not found";
         let state = self.connection_map.get_mut(info).ok_or(err)?;
-        assert!(state.udp_over_tcp_expiry.is_some());
-        state.udp_over_tcp_expiry = Some(Self::common_udp_life_timeout());
+        assert!(state.dns_over_tcp_expiry.is_some());
+        state.dns_over_tcp_expiry = Some(Self::common_udp_life_timeout());
 
         // Code similar to the code in parent function. TODO: Cleanup.
         let mut vecbuf = Vec::<u8>::new();
@@ -638,9 +638,9 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn udp_over_tcp_timeout_expired(&self, info: &ConnectionInfo) -> bool {
+    fn dns_over_tcp_timeout_expired(&self, info: &ConnectionInfo) -> bool {
         if let Some(state) = self.connection_map.get(info) {
-            if let Some(expiry) = state.udp_over_tcp_expiry {
+            if let Some(expiry) = state.dns_over_tcp_expiry {
                 return expiry < ::std::time::Instant::now();
             }
         }
@@ -650,8 +650,8 @@ impl<'a> TunToProxy<'a> {
     fn clearup_expired_dns_over_tcp(&mut self) -> Result<()> {
         let keys = self.connection_map.keys().cloned().collect::<Vec<_>>();
         for key in keys {
-            if self.udp_over_tcp_timeout_expired(&key) {
-                log::trace!("UDP over TCP timeout: {}", key);
+            if self.dns_over_tcp_timeout_expired(&key) {
+                log::trace!("DNS over TCP timeout: {}", key);
                 self.remove_connection(&key)?;
             }
         }
@@ -817,7 +817,7 @@ impl<'a> TunToProxy<'a> {
             udp_token,
             origin_dst: dst,
             udp_data_cache: LinkedList::new(),
-            udp_over_tcp_expiry: None,
+            dns_over_tcp_expiry: None,
         };
         Ok(state)
     }
