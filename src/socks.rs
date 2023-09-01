@@ -2,7 +2,7 @@ use crate::{
     error::{Error, Result},
     tun2proxy::{
         ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
-        OutgoingDirection, TcpProxy,
+        OutgoingDirection, ProxyHandler,
     },
 };
 use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version};
@@ -268,7 +268,7 @@ impl SocksProxyImpl {
     }
 }
 
-impl TcpProxy for SocksProxyImpl {
+impl ProxyHandler for SocksProxyImpl {
     fn get_connection_info(&self) -> &ConnectionInfo {
         &self.info
     }
@@ -346,7 +346,7 @@ pub(crate) struct SocksProxyManager {
 }
 
 impl ConnectionManager for SocksProxyManager {
-    fn new_tcp_proxy(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn TcpProxy>> {
+    fn new_proxy_handler(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn ProxyHandler>> {
         use socks5_impl::protocol::Command::{Connect, UdpAssociate};
         let command = if udp_associate { UdpAssociate } else { Connect };
         let credentials = self.credentials.clone();

@@ -2,7 +2,7 @@ use crate::{
     error::Error,
     tun2proxy::{
         ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
-        OutgoingDirection, TcpProxy,
+        OutgoingDirection, ProxyHandler,
     },
 };
 use base64::Engine;
@@ -317,7 +317,7 @@ impl HttpConnection {
     }
 }
 
-impl TcpProxy for HttpConnection {
+impl ProxyHandler for HttpConnection {
     fn get_connection_info(&self) -> &ConnectionInfo {
         &self.info
     }
@@ -395,7 +395,7 @@ pub(crate) struct HttpManager {
 }
 
 impl ConnectionManager for HttpManager {
-    fn new_tcp_proxy(&self, info: &ConnectionInfo, _: bool) -> Result<Box<dyn TcpProxy>, Error> {
+    fn new_proxy_handler(&self, info: &ConnectionInfo, _: bool) -> Result<Box<dyn ProxyHandler>, Error> {
         if info.protocol != IpProtocol::Tcp {
             return Err("Invalid protocol".into());
         }
