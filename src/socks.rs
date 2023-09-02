@@ -346,16 +346,12 @@ impl ConnectionManager for SocksProxyManager {
     fn new_proxy_handler(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn ProxyHandler>> {
         use socks5_impl::protocol::Command::{Connect, UdpAssociate};
         let command = if udp_associate { UdpAssociate } else { Connect };
-        let credentials = self.get_credentials().clone();
+        let credentials = self.credentials.clone();
         Ok(Box::new(SocksProxyImpl::new(info, credentials, self.version, command)?))
     }
 
     fn get_server_addr(&self) -> SocketAddr {
         self.server
-    }
-
-    fn get_credentials(&self) -> &Option<UserKey> {
-        &self.credentials
     }
 }
 

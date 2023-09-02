@@ -401,17 +401,13 @@ impl ConnectionManager for HttpManager {
         }
         Ok(Box::new(HttpConnection::new(
             info,
-            self.get_credentials().clone(),
+            self.credentials.clone(),
             self.digest_state.clone(),
         )?))
     }
 
     fn get_server_addr(&self) -> SocketAddr {
         self.server
-    }
-
-    fn get_credentials(&self) -> &Option<UserKey> {
-        &self.credentials
     }
 }
 

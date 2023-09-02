@@ -18,7 +18,7 @@ use smoltcp::{
     time::Instant,
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
 };
-use socks5_impl::protocol::{Address, StreamOperation, UdpHeader, UserKey};
+use socks5_impl::protocol::{Address, StreamOperation, UdpHeader};
 use std::collections::LinkedList;
 #[cfg(target_family = "unix")]
 use std::os::unix::io::AsRawFd;
@@ -205,7 +205,6 @@ pub(crate) trait ProxyHandler {
 pub(crate) trait ConnectionManager {
     fn new_proxy_handler(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn ProxyHandler>>;
     fn get_server_addr(&self) -> SocketAddr;
-    fn get_credentials(&self) -> &Option<UserKey>;
 }
 
 const TUN_TOKEN: Token = Token(0);
