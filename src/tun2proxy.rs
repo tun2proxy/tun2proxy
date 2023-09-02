@@ -56,8 +56,8 @@ impl ConnectionInfo {
     fn to_named(&self, name: String) -> Self {
         let mut result = self.clone();
         result.dst = Address::from((name, result.dst.port()));
-        // let p = self.protocol;
-        // log::trace!("{p} replace dst \"{}\" -> \"{}\"", self.dst, result.dst);
+        let p = self.protocol;
+        log::trace!("{p} replace dst \"{}\" -> \"{}\"", self.dst, result.dst);
         result
     }
 }
@@ -705,7 +705,7 @@ impl<'a> TunToProxy<'a> {
         let mut handler = || -> Result<(), Error> {
             let result = connection_tuple(frame);
             if let Err(error) = result {
-                log::info!("{}, ignored", error);
+                log::debug!("{}, ignored", error);
                 return Ok(());
             }
             let (info, _first_packet, payload_offset, payload_size) = result?;
@@ -723,10 +723,10 @@ impl<'a> TunToProxy<'a> {
 
                     log::info!("Connect done {} ({})", info, origin_dst);
                 } else if !self.connection_map.contains_key(&info) {
-                    // log::debug!("Drop middle session {} ({})", info, origin_dst);
+                    log::trace!("Drop middle session {} ({})", info, origin_dst);
                     return Ok(());
                 } else {
-                    // log::trace!("Subsequent packet {} ({})", info, origin_dst);
+                    log::trace!("Subsequent packet {} ({})", info, origin_dst);
                 }
 
                 // Inject the packet to advance the remote proxy server smoltcp socket state
@@ -940,8 +940,8 @@ impl<'a> TunToProxy<'a> {
             if let Some(connection) = self.find_info_by_token(token) {
                 let connection = connection.clone();
                 if let Err(error) = self.write_to_client(token, &connection) {
+                    log::error!("Write to client {}", error);
                     self.remove_connection(&connection)?;
-                    log::error!("Write to client: {}: ", error);
                 }
             }
         }
@@ -1112,7 +1112,7 @@ impl<'a> TunToProxy<'a> {
         loop {
             if let Err(err) = self.poll.poll(&mut events, None) {
                 if err.kind() == std::io::ErrorKind::Interrupted {
-                    log::warn!("Poll interrupted: \"{err}\", ignored, continue polling");
+                    log::debug!("Poll interrupted: \"{err}\", ignored, continue polling");
                     continue;
                 }
                 return Err(err.into());
