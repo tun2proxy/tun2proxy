@@ -401,7 +401,7 @@ impl ConnectionManager for HttpManager {
         }
         Ok(Box::new(HttpConnection::new(
             info,
-            self.credentials.clone(),
+            self.get_credentials().clone(),
             self.digest_state.clone(),
         )?))
     }

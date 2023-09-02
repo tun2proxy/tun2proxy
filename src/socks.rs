@@ -274,8 +274,7 @@ impl ProxyHandler for SocksProxyImpl {
     }
 
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
-        let direction = event.direction;
-        let buffer = event.buffer;
+        let IncomingDataEvent { direction, buffer } = event;
         match direction {
             IncomingDirection::FromServer => {
                 self.server_inbuf.extend(buffer.iter());
@@ -293,19 +292,17 @@ impl ProxyHandler for SocksProxyImpl {
     }
 
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize) {
-        let buffer = if dir == OutgoingDirection::ToServer {
-            &mut self.server_outbuf
-        } else {
-            &mut self.client_outbuf
+        let buffer = match dir {
+            OutgoingDirection::ToServer => &mut self.server_outbuf,
+            OutgoingDirection::ToClient => &mut self.client_outbuf,
         };
         buffer.drain(0..size);
     }
 
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent {
-        let buffer = if dir == OutgoingDirection::ToServer {
-            &mut self.server_outbuf
-        } else {
-            &mut self.client_outbuf
+        let buffer = match dir {
+            OutgoingDirection::ToServer => &mut self.server_outbuf,
+            OutgoingDirection::ToClient => &mut self.client_outbuf,
         };
         OutgoingDataEvent {
             direction: dir,
@@ -349,7 +346,7 @@ impl ConnectionManager for SocksProxyManager {
     fn new_proxy_handler(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn ProxyHandler>> {
         use socks5_impl::protocol::Command::{Connect, UdpAssociate};
         let command = if udp_associate { UdpAssociate } else { Connect };
-        let credentials = self.credentials.clone();
+        let credentials = self.get_credentials().clone();
         Ok(Box::new(SocksProxyImpl::new(info, credentials, self.version, command)?))
     }
 

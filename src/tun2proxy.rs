@@ -56,8 +56,7 @@ impl ConnectionInfo {
     fn to_named(&self, name: String) -> Self {
         let mut result = self.clone();
         result.dst = Address::from((name, result.dst.port()));
-        let p = self.protocol;
-        log::trace!("{p} replace dst \"{}\" -> \"{}\"", self.dst, result.dst);
+        log::trace!("{} replace dst \"{}\" -> \"{}\"", self.protocol, self.dst, result.dst);
         result
     }
 }
@@ -68,31 +67,25 @@ impl std::fmt::Display for ConnectionInfo {
     }
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub(crate) enum IncomingDirection {
     FromServer,
     FromClient,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub(crate) enum OutgoingDirection {
     ToServer,
     ToClient,
 }
 
-#[derive(Eq, PartialEq, Debug)]
+#[derive(Clone, Copy, Eq, PartialEq, Debug)]
 pub(crate) enum Direction {
     Incoming(IncomingDirection),
     Outgoing(OutgoingDirection),
 }
 
-#[allow(dead_code)]
-pub(crate) enum ConnectionEvent<'a> {
-    NewConnection(&'a ConnectionInfo),
-    ConnectionClosed(&'a ConnectionInfo),
-}
-
-#[derive(Debug)]
+#[derive(Clone, Eq, PartialEq, Debug)]
 pub(crate) struct DataEvent<'a, T> {
     pub(crate) direction: T,
     pub(crate) buffer: &'a [u8],
@@ -190,10 +183,10 @@ struct ConnectionState {
     close_state: u8,
     wait_read: bool,
     wait_write: bool,
+    origin_dst: SocketAddr,
     udp_acco_expiry: Option<::std::time::Instant>,
     udp_socket: Option<UdpSocket>,
     udp_token: Option<Token>,
-    origin_dst: SocketAddr,
     udp_data_cache: LinkedList<Vec<u8>>,
     dns_over_tcp_expiry: Option<::std::time::Instant>,
 }
@@ -217,7 +210,7 @@ pub(crate) trait ConnectionManager {
 }
 
 const TUN_TOKEN: Token = Token(0);
-const EXIT_TOKEN: Token = Token(2);
+const EXIT_TOKEN: Token = Token(1);
 
 pub struct TunToProxy<'a> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -228,7 +221,7 @@ pub struct TunToProxy<'a> {
     iface: Interface,
     connection_map: HashMap<ConnectionInfo, ConnectionState>,
     connection_manager: Option<Rc<dyn ConnectionManager>>,
-    next_token: usize,
+    next_token_seed: usize,
     sockets: SocketSet<'a>,
     device: VirtualTunDevice,
     options: Options,
@@ -297,7 +290,7 @@ impl<'a> TunToProxy<'a> {
             poll,
             iface,
             connection_map: HashMap::default(),
-            next_token: usize::from(EXIT_TOKEN) + 1,
+            next_token_seed: usize::from(EXIT_TOKEN),
             connection_manager: None,
             sockets: SocketSet::new([]),
             device,
@@ -312,9 +305,8 @@ impl<'a> TunToProxy<'a> {
     }
 
     fn new_token(&mut self) -> Token {
-        let token = Token(self.next_token);
-        self.next_token += 1;
-        token
+        self.next_token_seed += 1;
+        Token(self.next_token_seed)
     }
 
     pub(crate) fn set_connection_manager(&mut self, manager: Option<Rc<dyn ConnectionManager>>) {
