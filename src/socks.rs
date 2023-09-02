@@ -350,8 +350,6 @@ impl ConnectionManager for SocksProxyManager {
         Ok(Box::new(SocksProxyImpl::new(info, credentials, self.version, command)?))
     }
 
-    fn close_connection(&self, _: &ConnectionInfo) {}
-
     fn get_server_addr(&self) -> SocketAddr {
         self.server
     }

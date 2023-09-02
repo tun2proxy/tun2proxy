@@ -204,7 +204,6 @@ pub(crate) trait ProxyHandler {
 
 pub(crate) trait ConnectionManager {
     fn new_proxy_handler(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn ProxyHandler>>;
-    fn close_connection(&self, info: &ConnectionInfo);
     fn get_server_addr(&self) -> SocketAddr;
     fn get_credentials(&self) -> &Option<UserKey>;
 }
