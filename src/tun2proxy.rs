@@ -369,7 +369,7 @@ impl<'a> TunToProxy<'a> {
             }
 
             if let Err(err) = state.mio_stream.shutdown(Shutdown::Both) {
-                log::debug!("Shutdown {} error \"{}\"", info, err);
+                log::trace!("Shutdown {} error \"{}\"", info, err);
             }
 
             log::info!("Close {}", info);
