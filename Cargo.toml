@@ -2,7 +2,7 @@
 authors = ["B. Blechschmidt"]
 edition = "2021"
 name = "tun2proxy"
-version = "0.1.6"
+version = "0.1.7"
 
 [lib]
 crate-type = ["cdylib", "lib"]
