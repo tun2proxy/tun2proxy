@@ -257,9 +257,8 @@ impl<'a> TunToProxy<'a> {
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
         #[cfg(target_family = "unix")]
-        #[rustfmt::skip]
         let config = match tun.capabilities().medium {
-            Medium::Ethernet => Config::new(smoltcp::wire::EthernetAddress([0x02, 0x00, 0x00, 0x00, 0x00, 0x01]).into()),
+            Medium::Ethernet => Config::new(smoltcp::wire::EthernetAddress([0x02, 0, 0, 0, 0, 0x01]).into()),
             Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
             Medium::Ieee802154 => todo!(),
         };
@@ -350,15 +349,13 @@ impl<'a> TunToProxy<'a> {
     /// Destroy connection state machine
     fn remove_connection(&mut self, info: &ConnectionInfo) -> Result<(), Error> {
         if let Some(mut state) = self.connection_map.remove(info) {
-            _ = state.mio_stream.shutdown(Shutdown::Both);
+            self.expect_smoltcp_send()?;
+
             if let Some(handle) = state.smoltcp_handle {
                 let socket = self.sockets.get_mut::<tcp::Socket>(handle);
                 socket.close();
                 self.sockets.remove(handle);
             }
-
-            // FIXME: Does this line should be moved up to the beginning of this function?
-            self.expect_smoltcp_send()?;
 
             if let Err(e) = self.poll.registry().deregister(&mut state.mio_stream) {
                 // FIXME: The function `deregister` will frequently fail for unknown reasons.
@@ -369,6 +366,10 @@ impl<'a> TunToProxy<'a> {
                 if let Err(e) = self.poll.registry().deregister(&mut udp_socket) {
                     log::trace!("{}", e);
                 }
+            }
+
+            if let Err(err) = state.mio_stream.shutdown(Shutdown::Both) {
+                log::debug!("Shutdown {} error \"{}\"", info, err);
             }
 
             log::info!("Close {}", info);
