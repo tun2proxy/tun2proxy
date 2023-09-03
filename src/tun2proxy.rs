@@ -1,5 +1,7 @@
 #![allow(dead_code)]
 
+#[cfg(any(target_os = "linux", target_os = "android"))]
+use crate::tuntapinterface::TunTapInterface;
 use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
 #[cfg(target_family = "unix")]
 use mio::unix::SourceFd;
@@ -8,8 +10,8 @@ use mio::{event::Event, net::TcpStream, net::UdpSocket, Events, Interest, Poll, 
 use smoltcp::phy::DeviceCapabilities;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use smoltcp::phy::RawSocket;
-#[cfg(any(target_os = "linux", target_os = "android"))]
-use smoltcp::phy::TunTapInterface;
+// #[cfg(any(target_os = "linux", target_os = "android"))]
+// use smoltcp::phy::TunTapInterface;
 #[cfg(target_family = "unix")]
 use smoltcp::phy::{Device, Medium, RxToken, TxToken};
 use smoltcp::{
