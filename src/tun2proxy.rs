@@ -176,7 +176,7 @@ const UDP_ASSO_TIMEOUT: u64 = 10; // seconds
 const DNS_PORT: u16 = 53;
 
 struct ConnectionState {
-    smoltcp_handle: Option<SocketHandle>,
+    smoltcp_handle: SocketHandle,
     mio_stream: TcpStream,
     token: Token,
     proxy_handler: Box<dyn ProxyHandler>,
@@ -351,7 +351,8 @@ impl<'a> TunToProxy<'a> {
         if let Some(mut state) = self.connection_map.remove(info) {
             self.expect_smoltcp_send()?;
 
-            if let Some(handle) = state.smoltcp_handle {
+            {
+                let handle = state.smoltcp_handle;
                 let socket = self.sockets.get_mut::<tcp::Socket>(handle);
                 socket.close();
                 self.sockets.remove(handle);
@@ -369,7 +370,7 @@ impl<'a> TunToProxy<'a> {
             }
 
             if let Err(err) = state.mio_stream.shutdown(Shutdown::Both) {
-                log::trace!("Shutdown {} error \"{}\"", info, err);
+                log::trace!("Shutdown 0 {} error \"{}\"", info, err);
             }
 
             log::info!("Close {}", info);
@@ -396,11 +397,10 @@ impl<'a> TunToProxy<'a> {
                 .proxy_handler
                 .have_data(Direction::Outgoing(OutgoingDirection::ToClient))
         {
-            if let Some(handle) = state.smoltcp_handle {
-                // Close tun interface
-                let socket = self.sockets.get_mut::<tcp::Socket>(handle);
-                socket.close();
-            }
+            // Close tun interface
+            let socket = self.sockets.get_mut::<tcp::Socket>(state.smoltcp_handle);
+            socket.close();
+
             closed_ends += 1;
         }
 
@@ -414,7 +414,7 @@ impl<'a> TunToProxy<'a> {
         {
             // Close remote server
             if let Err(err) = state.mio_stream.shutdown(Shutdown::Write) {
-                log::trace!("Shutdown {} error \"{}\"", info, err);
+                log::trace!("Shutdown 1 {} error \"{}\"", info, err);
             }
             closed_ends += 1;
         }
@@ -434,10 +434,7 @@ impl<'a> TunToProxy<'a> {
                 Some(state) => state,
                 None => return Ok(()),
             };
-            let socket = match state.smoltcp_handle {
-                Some(handle) => self.sockets.get_mut::<tcp::Socket>(handle),
-                None => return Ok(()),
-            };
+            let socket = self.sockets.get_mut::<tcp::Socket>(state.smoltcp_handle);
             let mut error = Ok(());
             while socket.can_recv() && error.is_ok() {
                 socket.recv(|data| {
@@ -796,7 +793,7 @@ impl<'a> TunToProxy<'a> {
             (None, None)
         };
         let state = ConnectionState {
-            smoltcp_handle: Some(handle),
+            smoltcp_handle: handle,
             mio_stream: client,
             token,
             proxy_handler,
@@ -882,15 +879,11 @@ impl<'a> TunToProxy<'a> {
 
     fn write_to_client(&mut self, token: Token, info: &ConnectionInfo) -> Result<(), Error> {
         while let Some(state) = self.connection_map.get_mut(info) {
-            let handle = match state.smoltcp_handle {
-                Some(handle) => handle,
-                None => break,
-            };
             let event = state.proxy_handler.peek_data(OutgoingDirection::ToClient);
             let buflen = event.buffer.len();
             let consumed;
             {
-                let socket = self.sockets.get_mut::<tcp::Socket>(handle);
+                let socket = self.sockets.get_mut::<tcp::Socket>(state.smoltcp_handle);
                 if socket.may_send() {
                     if let Some(virtual_dns) = &mut self.options.virtual_dns {
                         // Unwrapping is fine because every smoltcp socket is bound to an.
@@ -1057,7 +1050,7 @@ impl<'a> TunToProxy<'a> {
                         }
                         // Closes the connection with the proxy
                         if let Err(err) = state.mio_stream.shutdown(Shutdown::Both) {
-                            log::trace!("Shutdown error \"{}\"", err);
+                            log::trace!("Shutdown 2 error \"{}\"", err);
                         }
 
                         log::info!("RESET {}", conn_info);
