@@ -413,7 +413,9 @@ impl<'a> TunToProxy<'a> {
                 .have_data(Direction::Outgoing(OutgoingDirection::ToServer))
         {
             // Close remote server
-            _ = state.mio_stream.shutdown(Shutdown::Write);
+            if let Err(err) = state.mio_stream.shutdown(Shutdown::Write) {
+                log::trace!("Shutdown {} error \"{}\"", info, err);
+            }
             closed_ends += 1;
         }
 
@@ -1050,9 +1052,13 @@ impl<'a> TunToProxy<'a> {
 
                     // The handler request for reset the server connection
                     if state.proxy_handler.reset_connection() {
-                        _ = self.poll.registry().deregister(&mut state.mio_stream);
+                        if let Err(err) = self.poll.registry().deregister(&mut state.mio_stream) {
+                            log::trace!("{}", err);
+                        }
                         // Closes the connection with the proxy
-                        state.mio_stream.shutdown(Shutdown::Both)?;
+                        if let Err(err) = state.mio_stream.shutdown(Shutdown::Both) {
+                            log::trace!("Shutdown error \"{}\"", err);
+                        }
 
                         log::info!("RESET {}", conn_info);
 
