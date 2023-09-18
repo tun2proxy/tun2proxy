@@ -6,16 +6,17 @@ use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, Netw
 #[cfg(target_family = "unix")]
 use mio::unix::SourceFd;
 use mio::{event::Event, net::TcpStream, net::UdpSocket, Events, Interest, Poll, Token};
-#[cfg(not(target_family = "unix"))]
-use smoltcp::phy::DeviceCapabilities;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use smoltcp::phy::RawSocket;
 // #[cfg(any(target_os = "linux", target_os = "android"))]
 // use smoltcp::phy::TunTapInterface;
+#[cfg(target_os = "windows")]
+use crate::wintuninterface::WinTunInterface;
 #[cfg(target_family = "unix")]
-use smoltcp::phy::{Device, Medium, RxToken, TxToken};
+use smoltcp::phy::{RxToken, TxToken};
 use smoltcp::{
     iface::{Config, Interface, SocketHandle, SocketSet},
+    phy::{Device, Medium},
     socket::{tcp, tcp::State, udp, udp::UdpMetadata},
     time::Instant,
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
@@ -217,6 +218,8 @@ pub struct TunToProxy<'a> {
     tun: TunTapInterface,
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     tun: RawSocket,
+    #[cfg(target_os = "windows")]
+    tun: WinTunInterface,
     poll: Poll,
     iface: Interface,
     connection_map: HashMap<ConnectionInfo, ConnectionState>,
@@ -246,6 +249,11 @@ impl<'a> TunToProxy<'a> {
             NetworkInterface::Fd(_fd) => panic!("Not supported"),
         };
 
+        #[cfg(target_os = "windows")]
+        let tun = match _interface {
+            NetworkInterface::Named(name) => WinTunInterface::new(name.as_str(), Medium::Ip)?,
+        };
+
         let poll = Poll::new()?;
 
         #[cfg(target_family = "unix")]
@@ -258,19 +266,13 @@ impl<'a> TunToProxy<'a> {
         poll.registry()
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
-        #[cfg(target_family = "unix")]
         let config = match tun.capabilities().medium {
             Medium::Ethernet => Config::new(smoltcp::wire::EthernetAddress([0x02, 0, 0, 0, 0, 0x01]).into()),
             Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
             Medium::Ieee802154 => todo!(),
         };
-        #[cfg(not(target_family = "unix"))]
-        let config = Config::new(smoltcp::wire::HardwareAddress::Ip);
 
-        #[cfg(target_family = "unix")]
         let mut device = VirtualTunDevice::new(tun.capabilities());
-        #[cfg(not(target_family = "unix"))]
-        let mut device = VirtualTunDevice::new(DeviceCapabilities::default());
 
         let gateway4: Ipv4Addr = Ipv4Addr::from_str("0.0.0.1")?;
         let gateway6: Ipv6Addr = Ipv6Addr::from_str("::1")?;
@@ -284,7 +286,6 @@ impl<'a> TunToProxy<'a> {
         iface.set_any_ip(true);
 
         let tun = Self {
-            #[cfg(target_family = "unix")]
             tun,
             poll,
             iface,

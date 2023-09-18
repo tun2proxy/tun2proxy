@@ -23,6 +23,8 @@ mod tuntapinterface;
 mod tuntapinterfacedesc;
 mod virtdevice;
 mod virtdns;
+#[cfg(target_os = "windows")]
+mod wintuninterface;
 
 #[derive(Clone, Debug)]
 pub struct Proxy {
