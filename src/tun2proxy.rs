@@ -250,7 +250,7 @@ impl<'a> TunToProxy<'a> {
         };
 
         #[cfg(target_os = "windows")]
-        let tun = match _interface {
+        let mut tun = match _interface {
             NetworkInterface::Named(name) => WinTunInterface::new(name.as_str(), Medium::Ip)?,
         };
 
@@ -259,6 +259,9 @@ impl<'a> TunToProxy<'a> {
         #[cfg(target_family = "unix")]
         poll.registry()
             .register(&mut SourceFd(&tun.as_raw_fd()), TUN_TOKEN, Interest::READABLE)?;
+
+        #[cfg(target_os = "windows")]
+        poll.registry().register(&mut tun, TUN_TOKEN, Interest::READABLE)?;
 
         #[cfg(target_family = "unix")]
         let (exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;

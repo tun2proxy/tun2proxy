@@ -110,11 +110,17 @@ fn main() -> ExitCode {
         Some(_fd) => {
             options = options.with_mtu(args.tun_mtu);
             #[cfg(not(target_family = "unix"))]
-            panic!("Not supported");
+            panic!("Not supported file descriptor");
             #[cfg(target_family = "unix")]
             NetworkInterface::Fd(_fd)
         }
     };
+
+    let bypass_tun_ip = match args.bypass_ip {
+        Some(addr) => addr,
+        None => args.proxy.addr.ip(),
+    };
+    options = options.with_bypass_ip(Some(bypass_tun_ip));
 
     let block = || -> Result<(), Error> {
         #[cfg(target_os = "linux")]

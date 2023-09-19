@@ -1,3 +1,4 @@
+use mio::{event, Interest, Registry, Token};
 use smoltcp::{
     phy::{self, Device, DeviceCapabilities, Medium},
     time::Instant,
@@ -21,6 +22,20 @@ pub struct WinTunInterface {
 //         self.inner.borrow().as_raw_fd()
 //     }
 // }
+
+impl event::Source for WinTunInterface {
+    fn register(&mut self, _registry: &Registry, _token: Token, _interests: Interest) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Other, "register"))
+    }
+
+    fn reregister(&mut self, _registry: &Registry, _token: Token, _interests: Interest) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Other, "reregister"))
+    }
+
+    fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
+        Err(io::Error::new(io::ErrorKind::Other, "deregister"))
+    }
+}
 
 impl WinTunInterface {
     pub fn new(name: &str, medium: Medium) -> io::Result<WinTunInterface> {
