@@ -142,7 +142,7 @@ impl SocksProxyImpl {
         let response = handshake::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
         if let Err(e) = &response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                // log::trace!("receive_server_hello_socks5 needs more data \"{}\"...", e);
+                log::trace!("receive_server_hello_socks5 needs more data \"{}\"...", e);
                 return Ok(());
             } else {
                 return Err(e.to_string().into());
@@ -217,7 +217,7 @@ impl SocksProxyImpl {
         let response = protocol::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
         if let Err(e) = &response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
-                // log::trace!("receive_connection_status needs more data \"{}\"...", e);
+                log::trace!("receive_connection_status needs more data \"{}\"...", e);
                 return Ok(());
             } else {
                 return Err(e.to_string().into());
@@ -231,7 +231,7 @@ impl SocksProxyImpl {
         if self.command == protocol::Command::UdpAssociate {
             self.udp_associate = Some(SocketAddr::try_from(&response.address)?);
             assert!(self.data_buf.is_empty());
-            // log::debug!("UDP associate: {}", response.address);
+            log::trace!("UDP associate recieved address {}", response.address);
         }
 
         self.server_outbuf.append(&mut self.data_buf);
@@ -274,8 +274,7 @@ impl ProxyHandler for SocksProxyImpl {
     }
 
     fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
-        let direction = event.direction;
-        let buffer = event.buffer;
+        let IncomingDataEvent { direction, buffer } = event;
         match direction {
             IncomingDirection::FromServer => {
                 self.server_inbuf.extend(buffer.iter());
@@ -293,19 +292,17 @@ impl ProxyHandler for SocksProxyImpl {
     }
 
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize) {
-        let buffer = if dir == OutgoingDirection::ToServer {
-            &mut self.server_outbuf
-        } else {
-            &mut self.client_outbuf
+        let buffer = match dir {
+            OutgoingDirection::ToServer => &mut self.server_outbuf,
+            OutgoingDirection::ToClient => &mut self.client_outbuf,
         };
         buffer.drain(0..size);
     }
 
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent {
-        let buffer = if dir == OutgoingDirection::ToServer {
-            &mut self.server_outbuf
-        } else {
-            &mut self.client_outbuf
+        let buffer = match dir {
+            OutgoingDirection::ToServer => &mut self.server_outbuf,
+            OutgoingDirection::ToClient => &mut self.client_outbuf,
         };
         OutgoingDataEvent {
             direction: dir,
@@ -353,14 +350,8 @@ impl ConnectionManager for SocksProxyManager {
         Ok(Box::new(SocksProxyImpl::new(info, credentials, self.version, command)?))
     }
 
-    fn close_connection(&self, _: &ConnectionInfo) {}
-
     fn get_server_addr(&self) -> SocketAddr {
         self.server
-    }
-
-    fn get_credentials(&self) -> &Option<UserKey> {
-        &self.credentials
     }
 }
 

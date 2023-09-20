@@ -406,14 +406,8 @@ impl ConnectionManager for HttpManager {
         )?))
     }
 
-    fn close_connection(&self, _: &ConnectionInfo) {}
-
     fn get_server_addr(&self) -> SocketAddr {
         self.server
-    }
-
-    fn get_credentials(&self) -> &Option<UserKey> {
-        &self.credentials
     }
 }
 
