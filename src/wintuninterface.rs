@@ -41,7 +41,7 @@ pub struct WinTunInterface {
     mtu: usize,
     medium: Medium,
     pipe_server: Rc<RefCell<NamedPipe>>,
-    _pipe_client: Rc<RefCell<NamedPipe>>,
+    pipe_client: Rc<RefCell<NamedPipe>>,
 }
 
 impl event::Source for WinTunInterface {
@@ -93,8 +93,34 @@ impl WinTunInterface {
             mtu,
             medium,
             pipe_server: Rc::new(RefCell::new(pipe_server)),
-            _pipe_client: Rc::new(RefCell::new(pipe_client)),
+            pipe_client: Rc::new(RefCell::new(pipe_client)),
         })
+    }
+
+    pub fn pipe_client(&self) -> Rc<RefCell<NamedPipe>> {
+        self.pipe_client.clone()
+    }
+
+    // pub fn pipe_server(&self) -> Rc<RefCell<NamedPipe>> {
+    //     self.pipe_server.clone()
+    // }
+
+    pub fn pipe_client_event(&self) -> Result<(), io::Error> {
+        let mut buffer = vec![0; self.mtu];
+        match self.pipe_client.borrow_mut().read(&mut buffer) {
+            Ok(len) => {
+                let write_pack = self.inner.allocate_send_packet(len as u16);
+                if let Ok(mut write_pack) = write_pack {
+                    write_pack.bytes_mut().copy_from_slice(&buffer[..len]);
+                    self.inner.send_packet(write_pack);
+                } else if let Err(err) = write_pack {
+                    log::error!("phy: failed to allocate send packet: {}", err);
+                }
+            }
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
+            Err(err) => panic!("{}", err),
+        }
+        Ok(())
     }
 }
 
@@ -202,5 +228,21 @@ impl phy::TxToken for TxToken {
             Err(err) => panic!("{}", err),
         }
         result
+    }
+}
+
+pub struct NamedPipeSource(pub Rc<RefCell<NamedPipe>>);
+
+impl event::Source for NamedPipeSource {
+    fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
+        self.0.borrow_mut().register(registry, token, interests)
+    }
+
+    fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
+        self.0.borrow_mut().reregister(registry, token, interests)
+    }
+
+    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+        self.0.borrow_mut().deregister(registry)
     }
 }

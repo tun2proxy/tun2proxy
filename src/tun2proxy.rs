@@ -11,12 +11,10 @@ use smoltcp::phy::RawSocket;
 // #[cfg(any(target_os = "linux", target_os = "android"))]
 // use smoltcp::phy::TunTapInterface;
 #[cfg(target_os = "windows")]
-use crate::wintuninterface::WinTunInterface;
-#[cfg(target_family = "unix")]
-use smoltcp::phy::{RxToken, TxToken};
+use crate::wintuninterface::{NamedPipeSource, WinTunInterface};
 use smoltcp::{
     iface::{Config, Interface, SocketHandle, SocketSet},
-    phy::{Device, Medium},
+    phy::{Device, Medium, RxToken, TxToken},
     socket::{tcp, tcp::State, udp, udp::UdpMetadata},
     time::Instant,
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
@@ -211,7 +209,8 @@ pub(crate) trait ConnectionManager {
 }
 
 const TUN_TOKEN: Token = Token(0);
-const EXIT_TOKEN: Token = Token(1);
+const PIPE_TOKEN: Token = Token(1);
+const EXIT_TOKEN: Token = Token(2);
 
 pub struct TunToProxy<'a> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -261,7 +260,11 @@ impl<'a> TunToProxy<'a> {
             .register(&mut SourceFd(&tun.as_raw_fd()), TUN_TOKEN, Interest::READABLE)?;
 
         #[cfg(target_os = "windows")]
-        poll.registry().register(&mut tun, TUN_TOKEN, Interest::READABLE)?;
+        {
+            poll.registry().register(&mut tun, TUN_TOKEN, Interest::READABLE)?;
+            let mut pipe = NamedPipeSource(tun.pipe_client());
+            poll.registry().register(&mut pipe, PIPE_TOKEN, Interest::READABLE)?;
+        }
 
         #[cfg(target_family = "unix")]
         let (exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;
@@ -324,7 +327,6 @@ impl<'a> TunToProxy<'a> {
             let _slice = vec.as_slice();
 
             // TODO: Actual write. Replace.
-            #[cfg(target_family = "unix")]
             self.tun
                 .transmit(Instant::now())
                 .ok_or("tx token not available")?
@@ -931,10 +933,17 @@ impl<'a> TunToProxy<'a> {
 
     fn tun_event(&mut self, event: &Event) -> Result<(), Error> {
         if event.is_readable() {
-            #[cfg(target_family = "unix")]
             while let Some((rx_token, _)) = self.tun.receive(Instant::now()) {
                 rx_token.consume(|frame| self.receive_tun(frame))?;
             }
+        }
+        Ok(())
+    }
+
+    fn pipe_event(&mut self, event: &Event) -> Result<(), Error> {
+        if event.is_readable() {
+            #[cfg(target_os = "windows")]
+            self.tun.pipe_client_event()?;
         }
         Ok(())
     }
@@ -1132,6 +1141,7 @@ impl<'a> TunToProxy<'a> {
                         return Ok(());
                     }
                     TUN_TOKEN => self.tun_event(event)?,
+                    PIPE_TOKEN => self.pipe_event(event)?,
                     _ => self.mio_socket_event(event)?,
                 }
             }
