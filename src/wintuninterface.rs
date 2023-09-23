@@ -44,12 +44,6 @@ pub struct WinTunInterface {
     _pipe_client: Rc<RefCell<NamedPipe>>,
 }
 
-// impl AsRawFd for WinTunInterface {
-//     fn as_raw_fd(&self) -> RawFd {
-//         self.inner.borrow().as_raw_fd()
-//     }
-// }
-
 impl event::Source for WinTunInterface {
     fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
         self.pipe_server.borrow_mut().register(registry, token, interests)?;
