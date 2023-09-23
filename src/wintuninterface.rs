@@ -4,10 +4,12 @@ use smoltcp::{
     time::Instant,
 };
 use std::{
+    cell::RefCell,
     fs::OpenOptions,
-    io,
+    io::{self, Read, Write},
     net::{IpAddr, Ipv4Addr},
     os::windows::prelude::{FromRawHandle, IntoRawHandle, OpenOptionsExt},
+    rc::Rc,
     sync::Arc,
     vec::Vec,
 };
@@ -56,8 +58,8 @@ pub struct WinTunInterface {
     inner: Arc<wintun::Session>,
     mtu: usize,
     medium: Medium,
-    pipe_server: NamedPipe,
-    pipe_client: NamedPipe,
+    pipe_server: Rc<RefCell<NamedPipe>>,
+    _pipe_client: Rc<RefCell<NamedPipe>>,
 }
 
 // impl AsRawFd for WinTunInterface {
@@ -68,17 +70,17 @@ pub struct WinTunInterface {
 
 impl event::Source for WinTunInterface {
     fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-        registry.register(&mut self.pipe_server, token, interests)?;
+        self.pipe_server.borrow_mut().register(registry, token, interests)?;
         Ok(())
     }
 
     fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-        registry.reregister(&mut self.pipe_server, token, interests)?;
+        self.pipe_server.borrow_mut().reregister(registry, token, interests)?;
         Ok(())
     }
 
     fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
-        registry.deregister(&mut self.pipe_server)?;
+        self.pipe_server.borrow_mut().deregister(registry)?;
         Ok(())
     }
 }
@@ -114,8 +116,8 @@ impl WinTunInterface {
             inner,
             mtu,
             medium,
-            pipe_server,
-            pipe_client,
+            pipe_server: Rc::new(RefCell::new(pipe_server)),
+            _pipe_client: Rc::new(RefCell::new(pipe_client)),
         })
     }
 }
@@ -140,6 +142,7 @@ impl Device for WinTunInterface {
     }
 
     fn receive(&mut self, _timestamp: Instant) -> Option<(Self::RxToken<'_>, Self::TxToken<'_>)> {
+        /*
         let inner = self.inner.clone();
         match inner.receive_blocking() {
             Ok(read_pack) => Some((
@@ -153,24 +156,26 @@ impl Device for WinTunInterface {
                 None
             }
         }
+        */
 
-        // match inner.recv(&mut buffer[..]) {
-        //     Ok(size) => {
-        //         buffer.resize(size, 0);
-        //         let rx = RxToken { buffer };
-        //         let tx = TxToken {
-        //             inner: self.inner.clone(),
-        //         };
-        //         Some((rx, tx))
-        //     }
-        //     Err(err) if err.kind() == io::ErrorKind::WouldBlock => None,
-        //     Err(err) => panic!("{}", err),
-        // }
+        let mut buffer = vec![0; self.mtu];
+        match self.pipe_server.borrow_mut().read(&mut buffer[..]) {
+            Ok(size) => {
+                buffer.resize(size, 0);
+                let rx = RxToken { buffer };
+                let tx = TxToken {
+                    pipe_server: self.pipe_server.clone(),
+                };
+                Some((rx, tx))
+            }
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => None,
+            Err(err) => panic!("{}", err),
+        }
     }
 
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         Some(TxToken {
-            inner: self.inner.clone(),
+            pipe_server: self.pipe_server.clone(),
         })
     }
 }
@@ -191,7 +196,7 @@ impl phy::RxToken for RxToken {
 
 #[doc(hidden)]
 pub struct TxToken {
-    inner: Arc<wintun::Session>,
+    pipe_server: Rc<RefCell<NamedPipe>>,
 }
 
 impl phy::TxToken for TxToken {
@@ -199,10 +204,11 @@ impl phy::TxToken for TxToken {
     where
         F: FnOnce(&mut [u8]) -> R,
     {
-        let inner = self.inner.clone();
         let mut buffer = vec![0; len];
         let result = f(&mut buffer);
 
+        /*
+        let inner = self.inner.clone();
         let write_pack = inner.allocate_send_packet(len as u16);
         if let Ok(mut write_pack) = write_pack {
             write_pack.bytes_mut().copy_from_slice(&buffer[..]);
@@ -210,14 +216,15 @@ impl phy::TxToken for TxToken {
         } else if let Err(err) = write_pack {
             log::error!("phy: failed to allocate send packet: {}", err);
         }
+         */
 
-        // match lower.send(&buffer[..]) {
-        //     Ok(_) => {}
-        //     Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-        //         log::error!("phy: tx failed due to WouldBlock")
-        //     }
-        //     Err(err) => panic!("{}", err),
-        // }
+        match self.pipe_server.borrow_mut().write(&buffer[..]) {
+            Ok(_) => {}
+            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                log::error!("phy: tx failed due to WouldBlock")
+            }
+            Err(err) => panic!("{}", err),
+        }
         result
     }
 }
