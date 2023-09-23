@@ -52,6 +52,7 @@ serial_test = "2.0"
 test-log = "0.2"
 
 [target.'cfg(target_os="windows")'.dependencies]
+rand = "0.8"
 windows = { version = "0.51", features = [
     "Win32_Storage_FileSystem",
     "Win32_NetworkManagement_IpHelper",
@@ -60,4 +61,3 @@ windows = { version = "0.51", features = [
     "Win32_Foundation",
 ] }
 wintun = "0.3"
-mio = { version = "0.8", features = ["net", "os-ext", "os-poll"] }

@@ -13,29 +13,11 @@ use std::{
     sync::Arc,
     vec::Vec,
 };
-use windows::{
-    core::PCWSTR,
-    Win32::{
-        Security::Cryptography::{CryptAcquireContextW, CryptGenRandom, CryptReleaseContext, PROV_RSA_FULL},
-        Storage::FileSystem::FILE_FLAG_OVERLAPPED,
-    },
-};
-
-fn generate_random_bytes(len: usize) -> Result<Vec<u8>, windows::core::Error> {
-    let mut buf = vec![0u8; len];
-    unsafe {
-        let mut h_prov = 0_usize;
-        let null = PCWSTR::null();
-        CryptAcquireContextW(&mut h_prov, null, null, PROV_RSA_FULL, 0)?;
-        CryptGenRandom(h_prov, &mut buf)?;
-        CryptReleaseContext(h_prov, 0)?;
-    };
-    Ok(buf)
-}
+use windows::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
 
 fn server() -> io::Result<(NamedPipe, String)> {
-    let num = generate_random_bytes(8).unwrap();
-    let num = num.iter().fold(0, |acc, &x| acc * 256 + x as u64);
+    use rand::Rng;
+    let num: u64 = rand::thread_rng().gen();
     let name = format!(r"\\.\pipe\my-pipe-{}", num);
     let pipe = NamedPipe::new(&name)?;
     Ok((pipe, name))
@@ -48,7 +30,7 @@ fn client(name: &str) -> io::Result<NamedPipe> {
     unsafe { Ok(NamedPipe::from_raw_handle(file.into_raw_handle())) }
 }
 
-fn pipe() -> io::Result<(NamedPipe, NamedPipe)> {
+pub(crate) fn pipe() -> io::Result<(NamedPipe, NamedPipe)> {
     let (pipe, name) = server()?;
     Ok((pipe, client(&name)?))
 }
