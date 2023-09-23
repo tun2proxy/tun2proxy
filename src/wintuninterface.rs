@@ -1,20 +1,63 @@
-use mio::{event, Interest, Registry, Token};
+use mio::{event, windows::NamedPipe, Interest, Registry, Token};
 use smoltcp::{
     phy::{self, Device, DeviceCapabilities, Medium},
     time::Instant,
 };
 use std::{
+    fs::OpenOptions,
     io,
     net::{IpAddr, Ipv4Addr},
+    os::windows::prelude::{FromRawHandle, IntoRawHandle, OpenOptionsExt},
     sync::Arc,
     vec::Vec,
 };
+use windows::{
+    core::PCWSTR,
+    Win32::{
+        Security::Cryptography::{CryptAcquireContextW, CryptGenRandom, CryptReleaseContext, PROV_RSA_FULL},
+        Storage::FileSystem::FILE_FLAG_OVERLAPPED,
+    },
+};
+
+fn generate_random_bytes(len: usize) -> Result<Vec<u8>, windows::core::Error> {
+    let mut buf = vec![0u8; len];
+    unsafe {
+        let mut h_prov = 0_usize;
+        let null = PCWSTR::null();
+        CryptAcquireContextW(&mut h_prov, null, null, PROV_RSA_FULL, 0)?;
+        CryptGenRandom(h_prov, &mut buf)?;
+        CryptReleaseContext(h_prov, 0)?;
+    };
+    Ok(buf)
+}
+
+fn server() -> io::Result<(NamedPipe, String)> {
+    let num = generate_random_bytes(8).unwrap();
+    let num = num.iter().fold(0, |acc, &x| acc * 256 + x as u64);
+    let name = format!(r"\\.\pipe\my-pipe-{}", num);
+    let pipe = NamedPipe::new(&name)?;
+    Ok((pipe, name))
+}
+
+fn client(name: &str) -> io::Result<NamedPipe> {
+    let mut opts = OpenOptions::new();
+    opts.read(true).write(true).custom_flags(FILE_FLAG_OVERLAPPED.0);
+    let file = opts.open(name)?;
+    unsafe { Ok(NamedPipe::from_raw_handle(file.into_raw_handle())) }
+}
+
+fn pipe() -> io::Result<(NamedPipe, NamedPipe)> {
+    let (pipe, name) = server()?;
+    Ok((pipe, client(&name)?))
+}
 
 /// A virtual TUN (IP) interface.
 pub struct WinTunInterface {
     inner: Arc<wintun::Session>,
     mtu: usize,
     medium: Medium,
+    pipe_server: NamedPipe,
+    pipe_client: NamedPipe,
 }
 
 // impl AsRawFd for WinTunInterface {
@@ -24,16 +67,19 @@ pub struct WinTunInterface {
 // }
 
 impl event::Source for WinTunInterface {
-    fn register(&mut self, _registry: &Registry, _token: Token, _interests: Interest) -> io::Result<()> {
-        Err(io::Error::new(io::ErrorKind::Other, "register"))
+    fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
+        registry.register(&mut self.pipe_server, token, interests)?;
+        Ok(())
     }
 
-    fn reregister(&mut self, _registry: &Registry, _token: Token, _interests: Interest) -> io::Result<()> {
-        Err(io::Error::new(io::ErrorKind::Other, "reregister"))
+    fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
+        registry.reregister(&mut self.pipe_server, token, interests)?;
+        Ok(())
     }
 
-    fn deregister(&mut self, _registry: &Registry) -> io::Result<()> {
-        Err(io::Error::new(io::ErrorKind::Other, "deregister"))
+    fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
+        registry.deregister(&mut self.pipe_server)?;
+        Ok(())
     }
 }
 
@@ -59,10 +105,18 @@ impl WinTunInterface {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
         let inner = Arc::new(session);
 
+        let (pipe_server, pipe_client) = pipe()?;
+
         // let inner = WinTunInterfaceDesc::new(name, medium)?;
         // let mtu = inner.interface_mtu()?;
         let mtu = 1500;
-        Ok(WinTunInterface { inner, mtu, medium })
+        Ok(WinTunInterface {
+            inner,
+            mtu,
+            medium,
+            pipe_server,
+            pipe_client,
+        })
     }
 }
 
