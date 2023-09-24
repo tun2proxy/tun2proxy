@@ -60,4 +60,4 @@ windows = { version = "0.51", features = [
     "Win32_Networking_WinSock",
     "Win32_Foundation",
 ] }
-wintun = "0.3"
+wintun = { git = "https://github.com/ssrlive/wintun.git", branch = "main" }
