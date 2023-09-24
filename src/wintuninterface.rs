@@ -10,7 +10,7 @@ use std::{
     net::{IpAddr, Ipv4Addr},
     os::windows::prelude::{FromRawHandle, IntoRawHandle, OpenOptionsExt},
     rc::Rc,
-    sync::Arc,
+    sync::{Arc, Mutex},
     vec::Vec,
 };
 use windows::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
@@ -41,7 +41,7 @@ pub struct WinTunInterface {
     mtu: usize,
     medium: Medium,
     pipe_server: Rc<RefCell<NamedPipe>>,
-    pipe_client: Rc<RefCell<NamedPipe>>,
+    pipe_client: Arc<Mutex<NamedPipe>>,
 }
 
 impl event::Source for WinTunInterface {
@@ -85,6 +85,8 @@ impl WinTunInterface {
 
         let (pipe_server, pipe_client) = pipe()?;
 
+        let pipe_client = Arc::new(Mutex::new(pipe_client));
+
         // let inner = WinTunInterfaceDesc::new(name, medium)?;
         // let mtu = inner.interface_mtu()?;
         let mtu = 1500;
@@ -93,21 +95,22 @@ impl WinTunInterface {
             mtu,
             medium,
             pipe_server: Rc::new(RefCell::new(pipe_server)),
-            pipe_client: Rc::new(RefCell::new(pipe_client)),
+            pipe_client,
         })
     }
 
-    pub fn pipe_client(&self) -> Rc<RefCell<NamedPipe>> {
+    pub fn pipe_client(&self) -> Arc<Mutex<NamedPipe>> {
         self.pipe_client.clone()
     }
 
-    // pub fn pipe_server(&self) -> Rc<RefCell<NamedPipe>> {
-    //     self.pipe_server.clone()
-    // }
-
     pub fn pipe_client_event(&self) -> Result<(), io::Error> {
         let mut buffer = vec![0; self.mtu];
-        match self.pipe_client.borrow_mut().read(&mut buffer) {
+        match self
+            .pipe_client
+            .lock()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            .read(&mut buffer)
+        {
             Ok(len) => {
                 let write_pack = self.inner.allocate_send_packet(len as u16);
                 if let Ok(mut write_pack) = write_pack {
@@ -118,7 +121,7 @@ impl WinTunInterface {
                 }
             }
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-            Err(err) => panic!("{}", err),
+            Err(err) => return Err(err),
         }
         Ok(())
     }
@@ -223,26 +226,35 @@ impl phy::TxToken for TxToken {
         match self.pipe_server.borrow_mut().write(&buffer[..]) {
             Ok(_) => {}
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                log::error!("phy: tx failed due to WouldBlock")
+                log::trace!("phy: tx failed due to WouldBlock")
             }
-            Err(err) => panic!("{}", err),
+            Err(err) => log::error!("{}", err),
         }
         result
     }
 }
 
-pub struct NamedPipeSource(pub Rc<RefCell<NamedPipe>>);
+pub struct NamedPipeSource(pub Arc<Mutex<NamedPipe>>);
 
 impl event::Source for NamedPipeSource {
     fn register(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-        self.0.borrow_mut().register(registry, token, interests)
+        self.0
+            .lock()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            .register(registry, token, interests)
     }
 
     fn reregister(&mut self, registry: &Registry, token: Token, interests: Interest) -> io::Result<()> {
-        self.0.borrow_mut().reregister(registry, token, interests)
+        self.0
+            .lock()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            .reregister(registry, token, interests)
     }
 
     fn deregister(&mut self, registry: &Registry) -> io::Result<()> {
-        self.0.borrow_mut().deregister(registry)
+        self.0
+            .lock()
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
+            .deregister(registry)
     }
 }
