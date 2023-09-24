@@ -77,7 +77,7 @@ impl WinTunInterface {
         let mask = Ipv4Addr::new(255, 255, 255, 0);
         let gateway = Some(IpAddr::V4(Ipv4Addr::new(10, 1, 0, 1)));
         adapter
-            .set_network_addresses_tuple(IpAddr::V4(address), IpAddr::V4(mask), gateway)
+            .set_network_addresses_tuple(address.into(), mask.into(), gateway)
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         let session = adapter
@@ -99,7 +99,7 @@ impl WinTunInterface {
                     let packet = reader_session.receive_blocking()?;
                     let bytes = packet.bytes();
 
-                    let result = { pipe_client_clone.lock().unwrap().write(bytes) };
+                    let result = { pipe_client_clone.lock()?.write(bytes) };
                     match result {
                         Ok(_) => {}
                         Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
