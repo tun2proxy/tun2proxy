@@ -17,10 +17,6 @@ mod http;
 pub mod setup;
 mod socks;
 mod tun2proxy;
-#[cfg(any(target_os = "linux", target_os = "android"))]
-mod tuntapinterface;
-#[cfg(any(target_os = "linux", target_os = "android"))]
-mod tuntapinterfacedesc;
 mod virtdevice;
 mod virtdns;
 #[cfg(target_os = "windows")]
