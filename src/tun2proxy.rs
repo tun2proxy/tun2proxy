@@ -256,6 +256,9 @@ impl<'a> TunToProxy<'a> {
             NetworkInterface::Named(name) => WinTunInterface::new(name.as_str(), Medium::Ip)?,
         };
 
+        #[cfg(target_os = "windows")]
+        tun.setup_config(options.bypass_ip, options.dns_addr)?;
+
         let poll = Poll::new()?;
 
         #[cfg(target_family = "unix")]
@@ -717,7 +720,7 @@ impl<'a> TunToProxy<'a> {
             let state = self.create_new_tcp_connection_state(server, origin_dst, proxy_handler, false)?;
             self.connection_map.insert(info.clone(), state);
 
-            log::info!("Connect done {} ({})", info, origin_dst);
+            log::info!("{} ({})", info, origin_dst);
         } else if !self.connection_map.contains_key(info) {
             log::trace!("Drop middle session {} ({})", info, origin_dst);
             return Ok(());

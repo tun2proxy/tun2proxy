@@ -7,14 +7,29 @@ use std::{
     cell::RefCell,
     fs::OpenOptions,
     io::{self, Read, Write},
-    net::{IpAddr, Ipv4Addr},
+    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     os::windows::prelude::{FromRawHandle, IntoRawHandle, OpenOptionsExt},
     rc::Rc,
     sync::{Arc, Mutex},
     thread::JoinHandle,
     vec::Vec,
 };
-use windows::Win32::Storage::FileSystem::FILE_FLAG_OVERLAPPED;
+use windows::{
+    core::{GUID, PWSTR},
+    Win32::{
+        Foundation::{ERROR_BUFFER_OVERFLOW, WIN32_ERROR},
+        NetworkManagement::{
+            IpHelper::{
+                GetAdaptersAddresses, SetInterfaceDnsSettings, DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1,
+                DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_INCLUDE_PREFIX, IF_TYPE_IEEE80211,
+                IP_ADAPTER_ADDRESSES_LH,
+            },
+            Ndis::IfOperStatusUp,
+        },
+        Networking::WinSock::{AF_INET, AF_INET6, AF_UNSPEC, SOCKADDR, SOCKADDR_IN, SOCKADDR_IN6},
+        Storage::FileSystem::FILE_FLAG_OVERLAPPED,
+    },
+};
 
 fn server() -> io::Result<(NamedPipe, String)> {
     use rand::Rng;
@@ -44,6 +59,7 @@ pub struct WinTunInterface {
     pipe_server: Rc<RefCell<NamedPipe>>,
     pipe_client: Arc<Mutex<NamedPipe>>,
     wintun_reader_thread: Option<JoinHandle<()>>,
+    old_gateway: Option<IpAddr>,
 }
 
 impl event::Source for WinTunInterface {
@@ -72,13 +88,6 @@ impl WinTunInterface {
             Err(_) => wintun::Adapter::create(&wintun, tun_name, tun_name, None)
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?,
         };
-
-        let address = Ipv4Addr::new(10, 1, 0, 33);
-        let mask = Ipv4Addr::new(255, 255, 255, 0);
-        let gateway = Some(IpAddr::V4(Ipv4Addr::new(10, 1, 0, 1)));
-        adapter
-            .set_network_addresses_tuple(address.into(), mask.into(), gateway)
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
 
         let session = adapter
             .start_session(wintun::MAX_RING_CAPACITY)
@@ -121,6 +130,7 @@ impl WinTunInterface {
             pipe_server: Rc::new(RefCell::new(pipe_server)),
             pipe_client,
             wintun_reader_thread: Some(reader_thread),
+            old_gateway: None,
         })
     }
 
@@ -150,10 +160,78 @@ impl WinTunInterface {
         }
         Ok(())
     }
+
+    pub fn setup_config(&mut self, bypass_ip: Option<IpAddr>, dns_addr: Option<IpAddr>) -> Result<(), io::Error> {
+        let adapter = self.wintun_session.get_adapter();
+
+        // Setup the adapter's address/mask/gateway
+        let address = "10.1.0.33".parse::<IpAddr>().unwrap();
+        let mask = "255.255.255.0".parse::<IpAddr>().unwrap();
+        let gateway = "10.1.0.1".parse::<IpAddr>().unwrap();
+        adapter
+            .set_network_addresses_tuple(address, mask, Some(gateway))
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+
+        // 1. Setup the adapter's DNS
+        let interface = GUID::from(adapter.get_guid());
+        let dns = dns_addr.unwrap_or("8.8.8.8".parse::<IpAddr>().unwrap());
+        let dns2 = "8.8.4.4".parse::<IpAddr>().unwrap();
+        set_interface_dns_settings(interface, &[dns, dns2])?;
+
+        // 2. Route all traffic to the adapter, here the destination is adapter's gateway
+        // command: `route add 0.0.0.0 mask 0.0.0.0 10.1.0.1 metric 6`
+        let unspecified = Ipv4Addr::UNSPECIFIED.to_string();
+        let gateway = gateway.to_string();
+        let args = &["add", &unspecified, "mask", &unspecified, &gateway, "metric", "6"];
+        run_command("route", args)?;
+        log::info!("route {:?}", args);
+
+        let old_gateways = get_active_network_interface_gateways()?;
+        // find ipv4 gateway address, or error return
+        let old_gateway = old_gateways
+            .iter()
+            .find(|addr| addr.is_ipv4())
+            .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "No ipv4 gateway found"))?;
+
+        // 3. route the bypass ip to the old gateway
+        // command: `route add bypass_ip old_gateway metric 1`
+        let bypass_ip = bypass_ip.unwrap().to_string();
+        let old_gateway = old_gateway.ip();
+        let args = &["add", &bypass_ip, &old_gateway.to_string(), "metric", "1"];
+        run_command("route", args)?;
+        log::info!("route {:?}", args);
+
+        self.old_gateway = Some(old_gateway);
+
+        Ok(())
+    }
+
+    pub fn restore_config(&mut self) -> Result<(), io::Error> {
+        if self.old_gateway.is_none() {
+            return Ok(());
+        }
+        let unspecified = Ipv4Addr::UNSPECIFIED.to_string();
+
+        // 1. Remove current adapter's route
+        // command: `route delete 0.0.0.0 mask 0.0.0.0`
+        let args = &["delete", &unspecified, "mask", &unspecified];
+        run_command("route", args)?;
+
+        // 2. Add back the old gateway route
+        // command: `route add 0.0.0.0 mask 0.0.0.0 old_gateway metric 200`
+        let old_gateway = self.old_gateway.take().unwrap().to_string();
+        let args = &["add", &unspecified, "mask", &unspecified, &old_gateway, "metric", "200"];
+        run_command("route", args)?;
+
+        Ok(())
+    }
 }
 
 impl Drop for WinTunInterface {
     fn drop(&mut self) {
+        if let Err(e) = self.restore_config() {
+            log::error!("Faild to unsetup config: {}", e);
+        }
         if let Err(e) = self.wintun_session.shutdown() {
             log::error!("phy: failed to shutdown interface: {}", e);
         }
@@ -260,4 +338,122 @@ impl event::Source for NamedPipeSource {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
             .deregister(registry)
     }
+}
+
+pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<()> {
+    let out = std::process::Command::new(command).args(args).output()?;
+    if !out.status.success() {
+        let info = format!("{} failed: {}", command, String::from_utf8_lossy(&out.stderr));
+        return Err(io::Error::new(io::ErrorKind::Other, info));
+    }
+    Ok(())
+}
+
+pub(crate) fn set_interface_dns_settings(interface: GUID, dns: &[IpAddr]) -> io::Result<()> {
+    // format L"1.1.1.1 8.8.8.8", or L"1.1.1.1,8.8.8.8".
+    let dns = dns.iter().map(|ip| ip.to_string()).collect::<Vec<_>>().join(",");
+    let dns = dns.encode_utf16().chain(std::iter::once(0)).collect::<Vec<_>>();
+
+    let settings = DNS_INTERFACE_SETTINGS {
+        Version: DNS_INTERFACE_SETTINGS_VERSION1,
+        Flags: DNS_SETTING_NAMESERVER as _,
+        NameServer: PWSTR(dns.as_ptr() as _),
+        ..DNS_INTERFACE_SETTINGS::default()
+    };
+
+    unsafe { SetInterfaceDnsSettings(interface, &settings as *const _)? };
+    Ok(())
+}
+
+pub(crate) fn get_active_network_interface_gateways() -> io::Result<Vec<SocketAddr>> {
+    let mut addrs = vec![];
+    get_adapters_addresses(|adapter| {
+        if adapter.OperStatus == IfOperStatusUp && adapter.IfType == IF_TYPE_IEEE80211 {
+            let mut current_gateway = adapter.FirstGatewayAddress;
+            while !current_gateway.is_null() {
+                let gateway = unsafe { &*current_gateway };
+                {
+                    let sockaddr_ptr = gateway.Address.lpSockaddr;
+                    let sockaddr = unsafe { &*(sockaddr_ptr as *const SOCKADDR) };
+                    let a = unsafe { sockaddr_to_socket_addr(sockaddr) }?;
+                    addrs.push(a);
+                }
+                current_gateway = gateway.Next;
+            }
+        }
+        Ok(())
+    })?;
+    Ok(addrs)
+}
+
+pub(crate) fn get_adapters_addresses<F>(mut callback: F) -> io::Result<()>
+where
+    F: FnMut(IP_ADAPTER_ADDRESSES_LH) -> io::Result<()>,
+{
+    let mut size = 0;
+    let flags = GAA_FLAG_INCLUDE_PREFIX | GAA_FLAG_INCLUDE_GATEWAYS;
+    let family = AF_UNSPEC.0 as u32;
+
+    // Make an initial call to GetAdaptersAddresses to get the
+    // size needed into the size variable
+    let result = unsafe { GetAdaptersAddresses(family, flags, None, None, &mut size) };
+
+    if WIN32_ERROR(result) != ERROR_BUFFER_OVERFLOW {
+        WIN32_ERROR(result).ok()?;
+    }
+    // Allocate memory for the buffer
+    let mut addresses: Vec<u8> = vec![0; (size + 4) as usize];
+
+    // Make a second call to GetAdaptersAddresses to get the actual data we want
+    let result = unsafe {
+        let addr = Some(addresses.as_mut_ptr() as *mut IP_ADAPTER_ADDRESSES_LH);
+        GetAdaptersAddresses(family, flags, None, addr, &mut size)
+    };
+
+    WIN32_ERROR(result).ok()?;
+
+    // If successful, output some information from the data we received
+    let mut current_addresses = addresses.as_ptr() as *const IP_ADAPTER_ADDRESSES_LH;
+    while !current_addresses.is_null() {
+        unsafe {
+            callback(*current_addresses)?;
+            current_addresses = (*current_addresses).Next;
+        }
+    }
+    Ok(())
+}
+
+pub(crate) unsafe fn sockaddr_to_socket_addr(sock_addr: *const SOCKADDR) -> io::Result<SocketAddr> {
+    let address = match (*sock_addr).sa_family {
+        AF_INET => sockaddr_in_to_socket_addr(&*(sock_addr as *const SOCKADDR_IN)),
+        AF_INET6 => sockaddr_in6_to_socket_addr(&*(sock_addr as *const SOCKADDR_IN6)),
+        _ => return Err(io::Error::new(io::ErrorKind::Other, "Unsupported address type")),
+    };
+    Ok(address)
+}
+
+pub(crate) unsafe fn sockaddr_in_to_socket_addr(sockaddr_in: &SOCKADDR_IN) -> SocketAddr {
+    let ip = Ipv4Addr::new(
+        sockaddr_in.sin_addr.S_un.S_un_b.s_b1,
+        sockaddr_in.sin_addr.S_un.S_un_b.s_b2,
+        sockaddr_in.sin_addr.S_un.S_un_b.s_b3,
+        sockaddr_in.sin_addr.S_un.S_un_b.s_b4,
+    );
+    let port = u16::from_be(sockaddr_in.sin_port);
+    SocketAddr::new(ip.into(), port)
+}
+
+pub(crate) unsafe fn sockaddr_in6_to_socket_addr(sockaddr_in6: &SOCKADDR_IN6) -> SocketAddr {
+    let ip = IpAddr::V6(Ipv6Addr::new(
+        u16::from_be(sockaddr_in6.sin6_addr.u.Word[0]),
+        u16::from_be(sockaddr_in6.sin6_addr.u.Word[1]),
+        u16::from_be(sockaddr_in6.sin6_addr.u.Word[2]),
+        u16::from_be(sockaddr_in6.sin6_addr.u.Word[3]),
+        u16::from_be(sockaddr_in6.sin6_addr.u.Word[4]),
+        u16::from_be(sockaddr_in6.sin6_addr.u.Word[5]),
+        u16::from_be(sockaddr_in6.sin6_addr.u.Word[6]),
+        u16::from_be(sockaddr_in6.sin6_addr.u.Word[7]),
+    ));
+    let port = u16::from_be(sockaddr_in6.sin6_port);
+    SocketAddr::new(ip, port)
 }
