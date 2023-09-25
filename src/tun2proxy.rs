@@ -208,8 +208,8 @@ pub(crate) trait ConnectionManager {
 
 const TUN_TOKEN: Token = Token(0);
 const PIPE_TOKEN: Token = Token(1);
-const EXIT_TOKEN_SENDER: Token = Token(2);
-const EXIT_TOKEN: Token = Token(99);
+const EXIT_TRIGGER_TOKEN: Token = Token(2);
+const EXIT_TOKEN: Token = Token(10);
 
 pub struct TunToProxy<'a> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -230,11 +230,11 @@ pub struct TunToProxy<'a> {
     #[cfg(target_family = "unix")]
     exit_receiver: mio::unix::pipe::Receiver,
     #[cfg(target_family = "unix")]
-    exit_sender: Option<mio::unix::pipe::Sender>,
+    exit_trigger: Option<mio::unix::pipe::Sender>,
     #[cfg(target_os = "windows")]
     exit_receiver: mio::windows::NamedPipe,
     #[cfg(target_os = "windows")]
-    exit_sender: Option<mio::windows::NamedPipe>,
+    exit_trigger: Option<mio::windows::NamedPipe>,
 }
 
 impl<'a> TunToProxy<'a> {
@@ -270,12 +270,12 @@ impl<'a> TunToProxy<'a> {
         }
 
         #[cfg(target_family = "unix")]
-        let (mut exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;
+        let (mut exit_trigger, mut exit_receiver) = mio::unix::pipe::new()?;
         #[cfg(target_family = "windows")]
-        let (mut exit_sender, mut exit_receiver) = wintuninterface::pipe()?;
+        let (mut exit_trigger, mut exit_receiver) = wintuninterface::pipe()?;
 
         poll.registry()
-            .register(&mut exit_sender, EXIT_TOKEN_SENDER, Interest::WRITABLE)?;
+            .register(&mut exit_trigger, EXIT_TRIGGER_TOKEN, Interest::WRITABLE)?;
         poll.registry()
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
@@ -310,7 +310,7 @@ impl<'a> TunToProxy<'a> {
             options,
             write_sockets: HashSet::default(),
             exit_receiver,
-            exit_sender: Some(exit_sender),
+            exit_trigger: Some(exit_trigger),
         };
         Ok(tun)
     }
@@ -1129,35 +1129,39 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    pub fn run(&mut self) -> Result<(), Error> {
-        #[cfg(target_os = "windows")]
-        {
-            let mut exit_sender = self.exit_sender.take().ok_or("Already running")?;
-            ctrlc::set_handler(move || {
-                let mut count = 0;
-                loop {
-                    match exit_sender.write(b"EX") {
-                        Ok(_) => {
-                            log::trace!("Send exit signal successfully");
-                            break;
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+    fn prepare_exiting_signal_trigger(&mut self) -> Result<()> {
+        let mut exit_trigger = self.exit_trigger.take().ok_or("Already running")?;
+        ctrlc::set_handler(move || {
+            let mut count = 0;
+            loop {
+                match exit_trigger.write(b"EXIT") {
+                    Ok(_) => {
+                        log::trace!("Exit signal triggered successfully");
+                        break;
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        if count > 5 {
+                            log::error!("Send exit signal failed 5 times, exit anyway");
+                            std::process::exit(1);
                         }
-                        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                            if count > 5 {
-                                log::error!("Send exit signal failed 5 times, exit anyway");
-                                std::process::exit(1);
-                            }
-                            log::trace!("Send exit signal failed, retry in 1 second");
-                            std::thread::sleep(std::time::Duration::from_secs(1));
-                            count += 1;
-                        }
-                        Err(err) => {
-                            println!("Failed to send exit signal: \"{}\"", err);
-                            break;
-                        }
+                        log::trace!("Send exit signal failed, retry in 1 second");
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                        count += 1;
+                    }
+                    Err(err) => {
+                        println!("Failed to send exit signal: \"{}\"", err);
+                        break;
                     }
                 }
-            })?;
-        }
+            }
+        })?;
+        Ok(())
+    }
+
+    pub fn run(&mut self) -> Result<(), Error> {
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+        self.prepare_exiting_signal_trigger()?;
 
         let mut events = Events::with_capacity(1024);
         loop {
@@ -1171,24 +1175,12 @@ impl<'a> TunToProxy<'a> {
             for event in events.iter() {
                 match event.token() {
                     EXIT_TOKEN => {
-                        let mut buffer = vec![0; 100];
-                        match self.exit_receiver.read(&mut buffer) {
-                            Ok(size) => {
-                                log::trace!("Received exit signal: {:?}", &buffer[..size]);
-                                log::info!("Exiting tun2proxy...");
-                                return Ok(());
-                            }
-                            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                                log::trace!("Exiting reciever is ready");
-                            }
-                            Err(err) => {
-                                log::error!("Exiting tun2proxy... {}", err);
-                                return Err(err.into());
-                            }
+                        if self.exiting_event_handler()? {
+                            return Ok(());
                         }
                     }
-                    EXIT_TOKEN_SENDER => {
-                        log::trace!("Exiting sender is ready, {:?}", self.exit_sender);
+                    EXIT_TRIGGER_TOKEN => {
+                        log::trace!("Exiting trigger is ready, {:?}", self.exit_trigger);
                     }
                     TUN_TOKEN => self.tun_event(event)?,
                     PIPE_TOKEN => self.pipe_event(event)?,
@@ -1201,9 +1193,25 @@ impl<'a> TunToProxy<'a> {
         }
     }
 
+    fn exiting_event_handler(&mut self) -> Result<bool> {
+        let mut buffer = vec![0; 100];
+        match self.exit_receiver.read(&mut buffer) {
+            Ok(size) => {
+                log::trace!("Received exit signal: {:?}", &buffer[..size]);
+                log::info!("Exiting tun2proxy...");
+                Ok(true)
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                log::trace!("Exiting reciever is ready");
+                Ok(false)
+            }
+            Err(err) => Err(err.into()),
+        }
+    }
+
     pub fn shutdown(&mut self) -> Result<(), Error> {
         log::debug!("Shutdown tun2proxy...");
-        self.exit_sender.as_mut().ok_or("Already shutdown")?.write_all(b"EX")?;
+        _ = self.exit_trigger.as_mut().ok_or("Already triggered")?.write(b"EXIT")?;
         Ok(())
     }
 }
