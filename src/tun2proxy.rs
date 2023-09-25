@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
 #[cfg(target_os = "windows")]
-use crate::wintuninterface::{NamedPipeSource, WinTunInterface};
+use crate::wintuninterface::{self, NamedPipeSource, WinTunInterface};
 use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
 #[cfg(target_family = "unix")]
 use mio::unix::SourceFd;
@@ -208,7 +208,8 @@ pub(crate) trait ConnectionManager {
 
 const TUN_TOKEN: Token = Token(0);
 const PIPE_TOKEN: Token = Token(1);
-const EXIT_TOKEN: Token = Token(2);
+const EXIT_TOKEN_SENDER: Token = Token(2);
+const EXIT_TOKEN: Token = Token(99);
 
 pub struct TunToProxy<'a> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -227,9 +228,13 @@ pub struct TunToProxy<'a> {
     options: Options,
     write_sockets: HashSet<Token>,
     #[cfg(target_family = "unix")]
-    _exit_receiver: mio::unix::pipe::Receiver,
+    exit_receiver: mio::unix::pipe::Receiver,
     #[cfg(target_family = "unix")]
-    exit_sender: mio::unix::pipe::Sender,
+    exit_sender: Option<mio::unix::pipe::Sender>,
+    #[cfg(target_os = "windows")]
+    exit_receiver: mio::windows::NamedPipe,
+    #[cfg(target_os = "windows")]
+    exit_sender: Option<mio::windows::NamedPipe>,
 }
 
 impl<'a> TunToProxy<'a> {
@@ -265,8 +270,12 @@ impl<'a> TunToProxy<'a> {
         }
 
         #[cfg(target_family = "unix")]
-        let (exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;
-        #[cfg(target_family = "unix")]
+        let (mut exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;
+        #[cfg(target_family = "windows")]
+        let (mut exit_sender, mut exit_receiver) = wintuninterface::pipe()?;
+
+        poll.registry()
+            .register(&mut exit_sender, EXIT_TOKEN_SENDER, Interest::WRITABLE)?;
         poll.registry()
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
@@ -300,10 +309,8 @@ impl<'a> TunToProxy<'a> {
             device,
             options,
             write_sockets: HashSet::default(),
-            #[cfg(target_family = "unix")]
-            _exit_receiver: exit_receiver,
-            #[cfg(target_family = "unix")]
-            exit_sender,
+            exit_receiver,
+            exit_sender: Some(exit_sender),
         };
         Ok(tun)
     }
@@ -1123,6 +1130,35 @@ impl<'a> TunToProxy<'a> {
     }
 
     pub fn run(&mut self) -> Result<(), Error> {
+        #[cfg(target_os = "windows")]
+        {
+            let mut exit_sender = self.exit_sender.take().ok_or("Already running")?;
+            ctrlc::set_handler(move || {
+                let mut count = 0;
+                loop {
+                    match exit_sender.write(b"EX") {
+                        Ok(_) => {
+                            log::trace!("Send exit signal successfully");
+                            break;
+                        }
+                        Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                            if count > 5 {
+                                log::error!("Send exit signal failed 5 times, exit anyway");
+                                std::process::exit(1);
+                            }
+                            log::trace!("Send exit signal failed, retry in 1 second");
+                            std::thread::sleep(std::time::Duration::from_secs(1));
+                            count += 1;
+                        }
+                        Err(err) => {
+                            println!("Failed to send exit signal: \"{}\"", err);
+                            break;
+                        }
+                    }
+                }
+            })?;
+        }
+
         let mut events = Events::with_capacity(1024);
         loop {
             if let Err(err) = self.poll.poll(&mut events, None) {
@@ -1135,8 +1171,24 @@ impl<'a> TunToProxy<'a> {
             for event in events.iter() {
                 match event.token() {
                     EXIT_TOKEN => {
-                        log::info!("Exiting tun2proxy...");
-                        return Ok(());
+                        let mut buffer = vec![0; 100];
+                        match self.exit_receiver.read(&mut buffer) {
+                            Ok(size) => {
+                                log::trace!("Received exit signal: {:?}", &buffer[..size]);
+                                log::info!("Exiting tun2proxy...");
+                                return Ok(());
+                            }
+                            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                                log::trace!("Exiting reciever is ready");
+                            }
+                            Err(err) => {
+                                log::error!("Exiting tun2proxy... {}", err);
+                                return Err(err.into());
+                            }
+                        }
+                    }
+                    EXIT_TOKEN_SENDER => {
+                        log::trace!("Exiting sender is ready, {:?}", self.exit_sender);
                     }
                     TUN_TOKEN => self.tun_event(event)?,
                     PIPE_TOKEN => self.pipe_event(event)?,
@@ -1150,8 +1202,8 @@ impl<'a> TunToProxy<'a> {
     }
 
     pub fn shutdown(&mut self) -> Result<(), Error> {
-        #[cfg(target_family = "unix")]
-        self.exit_sender.write_all(&[1])?;
+        log::debug!("Shutdown tun2proxy...");
+        self.exit_sender.as_mut().ok_or("Already shutdown")?.write_all(b"EX")?;
         Ok(())
     }
 }
