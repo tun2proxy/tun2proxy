@@ -6,7 +6,7 @@ pub enum Error {
     #[error("ctrlc::Error {0:?}")]
     InterruptHandler(#[from] ctrlc::Error),
 
-    #[error("std::io::Error {0}")]
+    #[error(transparent)]
     Io(#[from] std::io::Error),
 
     #[error("TryFromIntError {0:?}")]
@@ -81,6 +81,15 @@ impl From<String> for Error {
 impl From<&String> for Error {
     fn from(err: &String) -> Self {
         Self::String(err.to_string())
+    }
+}
+
+impl From<Error> for std::io::Error {
+    fn from(err: Error) -> Self {
+        match err {
+            Error::Io(err) => err,
+            _ => std::io::Error::new(std::io::ErrorKind::Other, err),
+        }
     }
 }
 

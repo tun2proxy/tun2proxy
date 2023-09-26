@@ -102,6 +102,7 @@ pub struct Options {
     dns_over_tcp: bool,
     dns_addr: Option<std::net::IpAddr>,
     ipv6_enabled: bool,
+    bypass_ip: Option<std::net::IpAddr>,
 }
 
 impl Options {
@@ -133,6 +134,11 @@ impl Options {
 
     pub fn with_mtu(mut self, mtu: usize) -> Self {
         self.mtu = Some(mtu);
+        self
+    }
+
+    pub fn with_bypass_ip(mut self, ip: Option<std::net::IpAddr>) -> Self {
+        self.bypass_ip = ip;
         self
     }
 }

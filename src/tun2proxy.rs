@@ -208,7 +208,9 @@ pub(crate) trait ConnectionManager {
 }
 
 const TUN_TOKEN: Token = Token(0);
-const EXIT_TOKEN: Token = Token(1);
+const PIPE_TOKEN: Token = Token(1);
+const EXIT_TRIGGER_TOKEN: Token = Token(2);
+const EXIT_TOKEN: Token = Token(10);
 
 pub struct TunToProxy<'a> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
@@ -225,9 +227,9 @@ pub struct TunToProxy<'a> {
     options: Options,
     write_sockets: HashSet<Token>,
     #[cfg(target_family = "unix")]
-    _exit_receiver: mio::unix::pipe::Receiver,
+    exit_receiver: mio::unix::pipe::Receiver,
     #[cfg(target_family = "unix")]
-    exit_sender: mio::unix::pipe::Sender,
+    exit_trigger: Option<mio::unix::pipe::Sender>,
 }
 
 impl<'a> TunToProxy<'a> {
@@ -251,7 +253,11 @@ impl<'a> TunToProxy<'a> {
             .register(&mut SourceFd(&tun.as_raw_fd()), TUN_TOKEN, Interest::READABLE)?;
 
         #[cfg(target_family = "unix")]
-        let (exit_sender, mut exit_receiver) = mio::unix::pipe::new()?;
+        let (mut exit_trigger, mut exit_receiver) = mio::unix::pipe::new()?;
+
+        #[cfg(target_family = "unix")]
+        poll.registry()
+            .register(&mut exit_trigger, EXIT_TRIGGER_TOKEN, Interest::WRITABLE)?;
         #[cfg(target_family = "unix")]
         poll.registry()
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
@@ -294,9 +300,9 @@ impl<'a> TunToProxy<'a> {
             options,
             write_sockets: HashSet::default(),
             #[cfg(target_family = "unix")]
-            _exit_receiver: exit_receiver,
+            exit_receiver,
             #[cfg(target_family = "unix")]
-            exit_sender,
+            exit_trigger: Some(exit_trigger),
         };
         Ok(tun)
     }
@@ -704,7 +710,7 @@ impl<'a> TunToProxy<'a> {
             let state = self.create_new_tcp_connection_state(server, origin_dst, proxy_handler, false)?;
             self.connection_map.insert(info.clone(), state);
 
-            log::info!("Connect done {} ({})", info, origin_dst);
+            log::info!("{} ({})", info, origin_dst);
         } else if !self.connection_map.contains_key(info) {
             log::trace!("Drop middle session {} ({})", info, origin_dst);
             return Ok(());
@@ -933,6 +939,10 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
+    fn pipe_event(&mut self, _event: &Event) -> Result<(), Error> {
+        Ok(())
+    }
+
     fn send_to_smoltcp(&mut self) -> Result<(), Error> {
         for token in self.write_sockets.clone().into_iter() {
             if let Some(connection) = self.find_info_by_token(token) {
@@ -1109,7 +1119,40 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
+    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    fn prepare_exiting_signal_trigger(&mut self) -> Result<()> {
+        let mut exit_trigger = self.exit_trigger.take().ok_or("Already running")?;
+        ctrlc::set_handler(move || {
+            let mut count = 0;
+            loop {
+                match exit_trigger.write(b"EXIT") {
+                    Ok(_) => {
+                        log::trace!("Exit signal triggered successfully");
+                        break;
+                    }
+                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                        if count > 5 {
+                            log::error!("Send exit signal failed 5 times, exit anyway");
+                            std::process::exit(1);
+                        }
+                        log::trace!("Send exit signal failed, retry in 1 second");
+                        std::thread::sleep(std::time::Duration::from_secs(1));
+                        count += 1;
+                    }
+                    Err(err) => {
+                        println!("Failed to send exit signal: \"{}\"", err);
+                        break;
+                    }
+                }
+            }
+        })?;
+        Ok(())
+    }
+
     pub fn run(&mut self) -> Result<(), Error> {
+        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        self.prepare_exiting_signal_trigger()?;
+
         let mut events = Events::with_capacity(1024);
         loop {
             if let Err(err) = self.poll.poll(&mut events, None) {
@@ -1122,10 +1165,16 @@ impl<'a> TunToProxy<'a> {
             for event in events.iter() {
                 match event.token() {
                     EXIT_TOKEN => {
-                        log::info!("Exiting tun2proxy...");
-                        return Ok(());
+                        if self.exiting_event_handler()? {
+                            return Ok(());
+                        }
+                    }
+                    EXIT_TRIGGER_TOKEN => {
+                        #[cfg(target_family = "unix")]
+                        log::trace!("Exiting trigger is ready, {:?}", self.exit_trigger);
                     }
                     TUN_TOKEN => self.tun_event(event)?,
+                    PIPE_TOKEN => self.pipe_event(event)?,
                     _ => self.mio_socket_event(event)?,
                 }
             }
@@ -1135,9 +1184,32 @@ impl<'a> TunToProxy<'a> {
         }
     }
 
+    #[cfg(target_family = "unix")]
+    fn exiting_event_handler(&mut self) -> Result<bool> {
+        let mut buffer = vec![0; 100];
+        match self.exit_receiver.read(&mut buffer) {
+            Ok(size) => {
+                log::trace!("Received exit signal: {:?}", &buffer[..size]);
+                log::info!("Exiting tun2proxy...");
+                Ok(true)
+            }
+            Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                log::trace!("Exiting reciever is ready");
+                Ok(false)
+            }
+            Err(err) => Err(err.into()),
+        }
+    }
+
+    #[cfg(target_os = "windows")]
+    fn exiting_event_handler(&mut self) -> Result<bool> {
+        Ok(true)
+    }
+
+    #[cfg(target_family = "unix")]
     pub fn shutdown(&mut self) -> Result<(), Error> {
-        #[cfg(target_family = "unix")]
-        self.exit_sender.write_all(&[1])?;
+        log::debug!("Shutdown tun2proxy...");
+        _ = self.exit_trigger.as_mut().ok_or("Already triggered")?.write(b"EXIT")?;
         Ok(())
     }
 }
