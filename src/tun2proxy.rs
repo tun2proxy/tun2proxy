@@ -577,7 +577,7 @@ impl<'a> TunToProxy<'a> {
         assert!(state.dns_over_tcp_expiry.is_some());
         state.dns_over_tcp_expiry = Some(Self::common_udp_life_timeout());
 
-        let vecbuf = Self::read_data_from_tcp_stream(&mut state.mio_stream, info)?;
+        let vecbuf = Self::read_data_from_tcp_stream(&mut state.mio_stream)?;
 
         let data_event = IncomingDataEvent {
             direction: IncomingDirection::FromServer,
@@ -1042,7 +1042,7 @@ impl<'a> TunToProxy<'a> {
                     let state = self.connection_map.get_mut(&conn_info).ok_or(e)?;
 
                     // TODO: Move this reading process to its own function.
-                    let vecbuf = Self::read_data_from_tcp_stream(&mut state.mio_stream, &conn_info)?;
+                    let vecbuf = Self::read_data_from_tcp_stream(&mut state.mio_stream)?;
 
                     let data_event = IncomingDataEvent {
                         direction: IncomingDirection::FromServer,
@@ -1108,13 +1108,13 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn read_data_from_tcp_stream(stream: &mut TcpStream, conn_info: &ConnectionInfo) -> Result<Vec<u8>> {
+    fn read_data_from_tcp_stream(stream: &mut TcpStream) -> Result<Vec<u8>> {
         let mut vecbuf = Vec::<u8>::new();
         loop {
             let mut tmp: [u8; 4096] = [0_u8; 4096];
             match stream.read(&mut tmp) {
                 Ok(0) => {
-                    log::info!("{} closed", conn_info);
+                    // The tcp connection closed
                     break;
                 }
                 Ok(read_result) => {
