@@ -1063,7 +1063,7 @@ impl<'a> TunToProxy<'a> {
                         return Ok(());
                     }
 
-                    if vecbuf.len() == 0 || event.is_read_closed() {
+                    if vecbuf.is_empty() || event.is_read_closed() {
                         state.wait_read = false;
                         state.close_state |= SERVER_WRITE_CLOSED;
                         Self::update_mio_socket_interest(&mut self.poll, state)?;
