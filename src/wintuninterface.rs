@@ -112,7 +112,7 @@ impl WinTunInterface {
                     match result {
                         Ok(_) => {}
                         Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                            log::trace!("reader_thread phy: tx failed due to WouldBlock")
+                            log::trace!("Wintun reader_thread: tx failed due to WouldBlock")
                         }
                         Err(err) => log::error!("{}", err),
                     }
@@ -139,24 +139,26 @@ impl WinTunInterface {
     }
 
     pub fn pipe_client_event(&self) -> Result<(), io::Error> {
-        let mut buffer = vec![0; self.mtu];
-        match self
+        let mut reader = self
             .pipe_client
             .lock()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            .read(&mut buffer)
-        {
-            Ok(len) => {
-                let write_pack = self.wintun_session.allocate_send_packet(len as u16);
-                if let Ok(mut write_pack) = write_pack {
-                    write_pack.bytes_mut().copy_from_slice(&buffer[..len]);
-                    self.wintun_session.send_packet(write_pack);
-                } else if let Err(err) = write_pack {
-                    log::error!("phy: failed to allocate send packet: {}", err);
-                }
+            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+        let mut buffer = vec![0; self.mtu];
+        loop {
+            match reader.read(&mut buffer[..]) {
+                Ok(len) => match self.wintun_session.allocate_send_packet(len as u16) {
+                    Ok(mut write_pack) => {
+                        write_pack.bytes_mut().copy_from_slice(&buffer[..len]);
+                        self.wintun_session.send_packet(write_pack);
+                    }
+                    Err(err) => {
+                        log::error!("Wintun: failed to allocate send packet: {}", err);
+                    }
+                },
+                Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
+                Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
+                Err(err) => return Err(err),
             }
-            Err(err) if err.kind() == io::ErrorKind::WouldBlock => {}
-            Err(err) => return Err(err),
         }
         Ok(())
     }
@@ -307,7 +309,7 @@ impl phy::TxToken for TxToken {
         match self.pipe_server.borrow_mut().write(&buffer[..]) {
             Ok(_) => {}
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                log::trace!("phy: tx failed due to WouldBlock")
+                log::trace!("Wintun TxToken: tx failed due to WouldBlock")
             }
             Err(err) => log::error!("{}", err),
         }
