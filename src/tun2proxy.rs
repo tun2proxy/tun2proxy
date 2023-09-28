@@ -577,7 +577,11 @@ impl<'a> TunToProxy<'a> {
         assert!(state.dns_over_tcp_expiry.is_some());
         state.dns_over_tcp_expiry = Some(Self::common_udp_life_timeout());
 
-        let vecbuf = Self::read_data_from_tcp_stream(&mut state.mio_stream)?;
+        let mut vecbuf = vec![];
+        Self::read_data_from_tcp_stream(&mut state.mio_stream, |data| {
+            vecbuf.extend_from_slice(data);
+            Ok(())
+        })?;
 
         let data_event = IncomingDataEvent {
             direction: IncomingDirection::FromServer,
@@ -1042,7 +1046,11 @@ impl<'a> TunToProxy<'a> {
                     let state = self.connection_map.get_mut(&conn_info).ok_or(e)?;
 
                     // TODO: Move this reading process to its own function.
-                    let vecbuf = Self::read_data_from_tcp_stream(&mut state.mio_stream)?;
+                    let mut vecbuf = vec![];
+                    Self::read_data_from_tcp_stream(&mut state.mio_stream, |data| {
+                        vecbuf.extend_from_slice(data);
+                        Ok(())
+                    })?;
 
                     let data_event = IncomingDataEvent {
                         direction: IncomingDirection::FromServer,
@@ -1108,17 +1116,19 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn read_data_from_tcp_stream(stream: &mut TcpStream) -> Result<Vec<u8>> {
-        let mut vecbuf = Vec::<u8>::new();
+    fn read_data_from_tcp_stream<F>(stream: &mut TcpStream, mut callback: F) -> Result<()>
+    where
+        F: FnMut(&mut [u8]) -> Result<()>,
+    {
+        let mut tmp: [u8; 4096] = [0_u8; 4096];
         loop {
-            let mut tmp: [u8; 4096] = [0_u8; 4096];
             match stream.read(&mut tmp) {
                 Ok(0) => {
                     // The tcp connection closed
                     break;
                 }
                 Ok(read_result) => {
-                    vecbuf.extend_from_slice(&tmp[0..read_result]);
+                    callback(&mut tmp[0..read_result])?;
                 }
                 Err(error) => {
                     if error.kind() == std::io::ErrorKind::WouldBlock {
@@ -1133,7 +1143,7 @@ impl<'a> TunToProxy<'a> {
                 }
             };
         }
-        Ok(vecbuf)
+        Ok(())
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
