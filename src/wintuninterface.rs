@@ -194,16 +194,16 @@ impl WinTunInterface {
             .iter()
             .find(|addr| addr.is_ipv4())
             .ok_or_else(|| io::Error::new(io::ErrorKind::Other, "No ipv4 gateway found"))?;
+        let old_gateway = old_gateway.ip();
+        self.old_gateway = Some(old_gateway);
 
         // 3. route the bypass ip to the old gateway
         // command: `route add bypass_ip old_gateway metric 1`
-        let bypass_ip = bypass_ip.unwrap().to_string();
-        let old_gateway = old_gateway.ip();
-        let args = &["add", &bypass_ip, &old_gateway.to_string(), "metric", "1"];
-        run_command("route", args)?;
-        log::info!("route {:?}", args);
-
-        self.old_gateway = Some(old_gateway);
+        if let Some(bypass_ip) = bypass_ip {
+            let args = &["add", &bypass_ip.to_string(), &old_gateway.to_string(), "metric", "1"];
+            run_command("route", args)?;
+            log::info!("route {:?}", args);
+        }
 
         Ok(())
     }
@@ -345,8 +345,13 @@ impl event::Source for NamedPipeSource {
 pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<()> {
     let out = std::process::Command::new(command).args(args).output()?;
     if !out.status.success() {
-        let info = format!("{} failed: {}", command, String::from_utf8_lossy(&out.stderr));
-        return Err(io::Error::new(io::ErrorKind::Other, info));
+        let err = String::from_utf8_lossy(if out.stderr.is_empty() {
+            &out.stdout
+        } else {
+            &out.stderr
+        });
+        let info = format!("{} failed with: \"{}\"", command, err);
+        return Err(std::io::Error::new(std::io::ErrorKind::Other, info));
     }
     Ok(())
 }
