@@ -105,16 +105,18 @@ impl WinTunInterface {
         let reader_thread = std::thread::spawn(move || {
             let block = || -> Result<(), Box<dyn std::error::Error>> {
                 loop {
+                    // read data from tunnel interface
                     let packet = reader_session.receive_blocking()?;
                     let bytes = packet.bytes();
 
+                    // write data to named pipe_server
                     let result = { pipe_client_clone.lock()?.write(bytes) };
                     match result {
                         Ok(_) => {}
                         Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                            log::trace!("Wintun reader_thread: tx failed due to WouldBlock")
+                            log::trace!("Wintun pipe_client write data len {} WouldBlock", bytes.len())
                         }
-                        Err(err) => log::error!("{}", err),
+                        Err(err) => log::error!("Wintun pipe_client write data len {} error \"{}\"", bytes.len(), err),
                     }
                 }
             };
@@ -145,10 +147,12 @@ impl WinTunInterface {
             .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
         let mut buffer = vec![0; self.mtu];
         loop {
+            // some data arieved to pipe_client from pipe_server
             match reader.read(&mut buffer[..]) {
                 Ok(len) => match self.wintun_session.allocate_send_packet(len as u16) {
                     Ok(mut write_pack) => {
                         write_pack.bytes_mut().copy_from_slice(&buffer[..len]);
+                        // write data to tunnel interface
                         self.wintun_session.send_packet(write_pack);
                     }
                     Err(err) => {
@@ -309,9 +313,9 @@ impl phy::TxToken for TxToken {
         match self.pipe_server.borrow_mut().write(&buffer[..]) {
             Ok(_) => {}
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                log::trace!("Wintun TxToken: tx failed due to WouldBlock")
+                log::trace!("Wintun TxToken: WouldBlock data len: {}", len)
             }
-            Err(err) => log::error!("{}", err),
+            Err(err) => log::error!("Wintun TxToken data len {} error \"{}\"", len, err),
         }
         result
     }
@@ -375,6 +379,7 @@ pub(crate) fn set_interface_dns_settings(interface: GUID, dns: &[IpAddr]) -> io:
 pub(crate) fn get_active_network_interface_gateways() -> io::Result<Vec<SocketAddr>> {
     let mut addrs = vec![];
     get_adapters_addresses(|adapter| {
+        log::trace!("adapter: {:?}", unsafe { adapter.FriendlyName.to_string() });
         if adapter.OperStatus == IfOperStatusUp && adapter.IfType == IF_TYPE_IEEE80211 {
             let mut current_gateway = adapter.FirstGatewayAddress;
             while !current_gateway.is_null() {
