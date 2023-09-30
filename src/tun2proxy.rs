@@ -785,8 +785,9 @@ impl<'a> TunToProxy<'a> {
         udp_associate: bool,
     ) -> Result<ConnectionState> {
         let mut socket = tcp::Socket::new(
-            tcp::SocketBuffer::new(vec![0; 1024 * 128]),
-            tcp::SocketBuffer::new(vec![0; 1024 * 128]),
+            // TODO: Look into how the buffer size affects IP header length and fragmentation
+            tcp::SocketBuffer::new(vec![0; 1024]),
+            tcp::SocketBuffer::new(vec![0; 1024]),
         );
         socket.set_ack_delay(None);
         socket.listen(dst)?;
@@ -794,7 +795,7 @@ impl<'a> TunToProxy<'a> {
 
         let mut client = TcpStream::connect(server_addr)?;
         let token = self.new_token();
-        let i = Interest::READABLE;
+        let i = Interest::READABLE | Interest::WRITABLE;
         self.poll.registry().register(&mut client, token, i)?;
 
         let expiry = if udp_associate {
@@ -819,7 +820,7 @@ impl<'a> TunToProxy<'a> {
             proxy_handler,
             close_state: 0,
             wait_read: true,
-            wait_write: false,
+            wait_write: true,
             udp_acco_expiry: expiry,
             udp_socket,
             udp_token,
@@ -887,8 +888,8 @@ impl<'a> TunToProxy<'a> {
                     state.wait_write = true;
                     Self::update_mio_socket_interest(&mut self.poll, state)?;
                 }
-                Err(error) => {
-                    return Err(error.into());
+                Err(_) => {
+                    return Ok(());
                 }
             }
         }
