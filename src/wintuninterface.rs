@@ -21,8 +21,8 @@ use windows::{
         NetworkManagement::{
             IpHelper::{
                 GetAdaptersAddresses, SetInterfaceDnsSettings, DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1,
-                DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_INCLUDE_PREFIX, IF_TYPE_IEEE80211,
-                IP_ADAPTER_ADDRESSES_LH,
+                DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_INCLUDE_PREFIX, IF_TYPE_ETHERNET_CSMACD,
+                IF_TYPE_IEEE80211, IP_ADAPTER_ADDRESSES_LH,
             },
             Ndis::IfOperStatusUp,
         },
@@ -379,8 +379,9 @@ pub(crate) fn set_interface_dns_settings(interface: GUID, dns: &[IpAddr]) -> io:
 pub(crate) fn get_active_network_interface_gateways() -> io::Result<Vec<SocketAddr>> {
     let mut addrs = vec![];
     get_adapters_addresses(|adapter| {
-        log::trace!("adapter: {:?}", unsafe { adapter.FriendlyName.to_string() });
-        if adapter.OperStatus == IfOperStatusUp && adapter.IfType == IF_TYPE_IEEE80211 {
+        if adapter.OperStatus == IfOperStatusUp
+            && [IF_TYPE_ETHERNET_CSMACD, IF_TYPE_IEEE80211].contains(&adapter.IfType)
+        {
             let mut current_gateway = adapter.FirstGatewayAddress;
             while !current_gateway.is_null() {
                 let gateway = unsafe { &*current_gateway };
