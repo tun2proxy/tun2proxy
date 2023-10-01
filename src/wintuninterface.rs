@@ -115,7 +115,7 @@ impl WinTunInterface {
 
                     // Take the old data from pipe_client_cache and append the new data
                     let old_data = pipe_client_cache_clone.lock()?.drain(..).collect::<Vec<u8>>();
-                    let bytes = old_data.into_iter().chain(bytes.into_iter()).collect::<Vec<u8>>();
+                    let bytes = old_data.into_iter().chain(bytes).collect::<Vec<u8>>();
                     if bytes.is_empty() {
                         continue;
                     }
@@ -131,7 +131,7 @@ impl WinTunInterface {
                             }
                         }
                         Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                            log::trace!("Wintun pipe_client write data len {} WouldBlock", len);
+                            log::trace!("Wintun pipe_client write WouldBlock (1) len {}", len);
                             pipe_client_cache_clone.lock()?.extend_from_slice(&bytes);
                         }
                         Err(err) => log::error!("Wintun pipe_client write data len {} error \"{}\"", len, err),
@@ -163,18 +163,16 @@ impl WinTunInterface {
     pub fn pipe_client_event(&self, event: &event::Event) -> Result<(), io::Error> {
         if event.is_readable() {
             self.pipe_client_event_readable()
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
         } else if event.is_writable() {
             self.pipe_client_event_writable()
-        } else {
-            Ok(())
+                .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
         }
+        Ok(())
     }
 
-    fn pipe_client_event_readable(&self) -> Result<(), io::Error> {
-        let mut reader = self
-            .pipe_client
-            .lock()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?;
+    fn pipe_client_event_readable(&self) -> Result<(), Box<dyn std::error::Error + '_>> {
+        let mut reader = self.pipe_client.lock()?;
         let mut buffer = vec![0; self.mtu];
         loop {
             // some data arieved to pipe_client from pipe_server
@@ -191,46 +189,31 @@ impl WinTunInterface {
                 },
                 Err(err) if err.kind() == io::ErrorKind::WouldBlock => break,
                 Err(err) if err.kind() == io::ErrorKind::Interrupted => continue,
-                Err(err) => return Err(err),
+                Err(err) => return Err(err.into()),
             }
         }
         Ok(())
     }
 
-    fn pipe_client_event_writable(&self) -> Result<(), io::Error> {
-        let cache = self
-            .pipe_client_cache
-            .lock()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            .drain(..)
-            .collect::<Vec<u8>>();
+    fn pipe_client_event_writable(&self) -> Result<(), Box<dyn std::error::Error + '_>> {
+        let cache = self.pipe_client_cache.lock()?.drain(..).collect::<Vec<u8>>();
         if cache.is_empty() {
             return Ok(());
         }
-        let result = self
-            .pipe_client
-            .lock()
-            .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-            .write(&cache[..]);
+        let len = cache.len();
+        let result = self.pipe_client.lock()?.write(&cache[..]);
         match result {
-            Ok(len) => {
-                let len0 = cache.len();
-                if len < len0 {
-                    log::trace!("Wintun pipe_client write data {} less than buffer {}", len, len0);
-                    self.pipe_client_cache
-                        .lock()
-                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-                        .extend_from_slice(&cache[len..]);
+            Ok(n) => {
+                if n < len {
+                    log::trace!("Wintun pipe_client write data {} less than buffer {}", n, len);
+                    self.pipe_client_cache.lock()?.extend_from_slice(&cache[n..]);
                 }
             }
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
-                log::trace!("Wintun pipe_client write data len {} WouldBlock", cache.len());
-                self.pipe_client_cache
-                    .lock()
-                    .map_err(|e| io::Error::new(io::ErrorKind::Other, e.to_string()))?
-                    .extend_from_slice(&cache);
+                log::trace!("Wintun pipe_client write WouldBlock (2) len {}", len);
+                self.pipe_client_cache.lock()?.extend_from_slice(&cache);
             }
-            Err(err) => log::error!("Wintun pipe_client write data len {} error \"{}\"", cache.len(), err),
+            Err(err) => log::error!("Wintun pipe_client write data len {} error \"{}\"", len, err),
         }
         Ok(())
     }
@@ -385,25 +368,26 @@ impl phy::TxToken for TxToken {
             .pipe_server_cache
             .borrow_mut()
             .drain(..)
-            .chain(buffer.into_iter())
+            .chain(buffer)
             .collect::<Vec<_>>();
         if buffer.is_empty() {
+            // log::trace!("Wintun TxToken (pipe_server) is empty");
             return result;
         }
+        let len = buffer.len();
 
         match self.pipe_server.borrow_mut().write(&buffer[..]) {
-            Ok(len) => {
-                let len0 = buffer.len();
-                if len < len0 {
-                    log::trace!("Wintun TxToken consumed data len {} less than buffer len {}", len, len0);
-                    self.pipe_server_cache.borrow_mut().extend_from_slice(&buffer[len..]);
+            Ok(n) => {
+                if n < len {
+                    log::trace!("Wintun TxToken (pipe_server) sent {} less than buffer len {}", n, len);
+                    self.pipe_server_cache.borrow_mut().extend_from_slice(&buffer[n..]);
                 }
             }
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
                 self.pipe_server_cache.borrow_mut().extend_from_slice(&buffer[..]);
-                log::trace!("Wintun TxToken: WouldBlock data len: {}", len)
+                log::trace!("Wintun TxToken (pipe_server) WouldBlock data len: {}", len)
             }
-            Err(err) => log::error!("Wintun TxToken data len {} error \"{}\"", len, err),
+            Err(err) => log::error!("Wintun TxToken (pipe_server) len {} error \"{}\"", len, err),
         }
         result
     }

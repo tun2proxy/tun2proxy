@@ -257,7 +257,7 @@ impl<'a> TunToProxy<'a> {
         };
 
         #[cfg(target_os = "windows")]
-        tun.setup_config(options.bypass_ip, options.dns_addr)?;
+        tun.setup_config(options.bypass, options.dns_addr)?;
 
         let poll = Poll::new()?;
 
@@ -938,8 +938,9 @@ impl<'a> TunToProxy<'a> {
                 rx_token.consume(|frame| self.receive_tun(frame))?;
             }
         }
+        #[cfg(target_os = "windows")]
         if event.is_writable() {
-            log::trace!("tun send");
+            // log::trace!("Tun writable");
             let tx_token = self.tun.transmit(Instant::now()).ok_or("tx token not available")?;
             // Just consume the cached packets, do nothing else.
             tx_token.consume(0, |_buf| {});
