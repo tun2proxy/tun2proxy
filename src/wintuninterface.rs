@@ -57,6 +57,7 @@ pub struct WinTunInterface {
     mtu: usize,
     medium: Medium,
     pipe_server: Rc<RefCell<NamedPipe>>,
+    pipe_server_cache: Rc<RefCell<Vec<u8>>>,
     pipe_client: Arc<Mutex<NamedPipe>>,
     wintun_reader_thread: Option<JoinHandle<()>>,
     old_gateway: Option<IpAddr>,
@@ -80,12 +81,12 @@ impl event::Source for WinTunInterface {
 }
 
 impl WinTunInterface {
-    pub fn new(name: &str, medium: Medium) -> io::Result<WinTunInterface> {
+    pub fn new(tun_name: &str, medium: Medium) -> io::Result<WinTunInterface> {
         let wintun = unsafe { wintun::load() }.map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
-        let tun_name = name;
+        let guid = 324435345345345345_u128;
         let adapter = match wintun::Adapter::open(&wintun, tun_name) {
             Ok(a) => a,
-            Err(_) => wintun::Adapter::create(&wintun, tun_name, tun_name, None)
+            Err(_) => wintun::Adapter::create(&wintun, tun_name, tun_name, Some(guid))
                 .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?,
         };
 
@@ -130,6 +131,7 @@ impl WinTunInterface {
             mtu,
             medium,
             pipe_server: Rc::new(RefCell::new(pipe_server)),
+            pipe_server_cache: Rc::new(RefCell::new(Vec::new())),
             pipe_client,
             wintun_reader_thread: Some(reader_thread),
             old_gateway: None,
@@ -140,7 +142,17 @@ impl WinTunInterface {
         self.pipe_client.clone()
     }
 
-    pub fn pipe_client_event(&self) -> Result<(), io::Error> {
+    pub fn pipe_client_event(&self, event: &event::Event) -> Result<(), io::Error> {
+        if event.is_readable() {
+            self.pipe_client_event_readable()
+        } else if event.is_writable() {
+            self.pipe_client_event_writable()
+        } else {
+            Ok(())
+        }
+    }
+
+    fn pipe_client_event_readable(&self) -> Result<(), io::Error> {
         let mut reader = self
             .pipe_client
             .lock()
@@ -164,6 +176,10 @@ impl WinTunInterface {
                 Err(err) => return Err(err),
             }
         }
+        Ok(())
+    }
+
+    fn pipe_client_event_writable(&self) -> Result<(), io::Error> {
         Ok(())
     }
 
@@ -268,6 +284,7 @@ impl Device for WinTunInterface {
                 let rx = RxToken { buffer };
                 let tx = TxToken {
                     pipe_server: self.pipe_server.clone(),
+                    pipe_server_cache: self.pipe_server_cache.clone(),
                 };
                 Some((rx, tx))
             }
@@ -279,6 +296,7 @@ impl Device for WinTunInterface {
     fn transmit(&mut self, _timestamp: Instant) -> Option<Self::TxToken<'_>> {
         Some(TxToken {
             pipe_server: self.pipe_server.clone(),
+            pipe_server_cache: self.pipe_server_cache.clone(),
         })
     }
 }
@@ -300,6 +318,7 @@ impl phy::RxToken for RxToken {
 #[doc(hidden)]
 pub struct TxToken {
     pipe_server: Rc<RefCell<NamedPipe>>,
+    pipe_server_cache: Rc<RefCell<Vec<u8>>>,
 }
 
 impl phy::TxToken for TxToken {
@@ -310,9 +329,26 @@ impl phy::TxToken for TxToken {
         let mut buffer = vec![0; len];
         let result = f(&mut buffer);
 
+        let buffer = self
+            .pipe_server_cache
+            .borrow_mut()
+            .drain(..)
+            .chain(buffer.into_iter())
+            .collect::<Vec<_>>();
+        if buffer.is_empty() {
+            return result;
+        }
+
         match self.pipe_server.borrow_mut().write(&buffer[..]) {
-            Ok(_) => {}
+            Ok(len) => {
+                let len0 = buffer.len();
+                if len < len0 {
+                    log::trace!("Wintun TxToken consumed data len {} less than buffer len {}", len, len0);
+                    self.pipe_server_cache.borrow_mut().extend_from_slice(&buffer[len..]);
+                }
+            }
             Err(err) if err.kind() == io::ErrorKind::WouldBlock => {
+                self.pipe_server_cache.borrow_mut().extend_from_slice(&buffer[..]);
                 log::trace!("Wintun TxToken: WouldBlock data len: {}", len)
             }
             Err(err) => log::error!("Wintun TxToken data len {} error \"{}\"", len, err),

@@ -267,9 +267,10 @@ impl<'a> TunToProxy<'a> {
 
         #[cfg(target_os = "windows")]
         {
-            poll.registry().register(&mut tun, TUN_TOKEN, Interest::READABLE)?;
+            let interest = Interest::READABLE | Interest::WRITABLE;
+            poll.registry().register(&mut tun, TUN_TOKEN, interest)?;
             let mut pipe = NamedPipeSource(tun.pipe_client());
-            poll.registry().register(&mut pipe, PIPE_TOKEN, Interest::READABLE)?;
+            poll.registry().register(&mut pipe, PIPE_TOKEN, interest)?;
         }
 
         #[cfg(target_family = "unix")]
@@ -937,14 +938,18 @@ impl<'a> TunToProxy<'a> {
                 rx_token.consume(|frame| self.receive_tun(frame))?;
             }
         }
+        if event.is_writable() {
+            log::trace!("tun send");
+            let tx_token = self.tun.transmit(Instant::now()).ok_or("tx token not available")?;
+            // Just consume the cached packets, do nothing else.
+            tx_token.consume(0, |_buf| {});
+        }
         Ok(())
     }
 
-    fn pipe_event(&mut self, event: &Event) -> Result<(), Error> {
-        if event.is_readable() {
-            #[cfg(target_os = "windows")]
-            self.tun.pipe_client_event()?;
-        }
+    fn pipe_event(&mut self, _event: &Event) -> Result<(), Error> {
+        #[cfg(target_os = "windows")]
+        self.tun.pipe_client_event(_event)?;
         Ok(())
     }
 
