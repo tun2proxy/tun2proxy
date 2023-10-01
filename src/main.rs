@@ -42,8 +42,8 @@ struct Args {
     setup: Option<ArgSetup>,
 
     /// Public proxy IP used in routing setup which should bypassing the tunnel
-    #[arg(long, value_name = "IP")]
-    bypass_ip: Option<IpAddr>,
+    #[arg(short, long, value_name = "IP")]
+    bypass: Option<IpAddr>,
 
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
@@ -116,7 +116,7 @@ fn main() -> ExitCode {
         }
     };
 
-    let bypass_tun_ip = match args.bypass_ip {
+    let bypass_tun_ip = match args.bypass {
         Some(addr) => addr,
         None => args.proxy.addr.ip(),
     };

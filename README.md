@@ -99,7 +99,7 @@ Options:
       --dns-addr <IP>      DNS resolver address [default: 8.8.8.8]
   -6, --ipv6-enabled       IPv6 enabled
   -s, --setup <method>     Routing and system setup [possible values: auto]
-      --bypass-ip <IP>     Public proxy IP used in routing setup which should bypassing the tunnel
+  -b, --bypass <IP>        Public proxy IP used in routing setup which should bypassing the tunnel
   -v, --verbosity <level>  Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
   -h, --help               Print help
   -V, --version            Print version
