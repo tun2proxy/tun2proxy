@@ -3,7 +3,7 @@
 
 run() {
   if [ -n "$BYPASS_IP" ]; then
-    BYPASS_IP="--bypass-ip $BYPASS_IP"
+    BYPASS_IP="--bypass $BYPASS_IP"
   fi
 
   if [ -n "$DNS" ]; then
