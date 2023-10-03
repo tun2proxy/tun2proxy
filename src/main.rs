@@ -42,8 +42,8 @@ struct Args {
     setup: Option<ArgSetup>,
 
     /// Public proxy IP used in routing setup which should bypassing the tunnel
-    #[arg(long, value_name = "IP")]
-    bypass_ip: Option<IpAddr>,
+    #[arg(short, long, value_name = "IP")]
+    bypass: Option<IpAddr>,
 
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
@@ -116,22 +116,22 @@ fn main() -> ExitCode {
         }
     };
 
-    let bypass_tun_ip = match args.bypass_ip {
+    let bypass_tun_ip = match args.bypass {
         Some(addr) => addr,
         None => args.proxy.addr.ip(),
     };
-    options = options.with_bypass_ip(Some(bypass_tun_ip));
+    options = options.with_bypass(Some(bypass_tun_ip));
 
     let block = || -> Result<(), Error> {
         #[cfg(target_os = "linux")]
         {
             let mut setup: Setup;
             if args.setup == Some(ArgSetup::Auto) {
-                let bypass_tun_ip = match args.bypass_ip {
+                let bypass_tun_ip = match args.bypass {
                     Some(addr) => addr,
                     None => args.proxy.addr.ip(),
                 };
-                setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs(), args.bypass_ip.is_some());
+                setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs(), args.bypass.is_some());
 
                 setup.configure()?;
 

@@ -1154,7 +1154,7 @@ impl<'a> TunToProxy<'a> {
                         count += 1;
                     }
                     Err(err) => {
-                        println!("Failed to send exit signal: \"{}\"", err);
+                        log::error!("Failed to send exit signal: \"{}\"", err);
                         break;
                     }
                 }
