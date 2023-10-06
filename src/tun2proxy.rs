@@ -174,6 +174,7 @@ const CLIENT_WRITE_CLOSED: u8 = 2;
 
 const UDP_ASSO_TIMEOUT: u64 = 10; // seconds
 const DNS_PORT: u16 = 53;
+const IP_PACKAGE_MAX_SIZE: usize = 0xFFFF;
 
 struct ConnectionState {
     smoltcp_handle: SocketHandle,
@@ -436,6 +437,11 @@ impl<'a> TunToProxy<'a> {
             let socket = self.sockets.get_mut::<tcp::Socket>(state.smoltcp_handle);
             let mut error = Ok(());
             while socket.can_recv() && error.is_ok() {
+                let dir = Direction::Outgoing(OutgoingDirection::ToServer);
+                if state.proxy_handler.data_len(dir) >= IP_PACKAGE_MAX_SIZE {
+                    break;
+                }
+
                 socket.recv(|data| {
                     let event = IncomingDataEvent {
                         direction: IncomingDirection::FromClient,
