@@ -6,6 +6,7 @@ use smoltcp::wire::IpCidr;
 use std::{
     convert::TryFrom,
     ffi::OsStr,
+    fs,
     io::BufRead,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     os::unix::io::RawFd,
@@ -22,6 +23,8 @@ pub struct Setup {
     set_up: bool,
     delete_proxy_route: bool,
     child: libc::pid_t,
+    unmount_resolvconf: bool,
+    restore_resolvconf_data: Option<Vec<u8>>,
 }
 
 pub fn get_default_cidrs() -> [IpCidr; 4] {
@@ -86,6 +89,8 @@ impl Setup {
             set_up: false,
             delete_proxy_route: false,
             child: 0,
+            unmount_resolvconf: false,
+            restore_resolvconf_data: None,
         }
     }
 
@@ -155,13 +160,7 @@ impl Setup {
         Ok(false)
     }
 
-    fn setup_resolv_conf() -> Result<(), Error> {
-        let fd = nix::fcntl::open(
-            "/tmp/tun2proxy-resolv.conf",
-            nix::fcntl::OFlag::O_RDWR | nix::fcntl::OFlag::O_CLOEXEC | nix::fcntl::OFlag::O_CREAT,
-            nix::sys::stat::Mode::from_bits(0o644).unwrap(),
-        )?;
-        let data = "nameserver 198.18.0.1\n".as_bytes();
+    fn write_buffer_to_fd(fd: RawFd, data: &[u8]) -> Result<(), Error> {
         let mut written = 0;
         loop {
             if written >= data.len() {
@@ -169,15 +168,47 @@ impl Setup {
             }
             written += nix::unistd::write(fd, &data[written..])?;
         }
+        Ok(())
+    }
+
+    fn write_nameserver(fd: RawFd) -> Result<(), Error> {
+        let data = "nameserver 198.18.0.1\n".as_bytes();
+        Self::write_buffer_to_fd(fd, data)?;
         nix::sys::stat::fchmod(fd, nix::sys::stat::Mode::from_bits(0o444).unwrap())?;
-        let source = format!("/proc/self/fd/{}", fd);
-        nix::mount::mount(
-            source.as_str().into(),
-            "/etc/resolv.conf",
-            "".into(),
-            nix::mount::MsFlags::MS_BIND,
-            "".into(),
+        Ok(())
+    }
+
+    fn setup_resolv_conf(&mut self) -> Result<(), Error> {
+        let mut fd = nix::fcntl::open(
+            "/tmp/tun2proxy-resolv.conf",
+            nix::fcntl::OFlag::O_RDWR | nix::fcntl::OFlag::O_CLOEXEC | nix::fcntl::OFlag::O_CREAT,
+            nix::sys::stat::Mode::from_bits(0o644).unwrap(),
         )?;
+        Self::write_nameserver(fd)?;
+        let source = format!("/proc/self/fd/{}", fd);
+        if Ok(())
+            != nix::mount::mount(
+                source.as_str().into(),
+                "/etc/resolv.conf",
+                "".into(),
+                nix::mount::MsFlags::MS_BIND,
+                "".into(),
+            )
+        {
+            log::warn!("failed to bind mount custom resolv.conf onto /etc/resolv.conf, resorting to direct write");
+            nix::unistd::close(fd)?;
+
+            self.restore_resolvconf_data = Some(fs::read("/etc/resolv.conf")?);
+
+            fd = nix::fcntl::open(
+                "/etc/resolv.conf",
+                nix::fcntl::OFlag::O_WRONLY | nix::fcntl::OFlag::O_CLOEXEC | nix::fcntl::OFlag::O_TRUNC,
+                nix::sys::stat::Mode::from_bits(0o644).unwrap(),
+            )?;
+            Self::write_nameserver(fd)?;
+        } else {
+            self.unmount_resolvconf = true;
+        }
         nix::unistd::close(fd)?;
         Ok(())
     }
@@ -209,7 +240,12 @@ impl Setup {
                 .args(["route", "del", self.tunnel_bypass_addr.to_string().as_str()])
                 .output();
         }
-        nix::mount::umount("/etc/resolv.conf")?;
+        if self.unmount_resolvconf {
+            nix::mount::umount("/etc/resolv.conf")?;
+        }
+        if let Some(data) = &self.restore_resolvconf_data {
+            fs::write("/etc/resolv.conf", data)?;
+        }
         Ok(())
     }
 
@@ -234,7 +270,7 @@ impl Setup {
 
             let delete_proxy_route = self.route_proxy_address()?;
             self.delete_proxy_route = delete_proxy_route;
-            Self::setup_resolv_conf()?;
+            self.setup_resolv_conf()?;
             self.add_tunnel_routes()?;
 
             // Signal to child that we are done setting up everything.
