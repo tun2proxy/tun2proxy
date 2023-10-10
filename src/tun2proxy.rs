@@ -173,6 +173,7 @@ const CLIENT_WRITE_CLOSED: u8 = 2;
 
 const UDP_ASSO_TIMEOUT: u64 = 10; // seconds
 const DNS_PORT: u16 = 53;
+const IP_PACKAGE_MAX_SIZE: usize = 0xFFFF;
 
 struct ConnectionState {
     smoltcp_handle: SocketHandle,
@@ -196,7 +197,7 @@ pub(crate) trait ProxyHandler {
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent;
     fn connection_established(&self) -> bool;
-    fn have_data(&mut self, dir: Direction) -> bool;
+    fn data_len(&self, dir: Direction) -> usize;
     fn reset_connection(&self) -> bool;
     fn get_udp_associate(&self) -> Option<SocketAddr>;
 }
@@ -406,13 +407,10 @@ impl<'a> TunToProxy<'a> {
             None => return Ok(()),
         };
         let mut closed_ends = 0;
+        let handler = state.proxy_handler.as_ref();
         if (state.close_state & SERVER_WRITE_CLOSED) == SERVER_WRITE_CLOSED
-            && !state
-                .proxy_handler
-                .have_data(Direction::Incoming(IncomingDirection::FromServer))
-            && !state
-                .proxy_handler
-                .have_data(Direction::Outgoing(OutgoingDirection::ToClient))
+            && handler.data_len(Direction::Incoming(IncomingDirection::FromServer)) == 0
+            && handler.data_len(Direction::Outgoing(OutgoingDirection::ToClient)) == 0
         {
             // Close tun interface
             let socket = self.sockets.get_mut::<tcp::Socket>(state.smoltcp_handle);
@@ -422,12 +420,8 @@ impl<'a> TunToProxy<'a> {
         }
 
         if (state.close_state & CLIENT_WRITE_CLOSED) == CLIENT_WRITE_CLOSED
-            && !state
-                .proxy_handler
-                .have_data(Direction::Incoming(IncomingDirection::FromClient))
-            && !state
-                .proxy_handler
-                .have_data(Direction::Outgoing(OutgoingDirection::ToServer))
+            && handler.data_len(Direction::Incoming(IncomingDirection::FromClient)) == 0
+            && handler.data_len(Direction::Outgoing(OutgoingDirection::ToServer)) == 0
         {
             // Close remote server
             if let Err(err) = state.mio_stream.shutdown(Shutdown::Write) {
@@ -454,6 +448,11 @@ impl<'a> TunToProxy<'a> {
             let socket = self.sockets.get_mut::<tcp::Socket>(state.smoltcp_handle);
             let mut error = Ok(());
             while socket.can_recv() && error.is_ok() {
+                let dir = Direction::Outgoing(OutgoingDirection::ToServer);
+                if state.proxy_handler.data_len(dir) >= IP_PACKAGE_MAX_SIZE {
+                    break;
+                }
+
                 socket.recv(|data| {
                     let event = IncomingDataEvent {
                         direction: IncomingDirection::FromClient,
