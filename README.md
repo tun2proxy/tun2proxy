@@ -119,16 +119,27 @@ Next, start a container from the tun2proxy image:
 
 ```bash
 docker run -d \
-	-e PROXY=PROXY_TYPE://PROXY_IP:PROXY_PORT \
+	-e PROXY=proto://[username[:password]@]host:port \
 	-v /dev/net/tun:/dev/net/tun \
-	--sysctl net.ipv6.conf.all.disable_ipv6=0 \
 	--sysctl net.ipv6.conf.default.disable_ipv6=0 \
 	--cap-add NET_ADMIN \
 	--name tun2proxy \
 	tun2proxy
 ```
 
-You can then provide the running container's network to another worker container by sharing the network namespace:
+container env list
+
+| container env | Default | program option          | mean                                                         |
+| ------------- | ------- | ----------------------- | ------------------------------------------------------------ |
+| TUN           | tun0    | -t, --tun <name>        | Name of the tun interface [default: tun0]                    |
+| PROXY         | None    | -p, --proxy <URL>       | Proxy URL in the form proto://[username[:password]@]host:port |
+| DNS           | virtual | -d, --dns <strategy>    | DNS handling strategy [default: virtual] [possible values: virtual, over-tcp, direct] |
+| MODE          | auto    | -s, --setup <method>    | Routing and system setup [possible values: auto]             |
+| BYPASS_IP     | None    | -b, --bypass <IP>       | Public proxy IP used in routing setup which should bypassing the tunnel |
+| VERBOSITY     | info    | -v, --verbosity <level> | Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace] |
+|               |         |                         |                                                              |
+
+You can then provide the running container's network to another worker container by sharing the network namespace (like kubernetes sidecar):
 
 ```bash
 docker run -it \
