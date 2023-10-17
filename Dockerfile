@@ -19,6 +19,7 @@ ENV PROXY=
 ENV DNS=virtual
 ENV MODE=auto
 ENV BYPASS_IP=
+ENV VERBOSITY=info
 
 RUN apt update && apt install -y iproute2 curl && apt clean all
 
