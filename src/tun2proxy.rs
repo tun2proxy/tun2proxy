@@ -258,7 +258,9 @@ impl<'a> TunToProxy<'a> {
         };
 
         #[cfg(target_os = "windows")]
-        tun.setup_config(options.bypass, options.dns_addr)?;
+        if options.setup {
+            tun.setup_config(options.bypass, options.dns_addr)?;
+        }
 
         let poll = Poll::new()?;
 
