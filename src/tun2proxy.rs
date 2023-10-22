@@ -792,8 +792,8 @@ impl<'a> TunToProxy<'a> {
         #[cfg(any(target_os = "ios", target_os = "macos", target_os = "windows"))]
         let mut socket = tcp::Socket::new(
             // TODO: Look into how the buffer size affects IP header length and fragmentation
-            tcp::SocketBuffer::new(vec![0; 1024]),
-            tcp::SocketBuffer::new(vec![0; 1024]),
+            tcp::SocketBuffer::new(vec![0; 1024 * 2]),
+            tcp::SocketBuffer::new(vec![0; 1024 * 2]),
         );
         socket.set_ack_delay(None);
         socket.listen(dst)?;
