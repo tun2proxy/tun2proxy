@@ -109,13 +109,20 @@ impl WinTunInterface {
         let reader_thread = std::thread::spawn(move || {
             let block = || -> Result<(), Box<dyn std::error::Error>> {
                 loop {
-                    // read data from tunnel interface
-                    let packet = reader_session.receive_blocking()?;
-                    let bytes = packet.bytes().to_vec();
-
                     // Take the old data from pipe_client_cache and append the new data
-                    let old_data = pipe_client_cache_clone.lock()?.drain(..).collect::<Vec<u8>>();
-                    let bytes = old_data.into_iter().chain(bytes).collect::<Vec<u8>>();
+                    let cached_data = pipe_client_cache_clone.lock()?.drain(..).collect::<Vec<u8>>();
+                    let bytes = if cached_data.len() >= mtu {
+                        // if the cached data is greater than mtu, then sleep 1ms and return the data
+                        std::thread::sleep(std::time::Duration::from_millis(1));
+                        cached_data
+                    } else {
+                        // read data from tunnel interface
+                        let packet = reader_session.receive_blocking()?;
+                        let bytes = packet.bytes().to_vec();
+                        // and append to the end of cached data
+                        cached_data.into_iter().chain(bytes).collect::<Vec<u8>>()
+                    };
+
                     if bytes.is_empty() {
                         continue;
                     }
