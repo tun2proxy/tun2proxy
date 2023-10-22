@@ -784,6 +784,12 @@ impl<'a> TunToProxy<'a> {
         proxy_handler: Box<dyn ProxyHandler>,
         udp_associate: bool,
     ) -> Result<ConnectionState> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        let mut socket = tcp::Socket::new(
+            tcp::SocketBuffer::new(vec![0; 1024 * 128]),
+            tcp::SocketBuffer::new(vec![0; 1024 * 128]),
+        );
+        #[cfg(any(target_os = "ios", target_os = "macos", target_os = "windows"))]
         let mut socket = tcp::Socket::new(
             // TODO: Look into how the buffer size affects IP header length and fragmentation
             tcp::SocketBuffer::new(vec![0; 1024]),
