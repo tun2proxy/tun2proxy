@@ -98,7 +98,7 @@ Options:
   -d, --dns <strategy>     DNS handling strategy [default: virtual] [possible values: virtual, over-tcp, direct]
       --dns-addr <IP>      DNS resolver address [default: 8.8.8.8]
   -6, --ipv6-enabled       IPv6 enabled
-  -s, --setup <method>     Routing and system setup [possible values: auto]
+  -s, --setup <method>     Routing and system setup [default: none] [possible values: none, auto]
   -b, --bypass <IP>        Public proxy IP used in routing setup which should bypassing the tunnel
   -v, --verbosity <level>  Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
   -h, --help               Print help
@@ -134,7 +134,7 @@ container env list
 | TUN           | tun0    | -t, --tun <name>        | Name of the tun interface [default: tun0]                    |
 | PROXY         | None    | -p, --proxy <URL>       | Proxy URL in the form proto://[username[:password]@]host:port |
 | DNS           | virtual | -d, --dns <strategy>    | DNS handling strategy [default: virtual] [possible values: virtual, over-tcp, direct] |
-| MODE          | auto    | -s, --setup <method>    | Routing and system setup [possible values: auto]             |
+| MODE          | auto    | -s, --setup <method>    | Routing and system setup [default: none] [possible values: none, auto] |
 | BYPASS_IP     | None    | -b, --bypass <IP>       | Public proxy IP used in routing setup which should bypassing the tunnel |
 | VERBOSITY     | info    | -v, --verbosity <level> | Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace] |
 |               |         |                         |                                                              |

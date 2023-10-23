@@ -38,7 +38,7 @@ struct Args {
     ipv6_enabled: bool,
 
     /// Routing and system setup
-    #[arg(short, long, value_name = "method", value_enum)]
+    #[arg(short, long, value_name = "method", value_enum, default_value = if cfg!(target_os = "linux") { "none" } else { "auto" })]
     setup: Option<ArgSetup>,
 
     /// Public proxy IP used in routing setup which should bypassing the tunnel
@@ -63,6 +63,7 @@ enum ArgDns {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 enum ArgSetup {
+    None,
     Auto,
 }
 
@@ -122,21 +123,20 @@ fn main() -> ExitCode {
     };
     options = options.with_bypass(Some(bypass_tun_ip));
 
+    options.setup = args.setup.map(|s| s == ArgSetup::Auto).unwrap_or(false);
+
     let block = || -> Result<(), Error> {
         #[cfg(target_os = "linux")]
-        {
-            let mut setup: Setup;
-            if args.setup == Some(ArgSetup::Auto) {
-                let bypass_tun_ip = match args.bypass {
-                    Some(addr) => addr,
-                    None => args.proxy.addr.ip(),
-                };
-                setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs(), args.bypass.is_some());
+        if options.setup {
+            let bypass_tun_ip = match args.bypass {
+                Some(addr) => addr,
+                None => args.proxy.addr.ip(),
+            };
+            let mut setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs(), args.bypass.is_some());
 
-                setup.configure()?;
+            setup.configure()?;
 
-                setup.drop_privileges()?;
-            }
+            setup.drop_privileges()?;
         }
 
         main_entry(&interface, &args.proxy, options)?;
