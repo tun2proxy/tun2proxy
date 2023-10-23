@@ -128,14 +128,8 @@ fn main() -> ExitCode {
     let block = || -> Result<(), Error> {
         #[cfg(target_os = "linux")]
         if options.setup {
-            let bypass_tun_ip = match args.bypass {
-                Some(addr) => addr,
-                None => args.proxy.addr.ip(),
-            };
             let mut setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs(), args.bypass.is_some());
-
             setup.configure()?;
-
             setup.drop_privileges()?;
         }
 
