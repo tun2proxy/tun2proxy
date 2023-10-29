@@ -259,7 +259,7 @@ impl<'a> TunToProxy<'a> {
 
         #[cfg(target_os = "windows")]
         if options.setup {
-            tun.setup_config(options.bypass, options.dns_addr)?;
+            tun.setup_config(&options.bypass, options.dns_addr)?;
         }
 
         let poll = Poll::new()?;

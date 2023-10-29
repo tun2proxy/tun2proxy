@@ -11,8 +11,10 @@ mod tests {
     use nix::sys::signal;
     use nix::unistd::Pid;
     use serial_test::serial;
+    use smoltcp::wire::IpCidr;
 
     use tun2proxy::setup::{get_default_cidrs, Setup};
+    use tun2proxy::util::str_to_cidr;
     use tun2proxy::{main_entry, NetworkInterface, Options, Proxy, ProxyType};
 
     #[derive(Clone, Debug)]
@@ -66,12 +68,17 @@ mod tests {
                         continue;
                     }
 
-                    let bypass_ip = match env::var("BYPASS_IP") {
-                        Err(_) => test.proxy.addr.ip(),
-                        Ok(ip_str) => IpAddr::from_str(ip_str.as_str()).unwrap(),
+                    let mut bypass_ips = Vec::<IpCidr>::new();
+
+                    match env::var("BYPASS_IP") {
+                        Err(_) => {
+                            let prefix_len = if test.proxy.addr.ip().is_ipv6() { 128 } else { 32 };
+                            bypass_ips.push(IpCidr::new(test.proxy.addr.ip().into(), prefix_len));
+                        }
+                        Ok(ip_str) => bypass_ips.push(str_to_cidr(&ip_str).expect("Invalid bypass IP")),
                     };
 
-                    let mut setup = Setup::new(TUN_TEST_DEVICE, &bypass_ip, get_default_cidrs(), false);
+                    let mut setup = Setup::new(TUN_TEST_DEVICE, bypass_ips, get_default_cidrs());
                     setup.configure().unwrap();
 
                     match fork::fork() {
