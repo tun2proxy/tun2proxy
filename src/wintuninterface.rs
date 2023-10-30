@@ -1,4 +1,5 @@
 use mio::{event, windows::NamedPipe, Interest, Registry, Token};
+use smoltcp::wire::IpCidr;
 use smoltcp::{
     phy::{self, Device, DeviceCapabilities, Medium},
     time::Instant,
@@ -225,7 +226,11 @@ impl WinTunInterface {
         Ok(())
     }
 
-    pub fn setup_config(&mut self, bypass_ip: Option<IpAddr>, dns_addr: Option<IpAddr>) -> Result<(), io::Error> {
+    pub fn setup_config<'a>(
+        &mut self,
+        bypass_ips: impl IntoIterator<Item = &'a IpCidr>,
+        dns_addr: Option<IpAddr>,
+    ) -> Result<(), io::Error> {
         let adapter = self.wintun_session.get_adapter();
 
         // Setup the adapter's address/mask/gateway
@@ -261,7 +266,7 @@ impl WinTunInterface {
 
         // 3. route the bypass ip to the old gateway
         // command: `route add bypass_ip old_gateway metric 1`
-        if let Some(bypass_ip) = bypass_ip {
+        for bypass_ip in bypass_ips {
             let args = &["add", &bypass_ip.to_string(), &old_gateway.to_string(), "metric", "1"];
             run_command("route", args)?;
             log::info!("route {:?}", args);

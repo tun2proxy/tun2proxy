@@ -99,7 +99,7 @@ Options:
       --dns-addr <IP>      DNS resolver address [default: 8.8.8.8]
   -6, --ipv6-enabled       IPv6 enabled
   -s, --setup <method>     Routing and system setup [default: none] [possible values: none, auto]
-  -b, --bypass <IP>        Public proxy IP used in routing setup which should bypassing the tunnel
+  -b, --bypass <IP|CIDR>   IPs and CIDRs used in routing setup which should bypass the tunnel
   -v, --verbosity <level>  Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
   -h, --help               Print help
   -V, --version            Print version
@@ -119,31 +119,17 @@ Next, start a container from the tun2proxy image:
 
 ```bash
 docker run -d \
-	-e PROXY=proto://[username[:password]@]host:port \
 	-v /dev/net/tun:/dev/net/tun \
 	--sysctl net.ipv6.conf.default.disable_ipv6=0 \
 	--cap-add NET_ADMIN \
 	--name tun2proxy \
-	tun2proxy
+	tun2proxy --proxy proto://[username[:password]@]host:port
 ```
-
-container env list
-
-| container env | Default | program option          | mean                                                         |
-| ------------- | ------- | ----------------------- | ------------------------------------------------------------ |
-| TUN           | tun0    | -t, --tun <name>        | Name of the tun interface [default: tun0]                    |
-| PROXY         | None    | -p, --proxy <URL>       | Proxy URL in the form proto://[username[:password]@]host:port |
-| DNS           | virtual | -d, --dns <strategy>    | DNS handling strategy [default: virtual] [possible values: virtual, over-tcp, direct] |
-| MODE          | auto    | -s, --setup <method>    | Routing and system setup [default: none] [possible values: none, auto] |
-| BYPASS_IP     | None    | -b, --bypass <IP>       | Public proxy IP used in routing setup which should bypassing the tunnel |
-| VERBOSITY     | info    | -v, --verbosity <level> | Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace] |
-|               |         |                         |                                                              |
 
 You can then provide the running container's network to another worker container by sharing the network namespace (like kubernetes sidecar):
 
 ```bash
 docker run -it \
-	-d \
 	--network "container:tun2proxy" \
 	ubuntu:latest
 ```

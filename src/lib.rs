@@ -4,6 +4,7 @@ use crate::{
     socks::SocksProxyManager,
     tun2proxy::{ConnectionManager, TunToProxy},
 };
+use smoltcp::wire::IpCidr;
 use socks5_impl::protocol::UserKey;
 use std::{
     net::{SocketAddr, ToSocketAddrs},
@@ -17,6 +18,7 @@ mod http;
 pub mod setup;
 mod socks;
 mod tun2proxy;
+pub mod util;
 mod virtdevice;
 mod virtdns;
 #[cfg(target_os = "windows")]
@@ -104,8 +106,8 @@ pub struct Options {
     dns_over_tcp: bool,
     dns_addr: Option<std::net::IpAddr>,
     ipv6_enabled: bool,
-    bypass: Option<std::net::IpAddr>,
     pub setup: bool,
+    bypass: Vec<IpCidr>,
 }
 
 impl Options {
@@ -140,8 +142,10 @@ impl Options {
         self
     }
 
-    pub fn with_bypass(mut self, ip: Option<std::net::IpAddr>) -> Self {
-        self.bypass = ip;
+    pub fn with_bypass_ips<'a>(mut self, bypass_ips: impl IntoIterator<Item = &'a IpCidr>) -> Self {
+        for bypass_ip in bypass_ips {
+            self.bypass.push(*bypass_ip);
+        }
         self
     }
 }
