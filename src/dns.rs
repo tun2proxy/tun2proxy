@@ -4,11 +4,11 @@ use std::{
     net::{IpAddr, Ipv4Addr, SocketAddr},
     str::FromStr,
 };
+use trust_dns_proto::op::MessageType;
 use trust_dns_proto::{
     op::{Message, ResponseCode},
     rr::{record_type::RecordType, Name, RData, Record},
 };
-use trust_dns_proto::op::{Edns, MessageType};
 
 #[cfg(feature = "use-rand")]
 pub fn build_dns_request(domain: &str, query_type: RecordType, used_by_tcp: bool) -> Result<Vec<u8>, String> {
@@ -47,7 +47,11 @@ pub fn build_dns_response(mut request: Message, domain: &str, ip: IpAddr, ttl: u
             record
         }
     };
+
+    // We must indicate that this message is a response. Otherwise, implementations may not
+    // recognize it.
     request.set_message_type(MessageType::Response);
+
     request.add_answer(record);
     Ok(request)
 }
