@@ -27,7 +27,6 @@ struct SocksProxyImpl {
     server_inbuf: VecDeque<u8>,
     client_outbuf: VecDeque<u8>,
     server_outbuf: VecDeque<u8>,
-    data_buf: VecDeque<u8>,
     version: Version,
     credentials: Option<UserKey>,
     command: protocol::Command,
@@ -48,7 +47,6 @@ impl SocksProxyImpl {
             server_inbuf: VecDeque::default(),
             client_outbuf: VecDeque::default(),
             server_outbuf: VecDeque::default(),
-            data_buf: VecDeque::default(),
             version,
             credentials,
             command,
@@ -131,8 +129,6 @@ impl SocksProxyImpl {
         }
 
         self.server_inbuf.drain(0..8);
-        self.server_outbuf.append(&mut self.data_buf);
-        self.data_buf.clear();
 
         self.state = SocksState::Established;
         self.state_change()
@@ -230,12 +226,8 @@ impl SocksProxyImpl {
         }
         if self.command == protocol::Command::UdpAssociate {
             self.udp_associate = Some(SocketAddr::try_from(&response.address)?);
-            assert!(self.data_buf.is_empty());
             log::trace!("UDP associate recieved address {}", response.address);
         }
-
-        self.server_outbuf.append(&mut self.data_buf);
-        self.data_buf.clear();
 
         self.state = SocksState::Established;
         self.state_change()
@@ -280,11 +272,7 @@ impl ProxyHandler for SocksProxyImpl {
                 self.server_inbuf.extend(buffer.iter());
             }
             IncomingDirection::FromClient => {
-                if self.state == SocksState::Established {
-                    self.client_inbuf.extend(buffer.iter());
-                } else {
-                    self.data_buf.extend(buffer.iter());
-                }
+                self.client_inbuf.extend(buffer.iter());
             }
         }
 
@@ -318,7 +306,7 @@ impl ProxyHandler for SocksProxyImpl {
         match dir {
             Direction::Incoming(incoming) => match incoming {
                 IncomingDirection::FromServer => self.server_inbuf.len(),
-                IncomingDirection::FromClient => self.client_inbuf.len().max(self.data_buf.len()),
+                IncomingDirection::FromClient => self.client_inbuf.len(),
             },
             Direction::Outgoing(outgoing) => match outgoing {
                 OutgoingDirection::ToServer => self.server_outbuf.len(),
