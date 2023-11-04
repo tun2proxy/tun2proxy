@@ -1,6 +1,13 @@
+#!/bin/bash
+
+# sudo apt install iperf3 dante-server
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+echo $SCRIPT_DIR
+
 netns="test"
-dante="sockd"
-tun2proxy="../../target/release/tun2proxy"
+dante="danted"
+tun2proxy="${SCRIPT_DIR}/../../target/release/tun2proxy"
 
 ip netns add "$netns"
 
@@ -20,10 +27,10 @@ ip netns exec "$netns" ip addr add 127.0.0.1/8 dev lo
 ip netns exec "$netns" ip link set dev lo up
 
 echo "Starting Dante in background ..."
-ip netns exec "$netns" "$dante" -f dante.conf &
+ip netns exec "$netns" "$dante" -f ${SCRIPT_DIR}/dante.conf &
 
-# Start iperf server in netns
-ip netns exec "$netns" iperf -s -B 10.0.0.4 &
+# Start iperf3 server in netns
+ip netns exec "$netns" iperf3 -s -B 10.0.0.4 &
 
 sleep 1
 
@@ -34,6 +41,6 @@ ip route add 10.0.0.4 dev tun0
 "$tun2proxy" --proxy socks5://10.0.0.3:1080 &
 
 # Run iperf client through tun2proxy
-iperf -c 10.0.0.4
+iperf3 -c 10.0.0.4
 
-iperf -c 10.0.0.4 -R
+iperf3 -c 10.0.0.4 -R
