@@ -189,6 +189,7 @@ struct ConnectionState {
     udp_token: Option<Token>,
     udp_data_cache: LinkedList<Vec<u8>>,
     dns_over_tcp_expiry: Option<::std::time::Instant>,
+    is_tcp_closed: bool,
 }
 
 pub(crate) trait ProxyHandler {
@@ -580,7 +581,7 @@ impl<'a> TunToProxy<'a> {
         state.dns_over_tcp_expiry = Some(Self::common_udp_life_timeout());
 
         let mut vecbuf = vec![];
-        Self::read_data_from_tcp_stream(&mut state.mio_stream, |data| {
+        Self::read_data_from_tcp_stream(&mut state.mio_stream, &mut state.is_tcp_closed, |data| {
             vecbuf.extend_from_slice(data);
             Ok(())
         })?;
@@ -835,6 +836,7 @@ impl<'a> TunToProxy<'a> {
             origin_dst: dst,
             udp_data_cache: LinkedList::new(),
             dns_over_tcp_expiry: None,
+            is_tcp_closed: false,
         };
         Ok(state)
     }
@@ -852,11 +854,23 @@ impl<'a> TunToProxy<'a> {
         false
     }
 
-    fn clearup_expired_udp_associate(&mut self) -> Result<()> {
+    fn tcp_is_closed(&self, info: &ConnectionInfo) -> bool {
+        if let Some(state) = self.connection_map.get(info) {
+            return state.is_tcp_closed;
+        }
+        false
+    }
+
+    fn clearup_expired_connection(&mut self) -> Result<()> {
         let keys = self.connection_map.keys().cloned().collect::<Vec<_>>();
         for key in keys {
             if self.udp_associate_timeout_expired(&key) {
                 log::trace!("UDP associate timeout: {}", key);
+                self.remove_connection(&key)?;
+            }
+
+            if self.tcp_is_closed(&key) {
+                log::trace!("TCP closed: {}", key);
                 self.remove_connection(&key)?;
             }
         }
@@ -1061,7 +1075,7 @@ impl<'a> TunToProxy<'a> {
 
                     // TODO: Move this reading process to its own function.
                     let mut vecbuf = vec![];
-                    Self::read_data_from_tcp_stream(&mut state.mio_stream, |data| {
+                    Self::read_data_from_tcp_stream(&mut state.mio_stream, &mut state.is_tcp_closed, |data| {
                         vecbuf.extend_from_slice(data);
                         Ok(())
                     })?;
@@ -1130,7 +1144,7 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn read_data_from_tcp_stream<F>(stream: &mut TcpStream, mut callback: F) -> Result<()>
+    fn read_data_from_tcp_stream<F>(stream: &mut TcpStream, is_closed: &mut bool, mut callback: F) -> Result<()>
     where
         F: FnMut(&mut [u8]) -> Result<()>,
     {
@@ -1139,6 +1153,7 @@ impl<'a> TunToProxy<'a> {
             match stream.read(&mut tmp) {
                 Ok(0) => {
                     // The tcp connection closed
+                    *is_closed = true;
                     break;
                 }
                 Ok(read_result) => {
@@ -1219,7 +1234,7 @@ impl<'a> TunToProxy<'a> {
                 }
             }
             self.send_to_smoltcp()?;
-            self.clearup_expired_udp_associate()?;
+            self.clearup_expired_connection()?;
             self.clearup_expired_dns_over_tcp()?;
         }
     }
