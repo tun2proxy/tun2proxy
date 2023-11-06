@@ -3,15 +3,12 @@
 mod tests {
     extern crate reqwest;
 
-    use std::env;
-    use std::net::IpAddr;
-    use std::str::FromStr;
-
     use fork::Fork;
     use nix::sys::signal;
     use nix::unistd::Pid;
     use serial_test::serial;
     use smoltcp::wire::IpCidr;
+    use std::env;
 
     use tun2proxy::setup::{get_default_cidrs, Setup};
     use tun2proxy::util::str_to_cidr;

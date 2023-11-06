@@ -1176,53 +1176,50 @@ impl<'a> TunToProxy<'a> {
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-    fn prepare_exiting_signal_trigger(&mut self) -> Result<()> {
+    fn prepare_exiting_signal_trigger(&mut self) -> Result<std::thread::JoinHandle<()>> {
         let mut exit_trigger = self.exit_trigger.take().ok_or("Already running")?;
-        ctrlc::set_handler(move || {
-            let mut count = 0;
-            loop {
-                match exit_trigger.write(b"EXIT") {
-                    Ok(_) => {
-                        log::trace!("Exit signal triggered successfully");
-                        break;
+        let mut count = 0;
+        let handle = ctrlc2::set_handler(move || -> bool {
+            match exit_trigger.write(b"EXIT") {
+                Ok(_) => {
+                    log::trace!("Exit signal triggered successfully");
+                    true
+                }
+                Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
+                    if count > 5 {
+                        log::error!("Send exit signal failed 5 times, exit anyway");
+                        return true; // std::process::exit(1);
                     }
-                    Err(err) if err.kind() == std::io::ErrorKind::WouldBlock => {
-                        if count > 5 {
-                            log::error!("Send exit signal failed 5 times, exit anyway");
-                            std::process::exit(1);
-                        }
-                        log::trace!("Send exit signal failed, retry in 1 second");
-                        std::thread::sleep(std::time::Duration::from_secs(1));
-                        count += 1;
-                    }
-                    Err(err) => {
-                        log::error!("Failed to send exit signal: \"{}\"", err);
-                        break;
-                    }
+                    count += 1;
+                    false
+                }
+                Err(err) => {
+                    log::error!("Failed to send exit signal: \"{}\"", err);
+                    true
                 }
             }
         })?;
-        Ok(())
+        Ok(handle)
     }
 
     pub fn run(&mut self) -> Result<(), Error> {
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
-        self.prepare_exiting_signal_trigger()?;
+        let handle = self.prepare_exiting_signal_trigger()?;
 
         let mut events = Events::with_capacity(1024);
-        loop {
+        let ret = 'exit_point: loop {
             if let Err(err) = self.poll.poll(&mut events, None) {
                 if err.kind() == std::io::ErrorKind::Interrupted {
                     log::debug!("Poll interrupted: \"{err}\", ignored, continue polling");
                     continue;
                 }
-                return Err(err.into());
+                break 'exit_point Err(Error::from(err));
             }
             for event in events.iter() {
                 match event.token() {
                     EXIT_TOKEN => {
                         if self.exiting_event_handler()? {
-                            return Ok(());
+                            break 'exit_point Ok(());
                         }
                     }
                     EXIT_TRIGGER_TOKEN => {
@@ -1236,7 +1233,11 @@ impl<'a> TunToProxy<'a> {
             self.send_to_smoltcp()?;
             self.clearup_expired_connection()?;
             self.clearup_expired_dns_over_tcp()?;
-        }
+        };
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
+        handle.join().unwrap();
+        log::trace!("{:?}", ret);
+        ret
     }
 
     fn exiting_event_handler(&mut self) -> Result<bool> {
