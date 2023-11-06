@@ -1,19 +1,18 @@
 #![allow(dead_code)]
 
+#[cfg(target_os = "windows")]
+use crate::wintuninterface::{self, NamedPipeSource, WinTunInterface};
 use crate::{dns, error::Error, error::Result, virtdevice::VirtualTunDevice, NetworkInterface, Options};
 #[cfg(target_family = "unix")]
 use mio::unix::SourceFd;
 use mio::{event::Event, net::TcpStream, net::UdpSocket, Events, Interest, Poll, Token};
-#[cfg(not(target_family = "unix"))]
-use smoltcp::phy::DeviceCapabilities;
 #[cfg(any(target_os = "macos", target_os = "ios"))]
 use smoltcp::phy::RawSocket;
 #[cfg(any(target_os = "linux", target_os = "android"))]
 use smoltcp::phy::TunTapInterface;
-#[cfg(target_family = "unix")]
-use smoltcp::phy::{Device, Medium, RxToken, TxToken};
 use smoltcp::{
     iface::{Config, Interface, SocketHandle, SocketSet},
+    phy::{Device, Medium, RxToken, TxToken},
     socket::{tcp, tcp::State, udp, udp::UdpMetadata},
     time::Instant,
     wire::{IpCidr, IpProtocol, Ipv4Packet, Ipv6Packet, TcpPacket, UdpPacket, UDP_HEADER_LEN},
@@ -174,6 +173,7 @@ const CLIENT_WRITE_CLOSED: u8 = 2;
 
 const UDP_ASSO_TIMEOUT: u64 = 10; // seconds
 const DNS_PORT: u16 = 53;
+const IP_PACKAGE_MAX_SIZE: usize = 0xFFFF;
 
 struct ConnectionState {
     smoltcp_handle: SocketHandle,
@@ -189,6 +189,7 @@ struct ConnectionState {
     udp_token: Option<Token>,
     udp_data_cache: LinkedList<Vec<u8>>,
     dns_over_tcp_expiry: Option<::std::time::Instant>,
+    is_tcp_closed: bool,
 }
 
 pub(crate) trait ProxyHandler {
@@ -197,7 +198,7 @@ pub(crate) trait ProxyHandler {
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent;
     fn connection_established(&self) -> bool;
-    fn have_data(&mut self, dir: Direction) -> bool;
+    fn data_len(&self, dir: Direction) -> usize;
     fn reset_connection(&self) -> bool;
     fn get_udp_associate(&self) -> Option<SocketAddr>;
 }
@@ -217,6 +218,8 @@ pub struct TunToProxy<'a> {
     tun: TunTapInterface,
     #[cfg(any(target_os = "macos", target_os = "ios"))]
     tun: RawSocket,
+    #[cfg(target_os = "windows")]
+    tun: WinTunInterface,
     poll: Poll,
     iface: Interface,
     connection_map: HashMap<ConnectionInfo, ConnectionState>,
@@ -230,6 +233,10 @@ pub struct TunToProxy<'a> {
     exit_receiver: mio::unix::pipe::Receiver,
     #[cfg(target_family = "unix")]
     exit_trigger: Option<mio::unix::pipe::Sender>,
+    #[cfg(target_os = "windows")]
+    exit_receiver: mio::windows::NamedPipe,
+    #[cfg(target_os = "windows")]
+    exit_trigger: Option<mio::windows::NamedPipe>,
 }
 
 impl<'a> TunToProxy<'a> {
@@ -246,35 +253,47 @@ impl<'a> TunToProxy<'a> {
             NetworkInterface::Fd(_fd) => panic!("Not supported"),
         };
 
+        #[cfg(target_os = "windows")]
+        let mut tun = match _interface {
+            NetworkInterface::Named(name) => WinTunInterface::new(name.as_str(), Medium::Ip)?,
+        };
+
+        #[cfg(target_os = "windows")]
+        if options.setup {
+            tun.setup_config(&options.bypass, options.dns_addr)?;
+        }
+
         let poll = Poll::new()?;
 
         #[cfg(target_family = "unix")]
         poll.registry()
             .register(&mut SourceFd(&tun.as_raw_fd()), TUN_TOKEN, Interest::READABLE)?;
 
-        #[cfg(target_family = "unix")]
-        let (mut exit_trigger, mut exit_receiver) = mio::unix::pipe::new()?;
+        #[cfg(target_os = "windows")]
+        {
+            let interest = Interest::READABLE | Interest::WRITABLE;
+            poll.registry().register(&mut tun, TUN_TOKEN, interest)?;
+            let mut pipe = NamedPipeSource(tun.pipe_client());
+            poll.registry().register(&mut pipe, PIPE_TOKEN, interest)?;
+        }
 
         #[cfg(target_family = "unix")]
+        let (mut exit_trigger, mut exit_receiver) = mio::unix::pipe::new()?;
+        #[cfg(target_family = "windows")]
+        let (mut exit_trigger, mut exit_receiver) = wintuninterface::pipe()?;
+
         poll.registry()
             .register(&mut exit_trigger, EXIT_TRIGGER_TOKEN, Interest::WRITABLE)?;
-        #[cfg(target_family = "unix")]
         poll.registry()
             .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
-        #[cfg(target_family = "unix")]
         let config = match tun.capabilities().medium {
             Medium::Ethernet => Config::new(smoltcp::wire::EthernetAddress([0x02, 0, 0, 0, 0, 0x01]).into()),
             Medium::Ip => Config::new(smoltcp::wire::HardwareAddress::Ip),
             Medium::Ieee802154 => todo!(),
         };
-        #[cfg(not(target_family = "unix"))]
-        let config = Config::new(smoltcp::wire::HardwareAddress::Ip);
 
-        #[cfg(target_family = "unix")]
         let mut device = VirtualTunDevice::new(tun.capabilities());
-        #[cfg(not(target_family = "unix"))]
-        let mut device = VirtualTunDevice::new(DeviceCapabilities::default());
 
         let gateway4: Ipv4Addr = Ipv4Addr::from_str("0.0.0.1")?;
         let gateway6: Ipv6Addr = Ipv6Addr::from_str("::1")?;
@@ -288,7 +307,6 @@ impl<'a> TunToProxy<'a> {
         iface.set_any_ip(true);
 
         let tun = Self {
-            #[cfg(target_family = "unix")]
             tun,
             poll,
             iface,
@@ -299,9 +317,7 @@ impl<'a> TunToProxy<'a> {
             device,
             options,
             write_sockets: HashSet::default(),
-            #[cfg(target_family = "unix")]
             exit_receiver,
-            #[cfg(target_family = "unix")]
             exit_trigger: Some(exit_trigger),
         };
         Ok(tun)
@@ -324,7 +340,6 @@ impl<'a> TunToProxy<'a> {
             let _slice = vec.as_slice();
 
             // TODO: Actual write. Replace.
-            #[cfg(target_family = "unix")]
             self.tun
                 .transmit(Instant::now())
                 .ok_or("tx token not available")?
@@ -395,13 +410,10 @@ impl<'a> TunToProxy<'a> {
             None => return Ok(()),
         };
         let mut closed_ends = 0;
+        let handler = state.proxy_handler.as_ref();
         if (state.close_state & SERVER_WRITE_CLOSED) == SERVER_WRITE_CLOSED
-            && !state
-                .proxy_handler
-                .have_data(Direction::Incoming(IncomingDirection::FromServer))
-            && !state
-                .proxy_handler
-                .have_data(Direction::Outgoing(OutgoingDirection::ToClient))
+            && handler.data_len(Direction::Incoming(IncomingDirection::FromServer)) == 0
+            && handler.data_len(Direction::Outgoing(OutgoingDirection::ToClient)) == 0
         {
             // Close tun interface
             let socket = self.sockets.get_mut::<tcp::Socket>(state.smoltcp_handle);
@@ -411,12 +423,8 @@ impl<'a> TunToProxy<'a> {
         }
 
         if (state.close_state & CLIENT_WRITE_CLOSED) == CLIENT_WRITE_CLOSED
-            && !state
-                .proxy_handler
-                .have_data(Direction::Incoming(IncomingDirection::FromClient))
-            && !state
-                .proxy_handler
-                .have_data(Direction::Outgoing(OutgoingDirection::ToServer))
+            && handler.data_len(Direction::Incoming(IncomingDirection::FromClient)) == 0
+            && handler.data_len(Direction::Outgoing(OutgoingDirection::ToServer)) == 0
         {
             // Close remote server
             if let Err(err) = state.mio_stream.shutdown(Shutdown::Write) {
@@ -443,6 +451,11 @@ impl<'a> TunToProxy<'a> {
             let socket = self.sockets.get_mut::<tcp::Socket>(state.smoltcp_handle);
             let mut error = Ok(());
             while socket.can_recv() && error.is_ok() {
+                let dir = Direction::Outgoing(OutgoingDirection::ToServer);
+                if state.proxy_handler.data_len(dir) >= IP_PACKAGE_MAX_SIZE {
+                    break;
+                }
+
                 socket.recv(|data| {
                     let event = IncomingDataEvent {
                         direction: IncomingDirection::FromClient,
@@ -568,7 +581,7 @@ impl<'a> TunToProxy<'a> {
         state.dns_over_tcp_expiry = Some(Self::common_udp_life_timeout());
 
         let mut vecbuf = vec![];
-        Self::read_data_from_tcp_stream(&mut state.mio_stream, |data| {
+        Self::read_data_from_tcp_stream(&mut state.mio_stream, &mut state.is_tcp_closed, |data| {
             vecbuf.extend_from_slice(data);
             Ok(())
         })?;
@@ -774,9 +787,16 @@ impl<'a> TunToProxy<'a> {
         proxy_handler: Box<dyn ProxyHandler>,
         udp_associate: bool,
     ) -> Result<ConnectionState> {
+        #[cfg(any(target_os = "linux", target_os = "android"))]
         let mut socket = tcp::Socket::new(
             tcp::SocketBuffer::new(vec![0; 1024 * 128]),
             tcp::SocketBuffer::new(vec![0; 1024 * 128]),
+        );
+        #[cfg(any(target_os = "ios", target_os = "macos", target_os = "windows"))]
+        let mut socket = tcp::Socket::new(
+            // TODO: Look into how the buffer size affects IP header length and fragmentation
+            tcp::SocketBuffer::new(vec![0; 1024 * 2]),
+            tcp::SocketBuffer::new(vec![0; 1024 * 2]),
         );
         socket.set_ack_delay(None);
         socket.listen(dst)?;
@@ -784,7 +804,7 @@ impl<'a> TunToProxy<'a> {
 
         let mut client = TcpStream::connect(server_addr)?;
         let token = self.new_token();
-        let i = Interest::READABLE;
+        let i = Interest::READABLE | Interest::WRITABLE;
         self.poll.registry().register(&mut client, token, i)?;
 
         let expiry = if udp_associate {
@@ -809,13 +829,14 @@ impl<'a> TunToProxy<'a> {
             proxy_handler,
             close_state: 0,
             wait_read: true,
-            wait_write: false,
+            wait_write: true,
             udp_acco_expiry: expiry,
             udp_socket,
             udp_token,
             origin_dst: dst,
             udp_data_cache: LinkedList::new(),
             dns_over_tcp_expiry: None,
+            is_tcp_closed: false,
         };
         Ok(state)
     }
@@ -833,11 +854,23 @@ impl<'a> TunToProxy<'a> {
         false
     }
 
-    fn clearup_expired_udp_associate(&mut self) -> Result<()> {
+    fn tcp_is_closed(&self, info: &ConnectionInfo) -> bool {
+        if let Some(state) = self.connection_map.get(info) {
+            return state.is_tcp_closed;
+        }
+        false
+    }
+
+    fn clearup_expired_connection(&mut self) -> Result<()> {
         let keys = self.connection_map.keys().cloned().collect::<Vec<_>>();
         for key in keys {
             if self.udp_associate_timeout_expired(&key) {
                 log::trace!("UDP associate timeout: {}", key);
+                self.remove_connection(&key)?;
+            }
+
+            if self.tcp_is_closed(&key) {
+                log::trace!("TCP closed: {}", key);
                 self.remove_connection(&key)?;
             }
         }
@@ -877,8 +910,8 @@ impl<'a> TunToProxy<'a> {
                     state.wait_write = true;
                     Self::update_mio_socket_interest(&mut self.poll, state)?;
                 }
-                Err(error) => {
-                    return Err(error.into());
+                Err(_) => {
+                    return Ok(());
                 }
             }
         }
@@ -922,15 +955,23 @@ impl<'a> TunToProxy<'a> {
 
     fn tun_event(&mut self, event: &Event) -> Result<(), Error> {
         if event.is_readable() {
-            #[cfg(target_family = "unix")]
             while let Some((rx_token, _)) = self.tun.receive(Instant::now()) {
                 rx_token.consume(|frame| self.receive_tun(frame))?;
             }
+        }
+        #[cfg(target_os = "windows")]
+        if event.is_writable() {
+            // log::trace!("Tun writable");
+            let tx_token = self.tun.transmit(Instant::now()).ok_or("tx token not available")?;
+            // Just consume the cached packets, do nothing else.
+            tx_token.consume(0, |_buf| {});
         }
         Ok(())
     }
 
     fn pipe_event(&mut self, _event: &Event) -> Result<(), Error> {
+        #[cfg(target_os = "windows")]
+        self.tun.pipe_client_event(_event)?;
         Ok(())
     }
 
@@ -1034,7 +1075,7 @@ impl<'a> TunToProxy<'a> {
 
                     // TODO: Move this reading process to its own function.
                     let mut vecbuf = vec![];
-                    Self::read_data_from_tcp_stream(&mut state.mio_stream, |data| {
+                    Self::read_data_from_tcp_stream(&mut state.mio_stream, &mut state.is_tcp_closed, |data| {
                         vecbuf.extend_from_slice(data);
                         Ok(())
                     })?;
@@ -1103,7 +1144,7 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn read_data_from_tcp_stream<F>(stream: &mut TcpStream, mut callback: F) -> Result<()>
+    fn read_data_from_tcp_stream<F>(stream: &mut TcpStream, is_closed: &mut bool, mut callback: F) -> Result<()>
     where
         F: FnMut(&mut [u8]) -> Result<()>,
     {
@@ -1112,6 +1153,7 @@ impl<'a> TunToProxy<'a> {
             match stream.read(&mut tmp) {
                 Ok(0) => {
                     // The tcp connection closed
+                    *is_closed = true;
                     break;
                 }
                 Ok(read_result) => {
@@ -1133,11 +1175,11 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    #[cfg(any(target_os = "linux", target_os = "macos"))]
+    #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
     fn prepare_exiting_signal_trigger(&mut self) -> Result<std::thread::JoinHandle<()>> {
         let mut exit_trigger = self.exit_trigger.take().ok_or("Already running")?;
         let mut count = 0;
-        let handle = ctrlc::set_handler(move || -> bool {
+        let handle = ctrlc2::set_handler(move || -> bool {
             match exit_trigger.write(b"EXIT") {
                 Ok(_) => {
                     log::trace!("Exit signal triggered successfully");
@@ -1161,7 +1203,7 @@ impl<'a> TunToProxy<'a> {
     }
 
     pub fn run(&mut self) -> Result<(), Error> {
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         let handle = self.prepare_exiting_signal_trigger()?;
 
         let mut events = Events::with_capacity(1024);
@@ -1181,7 +1223,6 @@ impl<'a> TunToProxy<'a> {
                         }
                     }
                     EXIT_TRIGGER_TOKEN => {
-                        #[cfg(target_family = "unix")]
                         log::trace!("Exiting trigger is ready, {:?}", self.exit_trigger);
                     }
                     TUN_TOKEN => self.tun_event(event)?,
@@ -1190,16 +1231,15 @@ impl<'a> TunToProxy<'a> {
                 }
             }
             self.send_to_smoltcp()?;
-            self.clearup_expired_udp_associate()?;
+            self.clearup_expired_connection()?;
             self.clearup_expired_dns_over_tcp()?;
         };
-        #[cfg(any(target_os = "linux", target_os = "macos"))]
+        #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         handle.join().unwrap();
         log::trace!("{:?}", ret);
         ret
     }
 
-    #[cfg(target_family = "unix")]
     fn exiting_event_handler(&mut self) -> Result<bool> {
         let mut buffer = vec![0; 100];
         match self.exit_receiver.read(&mut buffer) {
@@ -1216,12 +1256,6 @@ impl<'a> TunToProxy<'a> {
         }
     }
 
-    #[cfg(target_os = "windows")]
-    fn exiting_event_handler(&mut self) -> Result<bool> {
-        Ok(true)
-    }
-
-    #[cfg(target_family = "unix")]
     pub fn shutdown(&mut self) -> Result<(), Error> {
         log::debug!("Shutdown tun2proxy...");
         _ = self.exit_trigger.as_mut().ok_or("Already triggered")?.write(b"EXIT")?;

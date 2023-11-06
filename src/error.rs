@@ -3,8 +3,8 @@ pub enum Error {
     #[error("std::ffi::NulError {0:?}")]
     Nul(#[from] std::ffi::NulError),
 
-    #[error("ctrlc::Error {0:?}")]
-    InterruptHandler(#[from] ctrlc::Error),
+    #[error("ctrlc2::Error {0:?}")]
+    InterruptHandler(#[from] ctrlc2::Error),
 
     #[error(transparent)]
     Io(#[from] std::io::Error),

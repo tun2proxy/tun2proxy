@@ -1,5 +1,7 @@
 use clap::Parser;
+use smoltcp::wire::IpCidr;
 use std::{net::IpAddr, process::ExitCode};
+use tun2proxy::util::str_to_cidr;
 use tun2proxy::{error::Error, main_entry, NetworkInterface, Options, Proxy};
 
 #[cfg(target_os = "linux")]
@@ -38,12 +40,12 @@ struct Args {
     ipv6_enabled: bool,
 
     /// Routing and system setup
-    #[arg(short, long, value_name = "method", value_enum)]
+    #[arg(short, long, value_name = "method", value_enum, default_value = if cfg!(target_os = "linux") { "none" } else { "auto" })]
     setup: Option<ArgSetup>,
 
-    /// Public proxy IP used in routing setup which should bypassing the tunnel
-    #[arg(short, long, value_name = "IP")]
-    bypass: Option<IpAddr>,
+    /// IPs used in routing setup which should bypass the tunnel
+    #[arg(short, long, value_name = "IP|CIDR")]
+    bypass: Vec<String>,
 
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
@@ -53,7 +55,7 @@ struct Args {
 /// DNS query handling strategy
 /// - Virtual: Intercept DNS queries and resolve them locally with a fake IP address
 /// - OverTcp: Use TCP to send DNS queries to the DNS server
-/// - Direct: Looks as general UDP traffic but change the destination to the DNS server
+/// - Direct: Do not handle DNS by relying on DNS server bypassing
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 enum ArgDns {
     Virtual,
@@ -63,6 +65,7 @@ enum ArgDns {
 
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 enum ArgSetup {
+    None,
     Auto,
 }
 
@@ -116,25 +119,26 @@ fn main() -> ExitCode {
         }
     };
 
-    let bypass_tun_ip = match args.bypass {
-        Some(addr) => addr,
-        None => args.proxy.addr.ip(),
-    };
-    options = options.with_bypass(Some(bypass_tun_ip));
+    options.setup = args.setup.map(|s| s == ArgSetup::Auto).unwrap_or(false);
 
     let block = || -> Result<(), Error> {
+        let mut bypass_ips = Vec::<IpCidr>::new();
+        for cidr_str in args.bypass {
+            bypass_ips.push(str_to_cidr(&cidr_str)?);
+        }
+        if bypass_ips.is_empty() {
+            let prefix_len = if args.proxy.addr.ip().is_ipv6() { 128 } else { 32 };
+            bypass_ips.push(IpCidr::new(args.proxy.addr.ip().into(), prefix_len))
+        }
+
+        options = options.with_bypass_ips(&bypass_ips);
+
         #[cfg(target_os = "linux")]
         {
             let mut setup: Setup;
-            if args.setup == Some(ArgSetup::Auto) {
-                let bypass_tun_ip = match args.bypass {
-                    Some(addr) => addr,
-                    None => args.proxy.addr.ip(),
-                };
-                setup = Setup::new(&args.tun, &bypass_tun_ip, get_default_cidrs(), args.bypass.is_some());
-
+            if options.setup {
+                setup = Setup::new(&args.tun, bypass_ips, get_default_cidrs());
                 setup.configure()?;
-
                 setup.drop_privileges()?;
             }
         }
