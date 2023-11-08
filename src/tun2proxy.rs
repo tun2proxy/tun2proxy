@@ -1167,6 +1167,7 @@ impl<'a> TunToProxy<'a> {
                         // Hardware or software interrupt, continue polling.
                         continue;
                     } else {
+                        *is_closed = true;
                         return Err(error.into());
                     }
                 }
