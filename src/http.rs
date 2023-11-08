@@ -45,7 +45,6 @@ pub struct HttpConnection {
     server_inbuf: VecDeque<u8>,
     client_outbuf: VecDeque<u8>,
     server_outbuf: VecDeque<u8>,
-    data_buf: VecDeque<u8>,
     crlf_state: u8,
     counter: usize,
     skip: usize,
@@ -73,7 +72,6 @@ impl HttpConnection {
             server_inbuf: VecDeque::default(),
             client_outbuf: VecDeque::default(),
             server_outbuf: VecDeque::default(),
-            data_buf: VecDeque::default(),
             skip: 0,
             counter: 0,
             crlf_state: 0,
@@ -182,10 +180,6 @@ impl HttpConnection {
                     // Connection successful
                     self.state = HttpState::Established;
                     self.server_inbuf.clear();
-
-                    self.server_outbuf.append(&mut self.data_buf);
-                    self.data_buf.clear();
-
                     return self.state_change();
                 }
 
@@ -330,11 +324,7 @@ impl ProxyHandler for HttpConnection {
                 self.server_inbuf.extend(buffer.iter());
             }
             IncomingDirection::FromClient => {
-                if self.state == HttpState::Established {
-                    self.client_inbuf.extend(buffer.iter());
-                } else {
-                    self.data_buf.extend(buffer.iter());
-                }
+                self.client_inbuf.extend(buffer.iter());
             }
         }
 
@@ -370,7 +360,7 @@ impl ProxyHandler for HttpConnection {
         match dir {
             Direction::Incoming(incoming) => match incoming {
                 IncomingDirection::FromServer => self.server_inbuf.len(),
-                IncomingDirection::FromClient => self.client_inbuf.len().max(self.data_buf.len()),
+                IncomingDirection::FromClient => self.client_inbuf.len(),
             },
             Direction::Outgoing(outgoing) => match outgoing {
                 OutgoingDirection::ToServer => self.server_outbuf.len(),
