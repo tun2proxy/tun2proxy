@@ -97,6 +97,7 @@ fn get_transport_info(
     protocol: IpProtocol,
     transport_offset: usize,
     packet: &[u8],
+    is_closed: &mut bool,
 ) -> Result<((u16, u16), bool, usize, usize)> {
     match protocol {
         IpProtocol::Udp => UdpPacket::new_checked(packet)
@@ -111,6 +112,7 @@ fn get_transport_info(
             .map_err(|e| e.into()),
         IpProtocol::Tcp => TcpPacket::new_checked(packet)
             .map(|result| {
+                *is_closed = result.fin() || result.rst();
                 let header_len = result.header_len() as usize;
                 (
                     (result.src_port(), result.dst_port()),
@@ -124,7 +126,7 @@ fn get_transport_info(
     }
 }
 
-fn connection_tuple(frame: &[u8]) -> Result<(ConnectionInfo, bool, usize, usize)> {
+fn connection_tuple(frame: &[u8], is_closed: &mut bool) -> Result<(ConnectionInfo, bool, usize, usize)> {
     if let Ok(packet) = Ipv4Packet::new_checked(frame) {
         let protocol = packet.next_header();
 
@@ -136,7 +138,7 @@ fn connection_tuple(frame: &[u8]) -> Result<(ConnectionInfo, bool, usize, usize)
         let header_len = packet.header_len().into();
 
         let (ports, first_packet, payload_offset, payload_size) =
-            get_transport_info(protocol, header_len, &frame[header_len..])?;
+            get_transport_info(protocol, header_len, &frame[header_len..], is_closed)?;
         let info = ConnectionInfo::new(
             SocketAddr::new(src_addr, ports.0),
             SocketAddr::new(dst_addr, ports.1).into(),
@@ -157,7 +159,7 @@ fn connection_tuple(frame: &[u8]) -> Result<(ConnectionInfo, bool, usize, usize)
         let header_len = packet.header_len();
 
         let (ports, first_packet, payload_offset, payload_size) =
-            get_transport_info(protocol, header_len, &frame[header_len..])?;
+            get_transport_info(protocol, header_len, &frame[header_len..], is_closed)?;
         let info = ConnectionInfo::new(
             SocketAddr::new(src_addr, ports.0),
             SocketAddr::new(dst_addr, ports.1).into(),
@@ -708,6 +710,7 @@ impl<'a> TunToProxy<'a> {
         info: &ConnectionInfo,
         origin_dst: SocketAddr,
         frame: &[u8],
+        is_closed: bool,
     ) -> Result<()> {
         if first_packet {
             let proxy_handler = manager.new_proxy_handler(info, false)?;
@@ -721,6 +724,10 @@ impl<'a> TunToProxy<'a> {
             return Ok(());
         } else {
             log::trace!("Subsequent packet {} ({})", info, origin_dst);
+        }
+
+        if let Some(state) = self.connection_map.get_mut(info) {
+            state.is_tcp_closed = is_closed;
         }
 
         // Inject the packet to advance the remote proxy server smoltcp socket state
@@ -743,7 +750,8 @@ impl<'a> TunToProxy<'a> {
     // A raw packet was received on the tunnel interface.
     fn receive_tun(&mut self, frame: &mut [u8]) -> Result<(), Error> {
         let mut handler = || -> Result<(), Error> {
-            let result = connection_tuple(frame);
+            let mut is_closed = false;
+            let result = connection_tuple(frame, &mut is_closed);
             if let Err(error) = result {
                 log::debug!("{}, ignored", error);
                 return Ok(());
@@ -755,7 +763,7 @@ impl<'a> TunToProxy<'a> {
             let manager = self.get_connection_manager().ok_or("get connection manager")?;
 
             if info.protocol == IpProtocol::Tcp {
-                self.process_incoming_tcp_packets(first_packet, &manager, &info, origin_dst, frame)?;
+                self.process_incoming_tcp_packets(first_packet, &manager, &info, origin_dst, frame, is_closed)?;
             } else if info.protocol == IpProtocol::Udp {
                 let port = info.dst.port();
                 let payload = &frame[payload_offset..payload_offset + payload_size];
@@ -1144,9 +1152,9 @@ impl<'a> TunToProxy<'a> {
         Ok(())
     }
 
-    fn read_data_from_tcp_stream<F>(stream: &mut TcpStream, is_closed: &mut bool, mut callback: F) -> Result<()>
+    fn read_data_from_tcp_stream<F>(stream: &mut TcpStream, is_closed: &mut bool, mut cb: F) -> std::io::Result<()>
     where
-        F: FnMut(&mut [u8]) -> Result<()>,
+        F: FnMut(&mut [u8]) -> std::io::Result<()>,
     {
         let mut tmp: [u8; 4096] = [0_u8; 4096];
         loop {
@@ -1157,7 +1165,7 @@ impl<'a> TunToProxy<'a> {
                     break;
                 }
                 Ok(read_result) => {
-                    callback(&mut tmp[0..read_result])?;
+                    cb(&mut tmp[0..read_result])?;
                 }
                 Err(error) => {
                     if error.kind() == std::io::ErrorKind::WouldBlock {
@@ -1168,7 +1176,7 @@ impl<'a> TunToProxy<'a> {
                         continue;
                     } else {
                         *is_closed = true;
-                        return Err(error.into());
+                        return Err(error);
                     }
                 }
             };
