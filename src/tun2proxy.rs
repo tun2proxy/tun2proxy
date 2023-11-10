@@ -977,10 +977,7 @@ impl<'a> TunToProxy<'a> {
             }
         }
 
-        #[cfg(unix)]
         if event.is_writable() {
-            log::info!("Tun writable, sessions count: {}", self.connection_map.len());
-
             let item = self.connection_map.iter().find(|(_, state)| state.continue_read);
             if let Some((conn_info, _)) = item {
                 let conn_info = conn_info.clone();
@@ -1296,7 +1293,7 @@ impl<'a> TunToProxy<'a> {
                 break 'exit_point Err(Error::from(err));
             }
 
-            log::info!("Polling events count {}", events.iter().count());
+            log::trace!("Polling events count {}", events.iter().count());
 
             for event in events.iter() {
                 match event.token() {
@@ -1317,7 +1314,7 @@ impl<'a> TunToProxy<'a> {
             self.clearup_expired_connection()?;
             self.clearup_expired_dns_over_tcp()?;
 
-            log::info!("connection count: {}", self.connection_map.len());
+            log::trace!("connection count: {}", self.connection_map.len());
         };
         #[cfg(any(target_os = "windows", target_os = "linux", target_os = "macos"))]
         handle.join().unwrap();
