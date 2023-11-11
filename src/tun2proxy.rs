@@ -978,9 +978,13 @@ impl<'a> TunToProxy<'a> {
         }
 
         if event.is_writable() {
-            let item = self.connection_map.iter().find(|(_, state)| state.continue_read);
-            if let Some((conn_info, _)) = item {
-                let conn_info = conn_info.clone();
+            let items = self
+                .connection_map
+                .iter()
+                .filter(|(_, state)| state.continue_read)
+                .map(|(info, _)| info.clone())
+                .collect::<Vec<_>>();
+            for conn_info in items {
                 let (success, len) = self.read_server_n_write_proxy_handler(&conn_info)?;
                 if !success {
                     return Ok(());
