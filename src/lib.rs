@@ -150,11 +150,7 @@ impl Options {
     }
 }
 
-pub fn tun_to_proxy<'a>(
-    interface: &NetworkInterface,
-    proxy: &Proxy,
-    options: Options,
-) -> Result<TunToProxy<'a>, Error> {
+pub fn tun_to_proxy<'a>(interface: &NetworkInterface, proxy: &Proxy, options: Options) -> Result<TunToProxy<'a>, Error> {
     let mut ttp = TunToProxy::new(interface, options)?;
     let credentials = proxy.credentials.clone();
     let server = proxy.addr;

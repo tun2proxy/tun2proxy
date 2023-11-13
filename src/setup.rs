@@ -62,12 +62,7 @@ where
         let command = cmdline.as_slice().join(" ");
         match String::from_utf8(output.stderr.clone()) {
             Ok(output) => Err(format!("[{}] Command `{}` failed: {}", nix::unistd::getpid(), command, output).into()),
-            Err(_) => Err(format!(
-                "Command `{:?}` failed with exit code {}",
-                command,
-                output.status.code().unwrap()
-            )
-            .into()),
+            Err(_) => Err(format!("Command `{:?}` failed with exit code {}", command, output.status.code().unwrap()).into()),
         }
     }
 }
@@ -103,11 +98,7 @@ impl Setup {
             ["ip", "-4", "route", "show"]
         };
 
-        let routes = run_iproute(
-            route_show_args,
-            "failed to get routing table through the ip command",
-            true,
-        )?;
+        let routes = run_iproute(route_show_args, "failed to get routing table through the ip command", true)?;
 
         let mut route_info = Vec::<(IpCidr, Vec<String>)>::new();
         for line in routes.stdout.lines() {
@@ -217,14 +208,7 @@ impl Setup {
     fn add_tunnel_routes(&self) -> Result<(), Error> {
         for route in &self.routes {
             run_iproute(
-                [
-                    "ip",
-                    "route",
-                    "add",
-                    route.to_string().as_str(),
-                    "dev",
-                    self.tun.as_str(),
-                ],
+                ["ip", "route", "add", route.to_string().as_str(), "dev", self.tun.as_str()],
                 "failed to add route",
                 true,
             )?;
@@ -238,9 +222,7 @@ impl Setup {
         let _ = Command::new("ip").args(["link", "del", self.tun.as_str()]).output();
 
         for cidr in &self.delete_proxy_routes {
-            let _ = Command::new("ip")
-                .args(["route", "del", cidr.to_string().as_str()])
-                .output();
+            let _ = Command::new("ip").args(["route", "del", cidr.to_string().as_str()]).output();
         }
 
         if self.unmount_resolvconf {
@@ -297,10 +279,7 @@ impl Setup {
             loop {
                 let res = fd.read_signal().unwrap().unwrap();
                 let signo = nix::sys::signal::Signal::try_from(res.ssi_signo as i32).unwrap();
-                if signo == nix::sys::signal::SIGINT
-                    || signo == nix::sys::signal::SIGTERM
-                    || signo == nix::sys::signal::SIGQUIT
-                {
+                if signo == nix::sys::signal::SIGINT || signo == nix::sys::signal::SIGTERM || signo == nix::sys::signal::SIGQUIT {
                     break;
                 }
             }

@@ -1,8 +1,8 @@
 use crate::{
     error::{Error, Result},
     tun2proxy::{
-        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
-        OutgoingDirection, ProxyHandler,
+        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent, OutgoingDirection,
+        ProxyHandler,
     },
 };
 use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version};
@@ -34,12 +34,7 @@ struct SocksProxyImpl {
 }
 
 impl SocksProxyImpl {
-    fn new(
-        info: &ConnectionInfo,
-        credentials: Option<UserKey>,
-        version: Version,
-        command: protocol::Command,
-    ) -> Result<Self> {
+    fn new(info: &ConnectionInfo, credentials: Option<UserKey>, version: Version, command: protocol::Command) -> Result<Self> {
         let mut result = Self {
             info: info.clone(),
             state: SocksState::ServerHello,
@@ -58,8 +53,7 @@ impl SocksProxyImpl {
 
     fn send_client_hello_socks4(&mut self) -> Result<(), Error> {
         let credentials = &self.credentials;
-        self.server_outbuf
-            .extend(&[self.version as u8, protocol::Command::Connect.into()]);
+        self.server_outbuf.extend(&[self.version as u8, protocol::Command::Connect.into()]);
         self.server_outbuf.extend(self.info.dst.port().to_be_bytes());
         let mut ip_vec = Vec::<u8>::new();
         let mut name_vec = Vec::<u8>::new();

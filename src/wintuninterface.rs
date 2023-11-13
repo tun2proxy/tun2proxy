@@ -22,8 +22,8 @@ use windows::{
         NetworkManagement::{
             IpHelper::{
                 GetAdaptersAddresses, SetInterfaceDnsSettings, DNS_INTERFACE_SETTINGS, DNS_INTERFACE_SETTINGS_VERSION1,
-                DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_INCLUDE_PREFIX, IF_TYPE_ETHERNET_CSMACD,
-                IF_TYPE_IEEE80211, IP_ADAPTER_ADDRESSES_LH,
+                DNS_SETTING_NAMESERVER, GAA_FLAG_INCLUDE_GATEWAYS, GAA_FLAG_INCLUDE_PREFIX, IF_TYPE_ETHERNET_CSMACD, IF_TYPE_IEEE80211,
+                IP_ADAPTER_ADDRESSES_LH,
             },
             Ndis::IfOperStatusUp,
         },
@@ -88,8 +88,9 @@ impl WinTunInterface {
         let guid = 324435345345345345_u128;
         let adapter = match wintun::Adapter::open(&wintun, tun_name) {
             Ok(a) => a,
-            Err(_) => wintun::Adapter::create(&wintun, tun_name, tun_name, Some(guid))
-                .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?,
+            Err(_) => {
+                wintun::Adapter::create(&wintun, tun_name, tun_name, Some(guid)).map_err(|e| io::Error::new(io::ErrorKind::Other, e))?
+            }
         };
 
         let session = adapter
@@ -376,12 +377,7 @@ impl phy::TxToken for TxToken {
         let mut buffer = vec![0; len];
         let result = f(&mut buffer);
 
-        let buffer = self
-            .pipe_server_cache
-            .borrow_mut()
-            .drain(..)
-            .chain(buffer)
-            .collect::<Vec<_>>();
+        let buffer = self.pipe_server_cache.borrow_mut().drain(..).chain(buffer).collect::<Vec<_>>();
         if buffer.is_empty() {
             // log::trace!("Wintun TxToken (pipe_server) is empty");
             return result;
@@ -433,11 +429,7 @@ impl event::Source for NamedPipeSource {
 pub(crate) fn run_command(command: &str, args: &[&str]) -> io::Result<()> {
     let out = std::process::Command::new(command).args(args).output()?;
     if !out.status.success() {
-        let err = String::from_utf8_lossy(if out.stderr.is_empty() {
-            &out.stdout
-        } else {
-            &out.stderr
-        });
+        let err = String::from_utf8_lossy(if out.stderr.is_empty() { &out.stdout } else { &out.stderr });
         let info = format!("{} failed with: \"{}\"", command, err);
         return Err(std::io::Error::new(std::io::ErrorKind::Other, info));
     }
@@ -463,9 +455,7 @@ pub(crate) fn set_interface_dns_settings(interface: GUID, dns: &[IpAddr]) -> io:
 pub(crate) fn get_active_network_interface_gateways() -> io::Result<Vec<SocketAddr>> {
     let mut addrs = vec![];
     get_adapters_addresses(|adapter| {
-        if adapter.OperStatus == IfOperStatusUp
-            && [IF_TYPE_ETHERNET_CSMACD, IF_TYPE_IEEE80211].contains(&adapter.IfType)
-        {
+        if adapter.OperStatus == IfOperStatusUp && [IF_TYPE_ETHERNET_CSMACD, IF_TYPE_IEEE80211].contains(&adapter.IfType) {
             let mut current_gateway = adapter.FirstGatewayAddress;
             while !current_gateway.is_null() {
                 let gateway = unsafe { &*current_gateway };

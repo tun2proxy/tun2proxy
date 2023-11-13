@@ -271,8 +271,7 @@ impl<'a> TunToProxy<'a> {
         let interests = Interest::READABLE | Interest::WRITABLE;
 
         #[cfg(target_family = "unix")]
-        poll.registry()
-            .register(&mut SourceFd(&tun.as_raw_fd()), TUN_TOKEN, interests)?;
+        poll.registry().register(&mut SourceFd(&tun.as_raw_fd()), TUN_TOKEN, interests)?;
 
         #[cfg(target_os = "windows")]
         {
@@ -288,8 +287,7 @@ impl<'a> TunToProxy<'a> {
 
         poll.registry()
             .register(&mut exit_trigger, EXIT_TRIGGER_TOKEN, Interest::WRITABLE)?;
-        poll.registry()
-            .register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
+        poll.registry().register(&mut exit_receiver, EXIT_TOKEN, Interest::READABLE)?;
 
         let config = match tun.capabilities().medium {
             Medium::Ethernet => Config::new(smoltcp::wire::EthernetAddress([0x02, 0, 0, 0, 0, 0x01]).into()),
@@ -585,15 +583,10 @@ impl<'a> TunToProxy<'a> {
         state.dns_over_tcp_expiry = Some(Self::common_udp_life_timeout());
 
         let mut vecbuf = vec![];
-        Self::read_data_from_tcp_stream(
-            &mut state.mio_stream,
-            IP_PACKAGE_MAX_SIZE,
-            &mut state.is_tcp_closed,
-            |data| {
-                vecbuf.extend_from_slice(data);
-                Ok(())
-            },
-        )?;
+        Self::read_data_from_tcp_stream(&mut state.mio_stream, IP_PACKAGE_MAX_SIZE, &mut state.is_tcp_closed, |data| {
+            vecbuf.extend_from_slice(data);
+            Ok(())
+        })?;
 
         let data_event = IncomingDataEvent {
             direction: IncomingDirection::FromServer,
@@ -1090,18 +1083,13 @@ impl<'a> TunToProxy<'a> {
 
         let mut vecbuf = vec![];
         use std::io::{Error, ErrorKind};
-        let r = Self::read_data_from_tcp_stream(
-            &mut state.mio_stream,
-            IP_PACKAGE_MAX_SIZE,
-            &mut state.is_tcp_closed,
-            |data| {
-                vecbuf.extend_from_slice(data);
-                if vecbuf.len() >= IP_PACKAGE_MAX_SIZE {
-                    return Err(Error::new(ErrorKind::OutOfMemory, "IP_PACKAGE_MAX_SIZE exceeded"));
-                }
-                Ok(())
-            },
-        );
+        let r = Self::read_data_from_tcp_stream(&mut state.mio_stream, IP_PACKAGE_MAX_SIZE, &mut state.is_tcp_closed, |data| {
+            vecbuf.extend_from_slice(data);
+            if vecbuf.len() >= IP_PACKAGE_MAX_SIZE {
+                return Err(Error::new(ErrorKind::OutOfMemory, "IP_PACKAGE_MAX_SIZE exceeded"));
+            }
+            Ok(())
+        });
         let len = vecbuf.len();
         if let Err(error) = r {
             if error.kind() == ErrorKind::OutOfMemory {

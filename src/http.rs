@@ -1,8 +1,8 @@
 use crate::{
     error::Error,
     tun2proxy::{
-        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent,
-        OutgoingDirection, ProxyHandler,
+        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent, OutgoingDirection,
+        ProxyHandler,
     },
 };
 use base64::Engine;
@@ -61,11 +61,7 @@ static TRANSFER_ENCODING: &str = "Transfer-Encoding";
 static CONTENT_LENGTH: &str = "Content-Length";
 
 impl HttpConnection {
-    fn new(
-        info: &ConnectionInfo,
-        credentials: Option<UserKey>,
-        digest_state: Rc<RefCell<Option<DigestState>>>,
-    ) -> Result<Self, Error> {
+    fn new(info: &ConnectionInfo, credentials: Option<UserKey>, digest_state: Rc<RefCell<Option<DigestState>>>) -> Result<Self, Error> {
         let mut res = Self {
             state: HttpState::ExpectResponseHeaders,
             client_inbuf: VecDeque::default(),
