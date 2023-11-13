@@ -1,6 +1,7 @@
 #!/bin/bash
 
 # sudo apt install iperf3 dante-server
+# sudo systemctl stop danted
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 echo $SCRIPT_DIR
@@ -38,9 +39,12 @@ sleep 1
 ip tuntap add name tun0 mode tun
 ip link set tun0 up
 ip route add 10.0.0.4 dev tun0
-"$tun2proxy" --proxy socks5://10.0.0.3:1080 &
+"$tun2proxy" --proxy socks5://10.0.0.3:10800 &
 
 # Run iperf client through tun2proxy
 iperf3 -c 10.0.0.4
 
-iperf3 -c 10.0.0.4 -R
+iperf3 -c 10.0.0.4 -R -P 10
+
+# Clean up
+# sudo sh -c "pkill tun2proxy; pkill iperf3; pkill danted; ip link del tun0; ip netns del test"
