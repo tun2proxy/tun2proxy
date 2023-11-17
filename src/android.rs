@@ -20,6 +20,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     tun_fd: jint,
     tun_mtu: jint,
     verbose: jboolean,
+    dns_over_tcp: jboolean,
 ) -> jint {
     let log_level = if verbose != 0 { "trace" } else { "info" };
     let filter_str = &format!("off,tun2proxy={log_level}");
@@ -39,7 +40,9 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
         let proxy_type = proxy.proxy_type;
         log::info!("Proxy {proxy_type} server: {addr}");
 
-        let options = Options::new().with_virtual_dns().with_mtu(tun_mtu as usize);
+        let dns_addr = "8.8.8.8".parse::<std::net::IpAddr>().unwrap();
+        let options = Options::new().with_dns_addr(Some(dns_addr)).with_mtu(tun_mtu as usize);
+        let options = if dns_over_tcp != 0 { options.with_dns_over_tcp() } else { options };
 
         let interface = NetworkInterface::Fd(tun_fd);
         let tun2proxy = tun_to_proxy(&interface, &proxy, options)?;
