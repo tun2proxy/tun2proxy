@@ -27,12 +27,12 @@ nix = { version = "0.27", features = [
     "user",
 ] }
 prctl = "1.0"
-smoltcp = { version = "0.10", features = ["std", "phy-tuntap_interface"] }
+smoltcp = { version = "0.11", features = ["std", "phy-tuntap_interface"] }
 socks5-impl = { version = "0.5", default-features = false }
 thiserror = "1.0"
 trust-dns-proto = "0.23"
 unicase = "2.7"
-url = "2.4"
+url = "2.5"
 
 [target.'cfg(target_family="unix")'.dependencies]
 fork = "0.1"
@@ -53,7 +53,7 @@ test-log = "0.2"
 
 [target.'cfg(target_os="windows")'.dependencies]
 rand = "0.8"
-windows = { version = "0.51", features = [
+windows = { version = "0.52", features = [
     "Win32_Storage_FileSystem",
     "Win32_NetworkManagement_IpHelper",
     "Win32_NetworkManagement_Ndis",
