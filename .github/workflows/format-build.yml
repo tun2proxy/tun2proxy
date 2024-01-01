@@ -46,6 +46,10 @@ jobs:
           profile: minimal
           toolchain: stable
           override: true
+      - name: rustfmt
+        run: |
+          rustc --version
+          cargo fmt --all -- --check
       - run: rustup component add clippy
       - uses: actions-rs/cargo@v1
         with:

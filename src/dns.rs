@@ -88,7 +88,7 @@ pub fn extract_ipaddr_from_dns_message(message: &Message) -> Result<IpAddr, Stri
 }
 
 pub fn extract_domain_from_dns_message(message: &Message) -> Result<String, String> {
-    let query = message.queries().get(0).ok_or("DnsRequest no query body")?;
+    let query = message.queries().first().ok_or("DnsRequest no query body")?;
     let name = query.name().to_string();
     Ok(name)
 }
