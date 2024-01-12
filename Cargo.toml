@@ -14,7 +14,7 @@ ctrlc2 = { version = "3.5", features = ["termination"] }
 digest_auth = "0.3"
 dotenvy = "0.15"
 env_logger = "0.10"
-hashlink = "0.8"
+hashlink = "0.9"
 httparse = "1.8"
 libc = "0.2"
 log = "0.4"
@@ -48,7 +48,7 @@ reqwest = { version = "0.11", default-features = false, features = [
     "json",
     "rustls-tls",
 ] }
-serial_test = "2.0"
+serial_test = "3.0"
 test-log = "0.2"
 
 [target.'cfg(target_os="windows")'.dependencies]
@@ -60,7 +60,7 @@ windows = { version = "0.52", features = [
     "Win32_Networking_WinSock",
     "Win32_Foundation",
 ] }
-wintun = { git = "https://github.com/ssrlive/wintun.git", branch = "main" }
+wintun = { version = "0.4", features = ["panic_on_unsent_packets"] }
 
 [build-dependencies]
 serde_json = "1.0"
