@@ -1,38 +1,9 @@
-#![allow(dead_code)]
-
-use std::{
-    net::{IpAddr, Ipv4Addr, SocketAddr},
-    str::FromStr,
-};
+use std::{net::IpAddr, str::FromStr};
 use trust_dns_proto::op::MessageType;
 use trust_dns_proto::{
     op::{Message, ResponseCode},
     rr::{record_type::RecordType, Name, RData, Record},
 };
-
-#[cfg(feature = "use-rand")]
-pub fn build_dns_request(domain: &str, query_type: RecordType, used_by_tcp: bool) -> Result<Vec<u8>, String> {
-    // [dependencies]
-    // rand = "0.8"
-    use rand::{rngs::StdRng, Rng, SeedableRng};
-    use trust_dns_proto::op::{header::MessageType, op_code::OpCode, query::Query};
-    let name = Name::from_str(domain).map_err(|e| e.to_string())?;
-    let query = Query::query(name, query_type);
-    let mut msg = Message::new();
-    msg.add_query(query)
-        .set_id(StdRng::from_entropy().gen())
-        .set_op_code(OpCode::Query)
-        .set_message_type(MessageType::Query)
-        .set_recursion_desired(true);
-    let mut msg_buf = msg.to_vec().map_err(|e| e.to_string())?;
-    if used_by_tcp {
-        let mut buf = (msg_buf.len() as u16).to_be_bytes().to_vec();
-        buf.append(&mut msg_buf);
-        Ok(buf)
-    } else {
-        Ok(msg_buf)
-    }
-}
 
 pub fn build_dns_response(mut request: Message, domain: &str, ip: IpAddr, ttl: u32) -> Result<Message, String> {
     let record = match ip {
@@ -104,18 +75,4 @@ pub fn parse_data_to_dns_message(data: &[u8], used_by_tcp: bool) -> Result<Messa
     }
     let message = Message::from_vec(data).map_err(|e| e.to_string())?;
     Ok(message)
-}
-
-// FIXME: use IpAddr::is_global() instead when it's stable
-pub fn addr_is_private(addr: &SocketAddr) -> bool {
-    fn is_benchmarking(addr: &Ipv4Addr) -> bool {
-        addr.octets()[0] == 198 && (addr.octets()[1] & 0xfe) == 18
-    }
-    fn addr_v4_is_private(addr: &Ipv4Addr) -> bool {
-        is_benchmarking(addr) || addr.is_private() || addr.is_loopback() || addr.is_link_local()
-    }
-    match addr {
-        SocketAddr::V4(addr) => addr_v4_is_private(addr.ip()),
-        SocketAddr::V6(_) => false,
-    }
 }

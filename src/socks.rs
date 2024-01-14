@@ -1,15 +1,14 @@
 use crate::{
+    directions::{IncomingDataEvent, IncomingDirection, OutgoingDataEvent, OutgoingDirection},
     error::{Error, Result},
-    tun2proxy::{
-        ConnectionInfo, ConnectionManager, Direction, IncomingDataEvent, IncomingDirection, OutgoingDataEvent, OutgoingDirection,
-        ProxyHandler,
-    },
+    proxy_handler::{ProxyHandler, ProxyHandlerManager},
+    session_info::SessionInfo,
 };
 use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version};
-use std::{collections::VecDeque, convert::TryFrom, net::SocketAddr};
+use std::{collections::VecDeque, net::SocketAddr, sync::Arc};
+use tokio::sync::Mutex;
 
 #[derive(Eq, PartialEq, Debug)]
-#[allow(dead_code)]
 enum SocksState {
     ClientHello,
     ServerHello,
@@ -21,7 +20,8 @@ enum SocksState {
 }
 
 struct SocksProxyImpl {
-    info: ConnectionInfo,
+    info: SessionInfo,
+    domain_name: Option<String>,
     state: SocksState,
     client_inbuf: VecDeque<u8>,
     server_inbuf: VecDeque<u8>,
@@ -34,10 +34,17 @@ struct SocksProxyImpl {
 }
 
 impl SocksProxyImpl {
-    fn new(info: &ConnectionInfo, credentials: Option<UserKey>, version: Version, command: protocol::Command) -> Result<Self> {
+    fn new(
+        info: SessionInfo,
+        domain_name: Option<String>,
+        credentials: Option<UserKey>,
+        version: Version,
+        command: protocol::Command,
+    ) -> Result<Self> {
         let mut result = Self {
-            info: info.clone(),
-            state: SocksState::ServerHello,
+            info,
+            domain_name,
+            state: SocksState::ClientHello,
             client_inbuf: VecDeque::default(),
             server_inbuf: VecDeque::default(),
             client_outbuf: VecDeque::default(),
@@ -58,16 +65,17 @@ impl SocksProxyImpl {
         let mut ip_vec = Vec::<u8>::new();
         let mut name_vec = Vec::<u8>::new();
         match &self.info.dst {
-            Address::SocketAddress(SocketAddr::V4(addr)) => {
-                ip_vec.extend(addr.ip().octets().as_ref());
+            SocketAddr::V4(addr) => {
+                if let Some(host) = &self.domain_name {
+                    ip_vec.extend(&[0, 0, 0, host.len() as u8]);
+                    name_vec.extend(host.as_bytes());
+                    name_vec.push(0);
+                } else {
+                    ip_vec.extend(addr.ip().octets().as_ref());
+                }
             }
-            Address::SocketAddress(SocketAddr::V6(_)) => {
-                return Err("SOCKS4 does not support IPv6".into());
-            }
-            Address::DomainAddress(host, _) => {
-                ip_vec.extend(&[0, 0, 0, host.len() as u8]);
-                name_vec.extend(host.as_bytes());
-                name_vec.push(0);
+            SocketAddr::V6(addr) => {
+                return Err(format!("SOCKS4 does not support IPv6: {}", addr).into());
             }
         }
         self.server_outbuf.extend(ip_vec);
@@ -85,14 +93,7 @@ impl SocksProxyImpl {
 
     fn send_client_hello_socks5(&mut self) -> Result<(), Error> {
         let credentials = &self.credentials;
-        // Providing unassigned methods is supposed to bypass China's GFW.
-        // For details, refer to https://github.com/blechschmidt/tun2proxy/issues/35.
-        #[rustfmt::skip]
-        let mut methods = vec![
-            AuthMethod::NoAuth,
-            AuthMethod::from(4_u8),
-            AuthMethod::from(100_u8),
-        ];
+        let mut methods = vec![AuthMethod::NoAuth, AuthMethod::from(4_u8), AuthMethod::from(100_u8)];
         if credentials.is_some() {
             methods.push(AuthMethod::UserPass);
         }
@@ -113,29 +114,29 @@ impl SocksProxyImpl {
         Ok(())
     }
 
-    fn receive_server_hello_socks4(&mut self) -> Result<(), Error> {
+    fn receive_server_hello_socks4(&mut self) -> std::io::Result<()> {
         if self.server_inbuf.len() < 8 {
             return Ok(());
         }
 
         if self.server_inbuf[1] != 0x5a {
-            return Err("SOCKS4 server replied with an unexpected reply code.".into());
+            return Err(crate::Error::from("SOCKS4 server replied with an unexpected reply code.").into());
         }
 
         self.server_inbuf.drain(0..8);
 
         self.state = SocksState::Established;
-        self.state_change()
+        Ok(())
     }
 
-    fn receive_server_hello_socks5(&mut self) -> Result<(), Error> {
+    fn receive_server_hello_socks5(&mut self) -> std::io::Result<()> {
         let response = handshake::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
-        if let Err(e) = &response {
+        if let Err(e) = response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
                 log::trace!("receive_server_hello_socks5 needs more data \"{}\"...", e);
                 return Ok(());
             } else {
-                return Err(e.to_string().into());
+                return Err(e);
             }
         }
         let respones = response?;
@@ -145,7 +146,7 @@ impl SocksProxyImpl {
         if auth_method != AuthMethod::NoAuth && self.credentials.is_none()
             || (auth_method != AuthMethod::NoAuth && auth_method != AuthMethod::UserPass) && self.credentials.is_some()
         {
-            return Err("SOCKS5 server requires an unsupported authentication method.".into());
+            return Err(crate::Error::from("SOCKS5 server requires an unsupported authentication method.").into());
         }
 
         self.state = if auth_method == AuthMethod::UserPass {
@@ -156,75 +157,77 @@ impl SocksProxyImpl {
         self.state_change()
     }
 
-    fn receive_server_hello(&mut self) -> Result<(), Error> {
+    fn receive_server_hello(&mut self) -> std::io::Result<()> {
         match self.version {
             Version::V4 => self.receive_server_hello_socks4(),
             Version::V5 => self.receive_server_hello_socks5(),
         }
     }
 
-    fn send_auth_data(&mut self) -> Result<(), Error> {
+    fn send_auth_data(&mut self) -> std::io::Result<()> {
         let tmp = UserKey::default();
         let credentials = self.credentials.as_ref().unwrap_or(&tmp);
         let request = password_method::Request::new(&credentials.username, &credentials.password);
         request.write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveAuthResponse;
-        self.state_change()
+        Ok(())
     }
 
-    fn receive_auth_data(&mut self) -> Result<(), Error> {
+    fn receive_auth_data(&mut self) -> std::io::Result<()> {
         use password_method::Response;
         let response = Response::retrieve_from_stream(&mut self.server_inbuf.clone());
-        if let Err(e) = &response {
+        if let Err(e) = response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
                 log::trace!("receive_auth_data needs more data \"{}\"...", e);
                 return Ok(());
             } else {
-                return Err(e.to_string().into());
+                return Err(e);
             }
         }
         let response = response?;
         self.server_inbuf.drain(0..response.len());
         if response.status != password_method::Status::Succeeded {
-            return Err(format!("SOCKS authentication failed: {:?}", response.status).into());
+            return Err(crate::Error::from(format!("SOCKS authentication failed: {:?}", response.status)).into());
         }
         self.state = SocksState::SendRequest;
         self.state_change()
     }
 
-    fn send_request_socks5(&mut self) -> Result<(), Error> {
+    fn send_request_socks5(&mut self) -> std::io::Result<()> {
         let addr = if self.command == protocol::Command::UdpAssociate {
             Address::unspecified()
+        } else if let Some(domain_name) = &self.domain_name {
+            Address::DomainAddress(domain_name.clone(), self.info.dst.port())
         } else {
-            self.info.dst.clone()
+            self.info.dst.into()
         };
         protocol::Request::new(self.command, addr).write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveResponse;
-        self.state_change()
+        Ok(())
     }
 
-    fn receive_connection_status(&mut self) -> Result<(), Error> {
+    fn receive_connection_status(&mut self) -> std::io::Result<()> {
         let response = protocol::Response::retrieve_from_stream(&mut self.server_inbuf.clone());
-        if let Err(e) = &response {
+        if let Err(e) = response {
             if e.kind() == std::io::ErrorKind::UnexpectedEof {
                 log::trace!("receive_connection_status needs more data \"{}\"...", e);
                 return Ok(());
             } else {
-                return Err(e.to_string().into());
+                return Err(e);
             }
         }
         let response = response?;
         self.server_inbuf.drain(0..response.len());
         if response.reply != protocol::Reply::Succeeded {
-            return Err(format!("SOCKS connection failed: {}", response.reply).into());
+            return Err(crate::Error::from(format!("SOCKS connection failed: {}", response.reply)).into());
         }
         if self.command == protocol::Command::UdpAssociate {
             self.udp_associate = Some(SocketAddr::try_from(&response.address)?);
-            log::trace!("UDP associate recieved address {}", response.address);
+            // log::trace!("UDP associate recieved address {}", response.address);
         }
 
         self.state = SocksState::Established;
-        self.state_change()
+        Ok(())
     }
 
     fn relay_traffic(&mut self) -> Result<(), Error> {
@@ -235,31 +238,37 @@ impl SocksProxyImpl {
         Ok(())
     }
 
-    fn state_change(&mut self) -> Result<(), Error> {
+    fn state_change(&mut self) -> std::io::Result<()> {
         match self.state {
-            SocksState::ServerHello => self.receive_server_hello(),
+            SocksState::ServerHello => self.receive_server_hello()?,
 
-            SocksState::SendAuthData => self.send_auth_data(),
+            SocksState::SendAuthData => self.send_auth_data()?,
 
-            SocksState::ReceiveAuthResponse => self.receive_auth_data(),
+            SocksState::ReceiveAuthResponse => self.receive_auth_data()?,
 
-            SocksState::SendRequest => self.send_request_socks5(),
+            SocksState::SendRequest => self.send_request_socks5()?,
 
-            SocksState::ReceiveResponse => self.receive_connection_status(),
+            SocksState::ReceiveResponse => self.receive_connection_status()?,
 
-            SocksState::Established => self.relay_traffic(),
+            SocksState::Established => self.relay_traffic()?,
 
-            _ => Ok(()),
+            _ => {}
         }
+        Ok(())
     }
 }
 
+#[async_trait::async_trait]
 impl ProxyHandler for SocksProxyImpl {
-    fn get_connection_info(&self) -> &ConnectionInfo {
-        &self.info
+    fn get_session_info(&self) -> SessionInfo {
+        self.info
     }
 
-    fn push_data(&mut self, event: IncomingDataEvent<'_>) -> Result<(), Error> {
+    fn get_domain_name(&self) -> Option<String> {
+        self.domain_name.clone()
+    }
+
+    async fn push_data(&mut self, event: IncomingDataEvent<'_>) -> std::io::Result<()> {
         let IncomingDataEvent { direction, buffer } = event;
         match direction {
             IncomingDirection::FromServer => {
@@ -296,16 +305,10 @@ impl ProxyHandler for SocksProxyImpl {
         self.state == SocksState::Established
     }
 
-    fn data_len(&self, dir: Direction) -> usize {
+    fn data_len(&self, dir: OutgoingDirection) -> usize {
         match dir {
-            Direction::Incoming(incoming) => match incoming {
-                IncomingDirection::FromServer => self.server_inbuf.len(),
-                IncomingDirection::FromClient => self.client_inbuf.len(),
-            },
-            Direction::Outgoing(outgoing) => match outgoing {
-                OutgoingDirection::ToServer => self.server_outbuf.len(),
-                OutgoingDirection::ToClient => self.client_outbuf.len(),
-            },
+            OutgoingDirection::ToServer => self.server_outbuf.len(),
+            OutgoingDirection::ToClient => self.client_outbuf.len(),
         }
     }
 
@@ -324,12 +327,24 @@ pub(crate) struct SocksProxyManager {
     version: Version,
 }
 
-impl ConnectionManager for SocksProxyManager {
-    fn new_proxy_handler(&self, info: &ConnectionInfo, udp_associate: bool) -> Result<Box<dyn ProxyHandler>> {
+#[async_trait::async_trait]
+impl ProxyHandlerManager for SocksProxyManager {
+    async fn new_proxy_handler(
+        &self,
+        info: SessionInfo,
+        domain_name: Option<String>,
+        udp_associate: bool,
+    ) -> std::io::Result<Arc<Mutex<dyn ProxyHandler>>> {
         use socks5_impl::protocol::Command::{Connect, UdpAssociate};
         let command = if udp_associate { UdpAssociate } else { Connect };
         let credentials = self.credentials.clone();
-        Ok(Box::new(SocksProxyImpl::new(info, credentials, self.version, command)?))
+        Ok(Arc::new(Mutex::new(SocksProxyImpl::new(
+            info,
+            domain_name,
+            credentials,
+            self.version,
+            command,
+        )?)))
     }
 
     fn get_server_addr(&self) -> SocketAddr {

@@ -1,11 +1,9 @@
-examples/
+.env
+project.xcworkspace/
+xcuserdata/
+.vscode/
+.VSCodeCounter/
 build/
 tmp/
-.*
-*.secret
-*.iml
-!/.github
-!/.cargo
-/target
 Cargo.lock
-manual-test.sh
+target/
