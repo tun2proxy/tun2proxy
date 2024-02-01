@@ -1,8 +1,5 @@
-#![allow(dead_code)]
-
 use crate::error::Result;
 use hashlink::{linked_hash_map::RawEntryMut, LruCache};
-use smoltcp::wire::Ipv4Cidr;
 use std::{
     collections::HashMap,
     convert::TryInto,
@@ -18,6 +15,9 @@ struct NameCacheEntry {
     expiry: Instant,
 }
 
+/// A virtual DNS server which allocates IP addresses to clients.
+/// The IP addresses are in the range of private IP addresses.
+/// The DNS server is implemented as a LRU cache.
 pub struct VirtualDns {
     lru_cache: LruCache<IpAddr, NameCacheEntry>,
     name_to_ip: HashMap<String, IpAddr>,
@@ -29,13 +29,16 @@ pub struct VirtualDns {
 impl Default for VirtualDns {
     fn default() -> Self {
         let start_addr = Ipv4Addr::from_str("198.18.0.0").unwrap();
-        let cidr = Ipv4Cidr::new(start_addr.into(), 15);
+        let prefix_len = 15;
+
+        let network_addr = calculate_network_addr(start_addr, prefix_len);
+        let broadcast_addr = calculate_broadcast_addr(start_addr, prefix_len);
 
         Self {
             next_addr: start_addr.into(),
             name_to_ip: HashMap::default(),
-            network_addr: IpAddr::from(cidr.network().address().into_address()),
-            broadcast_addr: IpAddr::from(cidr.broadcast().unwrap().into_address()),
+            network_addr: IpAddr::from(network_addr),
+            broadcast_addr: IpAddr::from(broadcast_addr),
             lru_cache: LruCache::new_unbounded(),
         }
     }
@@ -46,13 +49,14 @@ impl VirtualDns {
         VirtualDns::default()
     }
 
-    pub fn receive_query(&mut self, data: &[u8]) -> Result<Vec<u8>> {
+    /// Returns the DNS response to send back to the client.
+    pub fn generate_query(&mut self, data: &[u8]) -> Result<(Vec<u8>, String, IpAddr)> {
         use crate::dns;
         let message = dns::parse_data_to_dns_message(data, false)?;
         let qname = dns::extract_domain_from_dns_message(&message)?;
         let ip = self.allocate_ip(qname.clone())?;
         let message = dns::build_dns_response(message, &qname, ip, 5)?;
-        Ok(message.to_vec()?)
+        Ok((message.to_vec()?, qname, ip))
     }
 
     fn increment_ip(addr: IpAddr) -> Result<IpAddr> {
@@ -138,5 +142,32 @@ impl VirtualDns {
                 return Err("Virtual IP space for DNS exhausted".into());
             }
         }
+    }
+}
+
+fn calculate_network_addr(ip: std::net::Ipv4Addr, prefix_len: u8) -> std::net::Ipv4Addr {
+    let mask = (!0u32) << (32 - prefix_len);
+    let ip_u32 = u32::from_be_bytes(ip.octets());
+    std::net::Ipv4Addr::from((ip_u32 & mask).to_be_bytes())
+}
+
+fn calculate_broadcast_addr(ip: std::net::Ipv4Addr, prefix_len: u8) -> std::net::Ipv4Addr {
+    let mask = (!0u32) >> prefix_len;
+    let ip_u32 = u32::from_be_bytes(ip.octets());
+    std::net::Ipv4Addr::from((ip_u32 | mask).to_be_bytes())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_cidr_addr() {
+        let start_addr = Ipv4Addr::from_str("198.18.0.0").unwrap();
+        let prefix_len = 15;
+        let network_addr = calculate_network_addr(start_addr, prefix_len);
+        let broadcast_addr = calculate_broadcast_addr(start_addr, prefix_len);
+        assert_eq!(network_addr, Ipv4Addr::from_str("198.18.0.0").unwrap());
+        assert_eq!(broadcast_addr, Ipv4Addr::from_str("198.19.255.255").unwrap());
     }
 }
