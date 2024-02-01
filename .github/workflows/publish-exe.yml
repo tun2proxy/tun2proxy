@@ -48,7 +48,7 @@ jobs:
       - name: Prepare
         shell: bash
         run: |
-          mkdir publishdir
+          mkdir mypubdir4
           rustup target add ${{ matrix.target }}
           if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
             sudo .github/workflows/install-cross.sh
@@ -63,12 +63,13 @@ jobs:
             cargo build --all-features --release --target ${{ matrix.target }}
           fi
           if [[ "${{ matrix.host_os }}" == "windows-latest" ]]; then
-            powershell Get-ChildItem -Path target/${{ matrix.target }}/release/tun2proxy.exe, README.md, target/${{ matrix.target }}/release/wintun.dll | ForEach-Object { $_.LastWriteTime = Get-Date }
-            powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy.exe, README.md, target/${{ matrix.target }}/release/wintun.dll -DestinationPath publishdir/tun2proxy-${{ matrix.target }}.zip
+            powershell -Command "(Get-Item README.md).LastWriteTime = Get-Date"
+            powershell -Command "(Get-Item target/${{ matrix.target }}/release/wintun.dll).LastWriteTime = Get-Date"
+            powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy.exe, README.md, target/${{ matrix.target }}/release/wintun.dll -DestinationPath mypubdir4/tun2proxy-${{ matrix.target }}.zip
           elif [[ "${{ matrix.host_os }}" == "macos-latest" ]]; then
-            zip -j publishdir/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md
+            zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md
           elif [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
-            zip -j publishdir/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md
+            zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md
           fi
 
       - name: Publish
@@ -76,5 +77,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
-          files: publishdir/*
+          files: mypubdir4/*
 
