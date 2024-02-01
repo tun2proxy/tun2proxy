@@ -63,6 +63,7 @@ jobs:
             cargo build --all-features --release --target ${{ matrix.target }}
           fi
           if [[ "${{ matrix.host_os }}" == "windows-latest" ]]; then
+            powershell Get-ChildItem -Path target/${{ matrix.target }}/release/tun2proxy.exe, README.md, target/${{ matrix.target }}/release/wintun.dll | ForEach-Object { $_.LastWriteTime = Get-Date }
             powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy.exe, README.md, target/${{ matrix.target }}/release/wintun.dll -DestinationPath publishdir/tun2proxy-${{ matrix.target }}.zip
           elif [[ "${{ matrix.host_os }}" == "macos-latest" ]]; then
             zip -j publishdir/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md
