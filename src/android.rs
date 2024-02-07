@@ -1,13 +1,13 @@
 #![cfg(target_os = "android")]
 
 use crate::{
-    args::{ArgDns, ArgProxy},
+    args::ArgProxy,
     error::{Error, Result},
-    ArgVerbosity, Args,
+    Args,
 };
 use jni::{
     objects::{JClass, JString},
-    sys::{jboolean, jint},
+    sys::jint,
     JNIEnv,
 };
 
@@ -21,11 +21,11 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     proxy_url: JString,
     tun_fd: jint,
     tun_mtu: jint,
-    verbose: jboolean,
-    dns_over_tcp: jboolean,
+    verbosity: jint,
+    dns_strategy: jint,
 ) -> jint {
-    let dns = if dns_over_tcp != 0 { ArgDns::OverTcp } else { ArgDns::Direct };
-    let verbosity = if verbose != 0 { ArgVerbosity::Trace } else { ArgVerbosity::Info };
+    let dns = dns_strategy.try_into().unwrap();
+    let verbosity = verbosity.try_into().unwrap();
     let filter_str = &format!("off,tun2proxy={verbosity}");
     let filter = android_logger::FilterBuilder::new().parse(filter_str).build();
     android_logger::init_once(

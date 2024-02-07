@@ -1,5 +1,6 @@
+use crate::ArgVerbosity;
 use std::{
-    os::raw::{c_char, c_int, c_void},
+    os::raw::{c_char, c_void},
     sync::Mutex,
 };
 
@@ -10,17 +11,17 @@ pub(crate) static DUMP_CALLBACK: Mutex<Option<DumpCallback>> = Mutex::new(None);
 /// set dump log info callback.
 #[no_mangle]
 pub unsafe extern "C" fn tun2proxy_set_log_callback(
-    callback: Option<unsafe extern "C" fn(c_int, *const c_char, *mut c_void)>,
+    callback: Option<unsafe extern "C" fn(ArgVerbosity, *const c_char, *mut c_void)>,
     ctx: *mut c_void,
 ) {
     *DUMP_CALLBACK.lock().unwrap() = Some(DumpCallback(callback, ctx));
 }
 
 #[derive(Clone)]
-pub struct DumpCallback(Option<unsafe extern "C" fn(c_int, *const c_char, *mut c_void)>, *mut c_void);
+pub struct DumpCallback(Option<unsafe extern "C" fn(ArgVerbosity, *const c_char, *mut c_void)>, *mut c_void);
 
 impl DumpCallback {
-    unsafe fn call(self, dump_level: c_int, info: *const c_char) {
+    unsafe fn call(self, dump_level: ArgVerbosity, info: *const c_char) {
         if let Some(cb) = self.0 {
             cb(dump_level, info, self.1);
         }
@@ -64,7 +65,7 @@ impl DumpLogger {
         let ptr = c_msg.as_ptr();
         if let Some(cb) = DUMP_CALLBACK.lock().unwrap().clone() {
             unsafe {
-                cb.call(record.level() as c_int, ptr);
+                cb.call(record.level().into(), ptr);
             }
         }
     }

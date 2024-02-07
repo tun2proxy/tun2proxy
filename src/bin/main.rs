@@ -62,7 +62,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tproxy_config::tproxy_setup(&tproxy_args)?;
     }
 
-    let tun2proxy = Builder::new(device, args).mtu(MTU).build();
+    let tun2proxy = Builder::new(device, args).mtu(MTU as _).build();
     let (join_handle, quit) = tun2proxy.start();
 
     ctrlc2::set_async_handler(async move {

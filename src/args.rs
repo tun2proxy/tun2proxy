@@ -81,15 +81,57 @@ impl Args {
     }
 }
 
+#[repr(C)]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 pub enum ArgVerbosity {
-    Off,
+    Off = 0,
     Error,
     Warn,
     #[default]
     Info,
     Debug,
     Trace,
+}
+
+#[cfg(target_os = "android")]
+impl TryFrom<jni::sys::jint> for ArgVerbosity {
+    type Error = Error;
+    fn try_from(value: jni::sys::jint) -> Result<Self> {
+        match value {
+            0 => Ok(ArgVerbosity::Off),
+            1 => Ok(ArgVerbosity::Error),
+            2 => Ok(ArgVerbosity::Warn),
+            3 => Ok(ArgVerbosity::Info),
+            4 => Ok(ArgVerbosity::Debug),
+            5 => Ok(ArgVerbosity::Trace),
+            _ => Err(Error::from("Invalid verbosity level")),
+        }
+    }
+}
+
+impl From<ArgVerbosity> for log::LevelFilter {
+    fn from(verbosity: ArgVerbosity) -> Self {
+        match verbosity {
+            ArgVerbosity::Off => log::LevelFilter::Off,
+            ArgVerbosity::Error => log::LevelFilter::Error,
+            ArgVerbosity::Warn => log::LevelFilter::Warn,
+            ArgVerbosity::Info => log::LevelFilter::Info,
+            ArgVerbosity::Debug => log::LevelFilter::Debug,
+            ArgVerbosity::Trace => log::LevelFilter::Trace,
+        }
+    }
+}
+
+impl From<log::Level> for ArgVerbosity {
+    fn from(level: log::Level) -> Self {
+        match level {
+            log::Level::Error => ArgVerbosity::Error,
+            log::Level::Warn => ArgVerbosity::Warn,
+            log::Level::Info => ArgVerbosity::Info,
+            log::Level::Debug => ArgVerbosity::Debug,
+            log::Level::Trace => ArgVerbosity::Trace,
+        }
+    }
 }
 
 impl std::fmt::Display for ArgVerbosity {
@@ -109,12 +151,26 @@ impl std::fmt::Display for ArgVerbosity {
 /// - Virtual: Use a virtual DNS server to handle DNS queries, also known as Fake-IP mode
 /// - OverTcp: Use TCP to send DNS queries to the DNS server
 /// - Direct: Do not handle DNS by relying on DNS server bypassing
+#[repr(C)]
 #[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
 pub enum ArgDns {
-    Virtual,
+    Virtual = 0,
     OverTcp,
     #[default]
     Direct,
+}
+
+#[cfg(target_os = "android")]
+impl TryFrom<jni::sys::jint> for ArgDns {
+    type Error = Error;
+    fn try_from(value: jni::sys::jint) -> Result<Self> {
+        match value {
+            0 => Ok(ArgDns::Virtual),
+            1 => Ok(ArgDns::OverTcp),
+            2 => Ok(ArgDns::Direct),
+            _ => Err(Error::from("Invalid DNS strategy")),
+        }
+    }
 }
 
 #[derive(Clone, Debug)]

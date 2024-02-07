@@ -14,20 +14,16 @@ pub unsafe extern "C" fn tun2proxy_run(
     proxy_url: *const c_char,
     tun_fd: c_int,
     tun_mtu: c_uint,
-    dns_over_tcp: c_char,
-    verbose: c_char,
+    dns_strategy: ArgDns,
+    verbosity: ArgVerbosity,
 ) -> c_int {
-    use log::LevelFilter;
-    let log_level = if verbose != 0 { LevelFilter::Trace } else { LevelFilter::Info };
-    log::set_max_level(log_level);
+    log::set_max_level(verbosity.into());
     log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()).unwrap();
 
-    let dns = if dns_over_tcp != 0 { ArgDns::OverTcp } else { ArgDns::Direct };
-    let verbosity = if verbose != 0 { ArgVerbosity::Trace } else { ArgVerbosity::Info };
     let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
     let proxy = ArgProxy::from_url(proxy_url).unwrap();
 
-    let args = Args::new(Some(tun_fd), proxy, dns, verbosity);
+    let args = Args::new(Some(tun_fd), proxy, dns_strategy, verbosity);
 
     crate::api::tun2proxy_internal_run(args, tun_mtu as _)
 }

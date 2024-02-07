@@ -161,7 +161,7 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 			shellPath = /bin/bash;
-			shellScript = "set -e\nPATH=\"$PATH:${HOME}/.cargo/bin\"\nRUST_PROJ=${PROJECT_DIR}/..\ncd \"${RUST_PROJ}\"\ncargo build --release --target aarch64-apple-ios\ncargo build --release --target x86_64-apple-ios\nlipo -create target/aarch64-apple-ios/release/libtun2proxy.a target/x86_64-apple-ios/release/libtun2proxy.a -output target/libtun2proxy.a\ncbindgen --config cbindgen.toml -l C -o target/tun2proxy-sys.h\n";
+			shellScript = "set -e\nPATH=\"$PATH:${HOME}/.cargo/bin\"\nRUST_PROJ=${PROJECT_DIR}/..\ncd \"${RUST_PROJ}\"\ncargo build --release --target aarch64-apple-ios\ncargo build --release --target x86_64-apple-ios\nlipo -create target/aarch64-apple-ios/release/libtun2proxy.a target/x86_64-apple-ios/release/libtun2proxy.a -output target/libtun2proxy.a\ncbindgen --config cbindgen.toml -l C -o target/tun2proxy-ffi.h\n";
 		};
 /* End PBXShellScriptBuildPhase section */
 
