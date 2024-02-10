@@ -44,7 +44,7 @@ const MAX_SESSIONS: u64 = 200;
 static TASK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use std::sync::atomic::Ordering::Relaxed;
 
-pub async fn run<D>(device: D, mtu: usize, args: Args, shutdown_token: CancellationToken) -> crate::Result<()>
+pub async fn run<D>(device: D, mtu: u16, args: Args, shutdown_token: CancellationToken) -> crate::Result<()>
 where
     D: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -66,7 +66,7 @@ where
     };
 
     let mut ipstack_config = ipstack::IpStackConfig::default();
-    ipstack_config.mtu(mtu as _);
+    ipstack_config.mtu(mtu);
     ipstack_config.tcp_timeout(std::time::Duration::from_secs(600)); // 10 minutes
     ipstack_config.udp_timeout(std::time::Duration::from_secs(10)); // 10 seconds
 

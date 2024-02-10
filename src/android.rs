@@ -7,7 +7,7 @@ use crate::{
 };
 use jni::{
     objects::{JClass, JString},
-    sys::jint,
+    sys::{jchar, jint},
     JNIEnv,
 };
 
@@ -20,7 +20,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     _clazz: JClass,
     proxy_url: JString,
     tun_fd: jint,
-    tun_mtu: jint,
+    tun_mtu: jchar,
     verbosity: jint,
     dns_strategy: jint,
 ) -> jint {
@@ -38,7 +38,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     let proxy = ArgProxy::from_url(proxy_url).unwrap();
 
     let args = Args::new(Some(tun_fd), proxy, dns, verbosity);
-    crate::api::tun2proxy_internal_run(args, tun_mtu as _)
+    crate::api::tun2proxy_internal_run(args, tun_mtu)
 }
 
 /// # Safety

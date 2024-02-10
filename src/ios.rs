@@ -4,7 +4,7 @@ use crate::{
     args::{ArgDns, ArgProxy},
     ArgVerbosity, Args,
 };
-use std::os::raw::{c_char, c_int, c_uint};
+use std::os::raw::{c_char, c_int, c_ushort};
 
 /// # Safety
 ///
@@ -13,7 +13,7 @@ use std::os::raw::{c_char, c_int, c_uint};
 pub unsafe extern "C" fn tun2proxy_run(
     proxy_url: *const c_char,
     tun_fd: c_int,
-    tun_mtu: c_uint,
+    tun_mtu: c_ushort,
     dns_strategy: ArgDns,
     verbosity: ArgVerbosity,
 ) -> c_int {
@@ -25,7 +25,7 @@ pub unsafe extern "C" fn tun2proxy_run(
 
     let args = Args::new(Some(tun_fd), proxy, dns_strategy, verbosity);
 
-    crate::api::tun2proxy_internal_run(args, tun_mtu as _)
+    crate::api::tun2proxy_internal_run(args, tun_mtu)
 }
 
 /// # Safety

@@ -12,7 +12,7 @@
 
 + (void)startWithConfig:(NSString *)proxy_url
                  tun_fd:(int)tun_fd
-                tun_mtu:(uint32_t)tun_mtu
+                tun_mtu:(uint16_t)tun_mtu
            dns_over_tcp:(bool)dns_over_tcp
                 verbose:(bool)verbose;
 + (void) shutdown;

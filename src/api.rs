@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 static TUN_QUIT: Mutex<Option<CancellationToken>> = Mutex::new(None);
 
-pub(crate) fn tun2proxy_internal_run(args: Args, tun_mtu: usize) -> c_int {
+pub(crate) fn tun2proxy_internal_run(args: Args, tun_mtu: u16) -> c_int {
     let mut lock = TUN_QUIT.lock().unwrap();
     if lock.is_some() {
         log::error!("tun2proxy already started");
