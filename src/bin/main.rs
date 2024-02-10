@@ -1,6 +1,7 @@
+use tokio_util::sync::CancellationToken;
 use tproxy_config::{TproxyArgs, TUN_GATEWAY, TUN_IPV4, TUN_NETMASK};
 use tun2::DEFAULT_MTU as MTU;
-use tun2proxy::{Args, Builder};
+use tun2proxy::{self, Args};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -62,11 +63,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tproxy_config::tproxy_setup(&tproxy_args)?;
     }
 
-    let tun2proxy = Builder::new(device, args).mtu(MTU as _).build();
-    let (join_handle, quit) = tun2proxy.start();
+    let shutdown_token = CancellationToken::new();
+    let cloned_token = shutdown_token.clone();
+    let join_handle = tokio::spawn(tun2proxy::run(device, MTU, args, cloned_token));
 
     ctrlc2::set_async_handler(async move {
-        quit.trigger().await.expect("quit error");
+        log::info!("Ctrl-C received, exiting...");
+        shutdown_token.cancel();
     })
     .await;
 
