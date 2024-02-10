@@ -4,7 +4,7 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use tproxy_config::TUN_NAME;
 
 #[derive(Debug, Clone, clap::Parser)]
-#[command(author, version, about = "tun2proxy application.", long_about = None)]
+#[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
 pub struct Args {
     /// Proxy URL in the form proto://[username[:password]@]host:port,
     /// where proto is one of socks4, socks5, http. For example:

@@ -1,5 +1,11 @@
 # tun2proxy
-A tunnel interface for HTTP and SOCKS proxies on Linux based on [smoltcp](https://github.com/smoltcp-rs/smoltcp).
+A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and Windows.
+
+[![Crates.io](https://img.shields.io/crates/v/tun2proxy.svg)](https://crates.io/crates/tun2proxy)
+![tun2proxy](https://docs.rs/tun2proxy/badge.svg)
+[![Documentation](https://img.shields.io/badge/docs-release-brightgreen.svg?style=flat)](https://docs.rs/tun2proxy)
+[![Download](https://img.shields.io/crates/d/tun2proxy.svg)](https://crates.io/crates/tun2proxy)
+[![License](https://img.shields.io/crates/l/tun2proxy.svg?style=flat)](https://github.com/blechschmidt/tun2proxy/blob/master/LICENSE)
 
 ## Features
 - HTTP proxy support (unauthenticated, basic and digest auth)
@@ -17,22 +23,37 @@ Clone the repository and `cd` into the project folder. Then run the following:
 cargo build --release
 ```
 
+## Installation
+
+### Install from binary
+
+Download the binary from [releases](https://github.com/blechschmidt/tun2proxy/releases) and put it in your `PATH`.
+
+### Install from source
+
+If you have [rust](https://rustup.rs/) toolchain installed, this should work:
+```shell
+cargo install tun2proxy
+```
+> Note: In Windows, you need to copy [wintun](https://www.wintun.net/) DLL to the same directory as the binary.
+> It's `%USERPROFILE%\.cargo\bin` by default.
+
 ## Setup
 ## Automated Setup
-Using `--setup auto`, you can have tun2proxy configure your system to automatically route all traffic through the
+Using `--setup`, you can have tun2proxy configure your system to automatically route all traffic through the
 specified proxy. This requires running the tool as root and will roughly perform the steps outlined in the section
 describing the manual setup, except that a bind mount is used to overlay the `/etc/resolv.conf` file.
 
 You would then run the tool as follows:
 ```bash
-sudo ./target/release/tun2proxy --setup auto --proxy "socks5://1.2.3.4:1080"
+sudo ./target/release/tun2proxy --setup --proxy "socks5://1.2.3.4:1080"
 ```
 
 Apart from SOCKS5, SOCKS4 and HTTP are supported.
 
 Note that if your proxy is a non-global IP address (e.g. because the proxy is provided by some tunneling tool running
 locally), you will additionally need to provide the public IP address of the server through which the traffic is
-actually tunneled. In such a case, the tool will tell you to specify the address through `--bypass-ip <address>` if you
+actually tunneled. In such a case, the tool will tell you to specify the address through `--bypass <IP>` if you
 wish to make use of the automated setup feature.
 
 ## Manual Setup
@@ -44,9 +65,9 @@ PROXY_IP=1.2.3.4
 PROXY_PORT=1080
 BYPASS_IP=123.45.67.89
 
-# Create a tunnel interface named tun0 which your user can bind to,
+# Create a tunnel interface named tun0 which you can bind to,
 # so we don't need to run tun2proxy as root.
-sudo ip tuntap add name tun0 mode tun user $USER
+sudo ip tuntap add name tun0 mode tun
 sudo ip link set tun0 up
 
 # To prevent a routing loop, we add a route to the proxy server that behaves
@@ -67,14 +88,11 @@ sudo sh -c "echo nameserver 198.18.0.1 > /etc/resolv.conf"
 ./target/release/tun2proxy --tun tun0 --proxy "$PROXY_TYPE://$PROXY_IP:$PROXY_PORT"
 ```
 
-Note that if you paste these commands into a shell script, which you then run with `sudo`, you might want to replace
-`$USER` with `$SUDO_USER`.
-
-This tool implements a virtual DNS feature that is used by default. When a DNS packet to port 53 is detected, an IP
+This tool implements a virtual DNS feature that is used by switch `--dns virtual`. When a DNS packet to port 53 is detected, an IP
 address from `198.18.0.0/15` is chosen and mapped to the query name. Connections destined for an IP address from that
 range will supply the proxy with the mapped query name instead of the IP address. Since many proxies do not support UDP,
 this enables an out-of-the-box experience in most cases, without relying on third-party resolvers or applications.
-Depending on your use case, you may want to disable this feature using `--dns none`.
+Depending on your use case, you may want to disable this feature using `--dns direct`.
 In that case, you might need an additional tool like [dnsproxy](https://github.com/AdguardTeam/dnsproxy) that is
 configured to listen on a local UDP port and communicates with a third-party upstream DNS server via TCP.
 
@@ -91,15 +109,16 @@ Tunnel interface to proxy.
 Usage: tun2proxy [OPTIONS] --proxy <URL>
 
 Options:
+  -p, --proxy <URL>        Proxy URL in the form proto://[username[:password]@]host:port, where proto is one of socks4,
+                           socks5, http. For example: socks5://myname:password@127.0.0.1:1080
   -t, --tun <name>         Name of the tun interface [default: tun0]
       --tun-fd <fd>        File descriptor of the tun interface
-      --tun-mtu <mtu>      MTU of the tun interface (only with tunnel file descriptor) [default: 1500]
-  -p, --proxy <URL>        Proxy URL in the form proto://[username[:password]@]host:port
-  -d, --dns <strategy>     DNS handling strategy [default: virtual] [possible values: virtual, over-tcp, direct]
-      --dns-addr <IP>      DNS resolver address [default: 8.8.8.8]
   -6, --ipv6-enabled       IPv6 enabled
-  -s, --setup <method>     Routing and system setup [default: none] [possible values: none, auto]
-  -b, --bypass <IP|CIDR>   IPs and CIDRs used in routing setup which should bypass the tunnel
+  -s, --setup              Routing and system setup, which decides whether to setup the routing and system configuration,
+                           this option requires root privileges
+  -d, --dns <strategy>     DNS handling strategy [default: direct] [possible values: virtual, over-tcp, direct]
+      --dns-addr <IP>      DNS resolver address [default: 8.8.8.8]
+  -b, --bypass <IP>        IPs used in routing setup which should bypass the tunnel
   -v, --verbosity <level>  Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
   -h, --help               Print help
   -V, --version            Print version

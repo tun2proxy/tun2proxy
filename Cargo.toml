@@ -1,8 +1,13 @@
 [package]
 name = "tun2proxy"
-version = "0.2.4"
+version = "0.2.5"
 edition = "2021"
-# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+license = "MIT"
+repository = "https://github.com/blechschmidt/tun2proxy"
+homepage = "https://github.com/blechschmidt/tun2proxy"
+authors = ["B. Blechschmidt", "ssrlive"]
+description = "Tunnel interface to proxy"
+readme = "README.md"
 
 [lib]
 crate-type = ["staticlib", "cdylib", "lib"]
@@ -12,7 +17,7 @@ async-recursion = "1.0"
 async-trait = "0.1"
 base64 = { version = "0.21" }
 chrono = "0.4"
-clap = { version = "4.4", features = ["derive", "wrap_help", "color"] }
+clap = { version = "4.5", features = ["derive", "wrap_help", "color"] }
 ctrlc2 = { version = "3.5", features = ["tokio", "termination"] }
 digest_auth = "0.3"
 dotenvy = "0.15"
