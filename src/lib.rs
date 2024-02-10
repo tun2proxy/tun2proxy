@@ -8,7 +8,7 @@ use ipstack::stream::{IpStackStream, IpStackTcpStream, IpStackUdpStream};
 use proxy_handler::{ProxyHandler, ProxyHandlerManager};
 use socks::SocksProxyManager;
 pub use socks5_impl::protocol::UserKey;
-use std::{collections::VecDeque, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
+use std::{collections::VecDeque, net::SocketAddr, sync::Arc};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
@@ -43,28 +43,6 @@ const MAX_SESSIONS: u64 = 200;
 
 static TASK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use std::sync::atomic::Ordering::Relaxed;
-
-#[repr(transparent)]
-struct TokioJoinError(tokio::task::JoinError);
-
-impl From<TokioJoinError> for crate::Result<()> {
-    fn from(value: TokioJoinError) -> Self {
-        Err(crate::Error::Io(value.0.into()))
-    }
-}
-
-pub struct JoinHandle<R>(tokio::task::JoinHandle<R>);
-
-impl<R: From<TokioJoinError>> Future for JoinHandle<R> {
-    type Output = R;
-
-    fn poll(mut self: std::pin::Pin<&mut Self>, cx: &mut std::task::Context<'_>) -> std::task::Poll<Self::Output> {
-        match std::task::ready!(Pin::new(&mut self.0).poll(cx)) {
-            Ok(r) => std::task::Poll::Ready(r),
-            Err(e) => std::task::Poll::Ready(TokioJoinError(e).into()),
-        }
-    }
-}
 
 pub async fn run<D>(device: D, mtu: usize, args: Args, shutdown_token: CancellationToken) -> crate::Result<()>
 where
