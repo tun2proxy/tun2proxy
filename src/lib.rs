@@ -1,5 +1,4 @@
 use crate::{
-    args::ProxyType,
     directions::{IncomingDataEvent, IncomingDirection, OutgoingDirection},
     http::HttpManager,
     session_info::{IpProtocol, SessionInfo},
@@ -21,7 +20,7 @@ use tokio::{
 use tproxy_config::is_private_ip;
 use udp_stream::UdpStream;
 pub use {
-    args::{ArgVerbosity, Args},
+    args::{ArgDns, ArgProxy, ArgVerbosity, Args, ProxyType},
     error::{Error, Result},
 };
 
@@ -117,7 +116,7 @@ where
     let key = args.proxy.credentials.clone();
     let dns_addr = args.dns_addr;
     let ipv6_enabled = args.ipv6_enabled;
-    let virtual_dns = if args.dns == args::ArgDns::Virtual {
+    let virtual_dns = if args.dns == ArgDns::Virtual {
         Some(Arc::new(Mutex::new(VirtualDns::new())))
     } else {
         None
@@ -183,7 +182,7 @@ where
                     if is_private_ip(info.dst.ip()) {
                         info.dst.set_ip(dns_addr);
                     }
-                    if args.dns == args::ArgDns::OverTcp {
+                    if args.dns == ArgDns::OverTcp {
                         let proxy_handler = mgr.new_proxy_handler(info, None, false).await?;
                         tokio::spawn(async move {
                             if let Err(err) = handle_dns_over_tcp_session(udp, server_addr, proxy_handler, ipv6_enabled).await {
@@ -193,7 +192,7 @@ where
                         });
                         continue;
                     }
-                    if args.dns == args::ArgDns::Virtual {
+                    if args.dns == ArgDns::Virtual {
                         tokio::spawn(async move {
                             if let Some(virtual_dns) = virtual_dns {
                                 if let Err(err) = handle_virtual_dns_session(udp, virtual_dns).await {
@@ -204,7 +203,7 @@ where
                         });
                         continue;
                     }
-                    assert_eq!(args.dns, args::ArgDns::Direct);
+                    assert_eq!(args.dns, ArgDns::Direct);
                 }
                 let domain_name = if let Some(virtual_dns) = &virtual_dns {
                     let mut virtual_dns = virtual_dns.lock().await;
