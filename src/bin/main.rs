@@ -64,7 +64,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     let shutdown_token = CancellationToken::new();
-    let join_handle = tokio::spawn(tun2proxy::run(device, MTU, args, shutdown_token.clone()));
+    let cloned_token = shutdown_token.clone();
+    let join_handle = tokio::spawn(tun2proxy::run(device, MTU, args, cloned_token));
 
     ctrlc2::set_async_handler(async move {
         log::info!("Ctrl-C received, exiting...");

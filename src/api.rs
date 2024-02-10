@@ -1,7 +1,7 @@
 #![cfg(any(target_os = "ios", target_os = "android"))]
 
 use crate::Args;
-use std::{io::Error as IoError, os::raw::c_int, sync::Mutex};
+use std::{os::raw::c_int, sync::Mutex};
 use tokio_util::sync::CancellationToken;
 
 static TUN_QUIT: Mutex<Option<CancellationToken>> = Mutex::new(None);
@@ -24,10 +24,10 @@ pub(crate) fn tun2proxy_internal_run(args: Args, tun_mtu: u16) -> c_int {
         let mut config = tun2::Configuration::default();
         config.raw_fd(args.tun_fd.ok_or(crate::Error::from("tun_fd"))?);
 
-        let device = tun2::create_as_async(&config).map_err(IoError::from)?;
-        let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token.clone()));
+        let device = tun2::create_as_async(&config).map_err(std::io::Error::from)?;
+        let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));
 
-        join_handle.await.map_err(IoError::from)?
+        join_handle.await.map_err(std::io::Error::from)?
     };
 
     let exit_code = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
