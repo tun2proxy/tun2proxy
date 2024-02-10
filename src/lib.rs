@@ -4,10 +4,10 @@ use crate::{
     session_info::{IpProtocol, SessionInfo},
     virtual_dns::VirtualDns,
 };
-pub use clap;
 use ipstack::stream::{IpStackStream, IpStackTcpStream, IpStackUdpStream};
 use proxy_handler::{ProxyHandler, ProxyHandlerManager};
 use socks::SocksProxyManager;
+pub use socks5_impl::protocol::UserKey;
 use std::{collections::VecDeque, future::Future, net::SocketAddr, pin::Pin, sync::Arc};
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
