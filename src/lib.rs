@@ -12,13 +12,12 @@ use std::{collections::VecDeque, future::Future, net::SocketAddr, pin::Pin, sync
 use tokio::{
     io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt},
     net::TcpStream,
-    sync::{
-        mpsc::{error::SendError, Receiver, Sender},
-        Mutex,
-    },
+    sync::Mutex,
 };
+use tokio_util::sync::CancellationToken;
 use tproxy_config::is_private_ip;
 use udp_stream::UdpStream;
+
 pub use {
     args::{ArgDns, ArgProxy, ArgVerbosity, Args, ProxyType},
     error::{Error, Result},
@@ -45,47 +44,6 @@ const MAX_SESSIONS: u64 = 200;
 static TASK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use std::sync::atomic::Ordering::Relaxed;
 
-pub struct Builder<D> {
-    device: D,
-    mtu: Option<usize>,
-    args: Args,
-}
-
-impl<D: AsyncRead + AsyncWrite + Unpin + Send + 'static> Builder<D> {
-    pub fn new(device: D, args: Args) -> Self {
-        Builder { device, args, mtu: None }
-    }
-    pub fn mtu(mut self, mtu: usize) -> Self {
-        self.mtu = Some(mtu);
-        self
-    }
-    pub fn build(self) -> Tun2Socks5<impl Future<Output = crate::Result<()>> + Send + 'static> {
-        let (tx, rx) = tokio::sync::mpsc::channel::<()>(1);
-
-        Tun2Socks5(run(self.device, self.mtu.unwrap_or(1500), self.args, rx), tx)
-    }
-}
-
-pub struct Tun2Socks5<F: Future>(F, Sender<()>);
-
-impl<F: Future + Send + 'static> Tun2Socks5<F>
-where
-    F::Output: Send,
-{
-    pub fn start(self) -> (JoinHandle<F::Output>, Quit) {
-        let r = tokio::spawn(self.0);
-        (JoinHandle(r), Quit(self.1))
-    }
-}
-
-pub struct Quit(Sender<()>);
-
-impl Quit {
-    pub async fn trigger(&self) -> Result<(), SendError<()>> {
-        self.0.send(()).await
-    }
-}
-
 #[repr(transparent)]
 struct TokioJoinError(tokio::task::JoinError);
 
@@ -108,7 +66,7 @@ impl<R: From<TokioJoinError>> Future for JoinHandle<R> {
     }
 }
 
-pub async fn run<D>(device: D, mtu: usize, args: Args, mut quit: Receiver<()>) -> crate::Result<()>
+pub async fn run<D>(device: D, mtu: usize, args: Args, shutdown_token: CancellationToken) -> crate::Result<()>
 where
     D: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -139,9 +97,8 @@ where
     loop {
         let virtual_dns = virtual_dns.clone();
         let ip_stack_stream = tokio::select! {
-            _ = quit.recv() => {
-                log::info!("");
-                log::info!("Ctrl-C recieved, exiting...");
+            _ = shutdown_token.cancelled() => {
+                log::info!("Shutdown received");
                 break;
             }
             ip_stack_stream = ip_stack.accept() => {
