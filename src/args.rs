@@ -190,6 +190,20 @@ impl Default for ArgProxy {
     }
 }
 
+impl std::fmt::Display for ArgProxy {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let auth = match &self.credentials {
+            Some(creds) => format!("{}", creds),
+            None => "".to_owned(),
+        };
+        if auth.is_empty() {
+            write!(f, "{}://{}", &self.proxy_type, &self.addr)
+        } else {
+            write!(f, "{}://{}@{}", &self.proxy_type, auth, &self.addr)
+        }
+    }
+}
+
 impl ArgProxy {
     pub fn from_url(s: &str) -> Result<ArgProxy> {
         let e = format!("`{s}` is not a valid proxy URL");
@@ -235,12 +249,13 @@ impl ArgProxy {
     }
 }
 
+#[repr(C)]
 #[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
 pub enum ProxyType {
+    Http = 0,
     Socks4,
     #[default]
     Socks5,
-    Http,
 }
 
 impl std::fmt::Display for ProxyType {
