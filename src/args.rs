@@ -70,14 +70,50 @@ impl Args {
         Self::parse()
     }
 
-    pub fn new(tun_fd: Option<i32>, proxy: ArgProxy, dns: ArgDns, verbosity: ArgVerbosity) -> Self {
-        Args {
-            proxy,
-            tun_fd,
-            dns,
-            verbosity,
-            ..Args::default()
-        }
+    pub fn proxy(&mut self, proxy: ArgProxy) -> &mut Self {
+        self.proxy = proxy;
+        self
+    }
+
+    pub fn dns(&mut self, dns: ArgDns) -> &mut Self {
+        self.dns = dns;
+        self
+    }
+
+    pub fn tun_fd(&mut self, tun_fd: Option<i32>) -> &mut Self {
+        self.tun_fd = tun_fd;
+        self
+    }
+
+    pub fn verbosity(&mut self, verbosity: ArgVerbosity) -> &mut Self {
+        self.verbosity = verbosity;
+        self
+    }
+
+    pub fn tun(&mut self, tun: String) -> &mut Self {
+        self.tun = tun;
+        self
+    }
+
+    pub fn dns_addr(&mut self, dns_addr: IpAddr) -> &mut Self {
+        self.dns_addr = dns_addr;
+        self
+    }
+
+    pub fn bypass(&mut self, bypass: IpAddr) -> &mut Self {
+        self.bypass.push(bypass);
+        self
+    }
+
+    pub fn ipv6_enabled(&mut self, ipv6_enabled: bool) -> &mut Self {
+        self.ipv6_enabled = ipv6_enabled;
+        self
+    }
+
+    #[cfg(target_os = "linux")]
+    pub fn setup(&mut self, setup: bool) -> &mut Self {
+        self.setup = setup;
+        self
     }
 }
 

@@ -14,13 +14,13 @@ use tokio::{
     net::TcpStream,
     sync::Mutex,
 };
-use tokio_util::sync::CancellationToken;
+pub use tokio_util::sync::CancellationToken;
 use tproxy_config::is_private_ip;
 use udp_stream::UdpStream;
 
 pub use {
     args::{ArgDns, ArgProxy, ArgVerbosity, Args, ProxyType},
-    error::{Error, Result},
+    error::{BoxError, Error, Result},
 };
 
 mod android;
@@ -30,6 +30,7 @@ mod directions;
 mod dns;
 mod dump_logger;
 mod error;
+mod ffi;
 mod http;
 mod ios;
 mod proxy_handler;
@@ -44,6 +45,12 @@ const MAX_SESSIONS: u64 = 200;
 static TASK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use std::sync::atomic::Ordering::Relaxed;
 
+/// Run the proxy server
+/// # Arguments
+/// * `device` - The network device to use
+/// * `mtu` - The MTU of the network device
+/// * `args` - The arguments to use
+/// * `shutdown_token` - The token to exit the server
 pub async fn run<D>(device: D, mtu: u16, args: Args, shutdown_token: CancellationToken) -> crate::Result<()>
 where
     D: AsyncRead + AsyncWrite + Unpin + Send + 'static,

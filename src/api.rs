@@ -21,7 +21,15 @@ pub(crate) fn tun2proxy_internal_run(args: Args, tun_mtu: u16) -> c_int {
         log::info!("Proxying {}", args.proxy);
 
         let mut config = tun2::Configuration::default();
-        config.raw_fd(args.tun_fd.ok_or(crate::Error::from("tun_fd"))?);
+
+        #[cfg(unix)]
+        if let Some(fd) = args.tun_fd {
+            config.raw_fd(fd);
+        } else {
+            config.name(&args.tun);
+        }
+        #[cfg(windows)]
+        config.name(&args.tun);
 
         let device = tun2::create_as_async(&config).map_err(std::io::Error::from)?;
         let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));
