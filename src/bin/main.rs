@@ -63,11 +63,10 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tproxy_config::tproxy_setup(&tproxy_args)?;
     }
 
-    log::info!("Proxying {}", args.proxy);
+    log::info!("Proxy {} server: {}", args.proxy.proxy_type, args.proxy.addr);
 
     let shutdown_token = CancellationToken::new();
-    let cloned_token = shutdown_token.clone();
-    let join_handle = tokio::spawn(tun2proxy::run(device, MTU, args, cloned_token));
+    let join_handle = tokio::spawn(tun2proxy::run(device, MTU, args, shutdown_token.clone()));
 
     ctrlc2::set_async_handler(async move {
         log::info!("Ctrl-C received, exiting...");

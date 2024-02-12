@@ -10,7 +10,7 @@ use std::os::raw::{c_char, c_int, c_ushort};
 ///
 /// Run the tun2proxy component with some arguments.
 #[no_mangle]
-pub unsafe extern "C" fn tun2proxy_run(
+pub unsafe extern "C" fn tun2proxy_run_with_fd(
     proxy_url: *const c_char,
     tun_fd: c_int,
     tun_mtu: c_ushort,
@@ -23,7 +23,8 @@ pub unsafe extern "C" fn tun2proxy_run(
     let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
     let proxy = ArgProxy::from_url(proxy_url).unwrap();
 
-    let args = Args::new(Some(tun_fd), proxy, dns_strategy, verbosity);
+    let mut args = Args::default();
+    args.proxy(proxy).tun_fd(Some(tun_fd)).dns(dns_strategy).verbosity(verbosity);
 
     crate::api::tun2proxy_internal_run(args, tun_mtu)
 }

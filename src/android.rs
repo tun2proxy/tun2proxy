@@ -37,7 +37,8 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     let proxy_url = get_java_string(&mut env, &proxy_url).unwrap();
     let proxy = ArgProxy::from_url(proxy_url).unwrap();
 
-    let args = Args::new(Some(tun_fd), proxy, dns, verbosity);
+    let mut args = Args::default();
+    args.proxy(proxy).tun_fd(Some(tun_fd)).dns(dns).verbosity(verbosity);
     crate::api::tun2proxy_internal_run(args, tun_mtu)
 }
 

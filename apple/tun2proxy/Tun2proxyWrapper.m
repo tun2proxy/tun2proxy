@@ -18,8 +18,8 @@
            dns_over_tcp:(bool)dns_over_tcp
                 verbose:(bool)verbose {
   ArgDns dns_strategy = dns_over_tcp ? OverTcp : Direct;
-  ArgVerbosity verbosity = verbose ? Trace : Info;
-  tun2proxy_run(proxy_url.UTF8String, tun_fd, tun_mtu, dns_strategy, verbosity);
+  ArgVerbosity v = verbose ? Trace : Info;
+  tun2proxy_run_with_fd(proxy_url.UTF8String, tun_fd, tun_mtu, dns_strategy, v);
 }
 
 + (void)shutdown {
