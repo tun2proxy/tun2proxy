@@ -23,16 +23,19 @@ pub use {
     error::{BoxError, Error, Result},
 };
 
+#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
+pub use desktop_api::desktop_run;
+
 mod android;
-mod api;
 mod args;
+mod desktop_api;
 mod directions;
 mod dns;
 mod dump_logger;
 mod error;
-mod ffi;
 mod http;
 mod ios;
+mod mobile_api;
 mod proxy_handler;
 mod session_info;
 mod socks;
