@@ -6,7 +6,7 @@ use tokio_util::sync::CancellationToken;
 
 static TUN_QUIT: Mutex<Option<CancellationToken>> = Mutex::new(None);
 
-pub(crate) fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
+pub fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
     let shutdown_token = CancellationToken::new();
     {
         let mut lock = TUN_QUIT.lock().unwrap();
@@ -58,14 +58,12 @@ pub(crate) fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
     exit_code
 }
 
-pub(crate) fn mobile_stop() -> c_int {
-    let lock = TUN_QUIT.lock().unwrap();
-
-    if let Some(shutdown_token) = lock.as_ref() {
-        shutdown_token.cancel();
-        0
-    } else {
-        log::error!("tun2proxy not started");
-        -1
+pub fn mobile_stop() -> c_int {
+    if let Ok(lock) = TUN_QUIT.lock() {
+        if let Some(shutdown_token) = lock.as_ref() {
+            shutdown_token.cancel();
+            return 0;
+        }
     }
+    -1
 }
