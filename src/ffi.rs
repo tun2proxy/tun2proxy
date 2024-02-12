@@ -92,7 +92,7 @@ pub unsafe extern "C" fn tun2proxy_run_with_name(
         #[cfg(any(target_os = "windows", target_os = "macos"))]
         tproxy_config::tproxy_setup(&tproxy_args)?;
 
-        log::info!("Proxying {}", args.proxy);
+        log::info!("Proxy {} server: {}", args.proxy.proxy_type, args.proxy.addr);
 
         let join_handle = tokio::spawn(crate::run(device, MTU, args, shutdown_token));
         join_handle.await.map_err(std::io::Error::from)??;

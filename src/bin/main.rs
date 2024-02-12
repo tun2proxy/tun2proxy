@@ -63,7 +63,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         tproxy_config::tproxy_setup(&tproxy_args)?;
     }
 
-    log::info!("Proxying {}", args.proxy);
+    log::info!("Proxy {} server: {}", args.proxy.proxy_type, args.proxy.addr);
 
     let shutdown_token = CancellationToken::new();
     let join_handle = tokio::spawn(tun2proxy::run(device, MTU, args, shutdown_token.clone()));

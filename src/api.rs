@@ -18,7 +18,7 @@ pub(crate) fn tun2proxy_internal_run(args: Args, tun_mtu: u16) -> c_int {
     }
 
     let block = async move {
-        log::info!("Proxying {}", args.proxy);
+        log::info!("Proxy {} server: {}", args.proxy.proxy_type, args.proxy.addr);
 
         let mut config = tun2::Configuration::default();
 
