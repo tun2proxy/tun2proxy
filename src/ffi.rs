@@ -25,12 +25,16 @@ pub unsafe extern "C" fn tun2proxy_run_with_name(
 ) -> c_int {
     let shutdown_token = CancellationToken::new();
     {
-        let mut lock = TUN_QUIT.lock().unwrap();
-        if lock.is_some() {
-            log::error!("tun2proxy already started");
+        if let Ok(mut lock) = TUN_QUIT.lock() {
+            if lock.is_some() {
+                log::error!("tun2proxy already started");
+                return -1;
+            }
+            *lock = Some(shutdown_token.clone());
+        } else {
+            log::error!("tun2proxy unknown error");
             return -1;
         }
-        *lock = Some(shutdown_token.clone());
     }
 
     log::set_max_level(verbosity.into());

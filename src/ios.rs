@@ -10,7 +10,7 @@ use std::os::raw::{c_char, c_int, c_ushort};
 ///
 /// Run the tun2proxy component with some arguments.
 #[no_mangle]
-pub unsafe extern "C" fn tun2proxy_run_fd(
+pub unsafe extern "C" fn tun2proxy_run_with_fd(
     proxy_url: *const c_char,
     tun_fd: c_int,
     tun_mtu: c_ushort,
