@@ -39,7 +39,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
 
     let mut args = Args::default();
     args.proxy(proxy).tun_fd(Some(tun_fd)).dns(dns).verbosity(verbosity);
-    crate::api::tun2proxy_internal_run(args, tun_mtu)
+    crate::mobile_api::mobile_run(args, tun_mtu)
 }
 
 /// # Safety
@@ -47,7 +47,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
 /// Shutdown tun2proxy
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_stop(_env: JNIEnv, _: JClass) -> jint {
-    crate::api::tun2proxy_internal_stop()
+    crate::mobile_api::mobile_stop()
 }
 
 unsafe fn get_java_string<'a>(env: &'a mut JNIEnv, string: &'a JString) -> Result<&'a str, Error> {

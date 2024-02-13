@@ -26,7 +26,7 @@ pub unsafe extern "C" fn tun2proxy_run_with_fd(
     let mut args = Args::default();
     args.proxy(proxy).tun_fd(Some(tun_fd)).dns(dns_strategy).verbosity(verbosity);
 
-    crate::api::tun2proxy_internal_run(args, tun_mtu)
+    crate::mobile_api::mobile_run(args, tun_mtu)
 }
 
 /// # Safety
@@ -34,5 +34,5 @@ pub unsafe extern "C" fn tun2proxy_run_with_fd(
 /// Shutdown the tun2proxy component.
 #[no_mangle]
 pub unsafe extern "C" fn tun2proxy_stop() -> c_int {
-    crate::api::tun2proxy_internal_stop()
+    crate::mobile_api::mobile_stop()
 }

@@ -32,7 +32,7 @@ tokio = { version = "1.36", features = ["full"] }
 tokio-util = "0.7"
 tproxy-config = { version = "0.1", features = ["log"] }
 trust-dns-proto = "0.23"
-tun2 = { version = "1.0", features = ["async"] }
+tun2 = { version = "1.1", features = ["async"] }
 udp-stream = { version = "0.0", default-features = false }
 unicase = "2.7"
 url = "2.5"

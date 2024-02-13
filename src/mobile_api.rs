@@ -1,13 +1,18 @@
 #![cfg(any(target_os = "ios", target_os = "android"))]
 
 use crate::Args;
-use std::{os::raw::c_int, sync::Mutex};
-use tokio_util::sync::CancellationToken;
+use std::os::raw::c_int;
 
-static TUN_QUIT: Mutex<Option<CancellationToken>> = Mutex::new(None);
+static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
-pub(crate) fn tun2proxy_internal_run(args: Args, tun_mtu: u16) -> c_int {
-    let shutdown_token = CancellationToken::new();
+/// Dummy function to make the build pass.
+#[doc(hidden)]
+pub async fn desktop_run_async(_: Args, _: tokio_util::sync::CancellationToken) -> std::io::Result<()> {
+    Ok(())
+}
+
+pub fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
     {
         let mut lock = TUN_QUIT.lock().unwrap();
         if lock.is_some() {
@@ -58,14 +63,12 @@ pub(crate) fn tun2proxy_internal_run(args: Args, tun_mtu: u16) -> c_int {
     exit_code
 }
 
-pub(crate) fn tun2proxy_internal_stop() -> c_int {
-    let lock = TUN_QUIT.lock().unwrap();
-
-    if let Some(shutdown_token) = lock.as_ref() {
-        shutdown_token.cancel();
-        0
-    } else {
-        log::error!("tun2proxy not started");
-        -1
+pub fn mobile_stop() -> c_int {
+    if let Ok(lock) = TUN_QUIT.lock() {
+        if let Some(shutdown_token) = lock.as_ref() {
+            shutdown_token.cancel();
+            return 0;
+        }
     }
+    -1
 }
