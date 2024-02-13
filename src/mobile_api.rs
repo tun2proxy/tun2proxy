@@ -5,6 +5,12 @@ use std::os::raw::c_int;
 
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
+/// Dummy function to make the build pass.
+#[doc(hidden)]
+pub async fn desktop_run_async(_: Args, _: tokio_util::sync::CancellationToken) -> std::io::Result<()> {
+    Ok(())
+}
+
 pub fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     {

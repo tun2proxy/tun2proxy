@@ -27,7 +27,7 @@ pub use {
 pub use desktop_api::desktop_run_async;
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
-pub use mobile_api::{mobile_run, mobile_stop};
+pub use mobile_api::{desktop_run_async, mobile_run, mobile_stop};
 
 mod android;
 mod args;
