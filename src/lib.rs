@@ -24,7 +24,7 @@ pub use {
 };
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-pub use desktop_api::desktop_run;
+pub use desktop_api::desktop_run_async;
 
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub use mobile_api::{mobile_run, mobile_stop};

@@ -5,11 +5,10 @@ use crate::{
     ArgVerbosity, Args,
 };
 use std::os::raw::{c_char, c_int};
-use tokio_util::sync::CancellationToken;
 use tproxy_config::{TproxyArgs, TUN_GATEWAY, TUN_IPV4, TUN_NETMASK};
 use tun2::DEFAULT_MTU as MTU;
 
-static TUN_QUIT: std::sync::Mutex<Option<CancellationToken>> = std::sync::Mutex::new(None);
+static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
 /// # Safety
 ///
@@ -23,7 +22,7 @@ pub unsafe extern "C" fn tun2proxy_run_with_name(
     _root_privilege: bool,
     verbosity: ArgVerbosity,
 ) -> c_int {
-    let shutdown_token = CancellationToken::new();
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
     {
         if let Ok(mut lock) = TUN_QUIT.lock() {
             if lock.is_some() {
@@ -54,7 +53,7 @@ pub unsafe extern "C" fn tun2proxy_run_with_name(
 
     let exit_code = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Err(_e) => -3,
-        Ok(rt) => match rt.block_on(desktop_run(args, shutdown_token)) {
+        Ok(rt) => match rt.block_on(desktop_run_async(args, shutdown_token)) {
             Ok(_) => 0,
             Err(_e) => -4,
         },
@@ -69,7 +68,7 @@ pub unsafe extern "C" fn tun2proxy_run_with_name(
 }
 
 /// Run the tun2proxy component with some arguments.
-pub async fn desktop_run(args: Args, shutdown_token: CancellationToken) -> std::io::Result<()> {
+pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::CancellationToken) -> std::io::Result<()> {
     let bypass_ips = args.bypass.clone();
 
     let mut config = tun2::Configuration::default();

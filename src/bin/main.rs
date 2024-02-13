@@ -1,4 +1,4 @@
-use tun2proxy::{desktop_run, Args, BoxError};
+use tun2proxy::{desktop_run_async, Args, BoxError};
 
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
@@ -10,7 +10,7 @@ async fn main() -> Result<(), BoxError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let join_handle = tokio::spawn(desktop_run(args, shutdown_token.clone()));
+    let join_handle = tokio::spawn(desktop_run_async(args, shutdown_token.clone()));
 
     ctrlc2::set_async_handler(async move {
         log::info!("Ctrl-C received, exiting...");
