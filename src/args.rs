@@ -24,10 +24,9 @@ pub struct Args {
     #[arg(short = '6', long)]
     pub ipv6_enabled: bool,
 
-    #[cfg(target_os = "linux")]
     #[arg(short, long)]
     /// Routing and system setup, which decides whether to setup the routing and system configuration,
-    /// this option requires root privileges
+    /// this option requires root privileges. This option is only available on Linux.
     pub setup: bool,
 
     /// DNS handling strategy
@@ -54,7 +53,6 @@ impl Default for Args {
             tun: TUN_NAME.to_string(),
             tun_fd: None,
             ipv6_enabled: false,
-            #[cfg(target_os = "linux")]
             setup: false,
             dns: ArgDns::default(),
             dns_addr: "8.8.8.8".parse().unwrap(),
@@ -110,7 +108,6 @@ impl Args {
         self
     }
 
-    #[cfg(target_os = "linux")]
     pub fn setup(&mut self, setup: bool) -> &mut Self {
         self.setup = setup;
         self
