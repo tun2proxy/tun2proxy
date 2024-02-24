@@ -51,9 +51,17 @@ pub unsafe extern "C" fn tun2proxy_run_with_name(
         args.bypass(bypass.parse().unwrap());
     }
 
+    let main_loop = async move {
+        if let Err(err) = desktop_run_async(args, shutdown_token).await {
+            log::error!("main loop error: {}", err);
+            return Err(err);
+        }
+        Ok(())
+    };
+
     let exit_code = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
         Err(_e) => -3,
-        Ok(rt) => match rt.block_on(desktop_run_async(args, shutdown_token)) {
+        Ok(rt) => match rt.block_on(main_loop) {
             Ok(_) => 0,
             Err(_e) => -4,
         },

@@ -1,4 +1,4 @@
-use tun2proxy::{desktop_run_async, Args, BoxError};
+use tun2proxy::{Args, BoxError};
 
 #[tokio::main]
 async fn main() -> Result<(), BoxError> {
@@ -13,8 +13,8 @@ async fn main() -> Result<(), BoxError> {
     let join_handle = tokio::spawn({
         let shutdown_token = shutdown_token.clone();
         async move {
-            if let Err(err) = desktop_run_async(args, shutdown_token).await {
-                log::error!("desktop_run_async error: {}", err);
+            if let Err(err) = tun2proxy::desktop_run_async(args, shutdown_token).await {
+                log::error!("main loop error: {}", err);
             }
         }
     });
