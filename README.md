@@ -7,6 +7,8 @@ A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and 
 [![Download](https://img.shields.io/crates/d/tun2proxy.svg)](https://crates.io/crates/tun2proxy)
 [![License](https://img.shields.io/crates/l/tun2proxy.svg?style=flat)](https://github.com/blechschmidt/tun2proxy/blob/master/LICENSE)
 
+> Additional information can be found in the [wiki](https://github.com/blechschmidt/tun2proxy/wiki)
+
 ## Features
 - HTTP proxy support (unauthenticated, basic and digest auth)
 - SOCKS4 and SOCKS5 support (unauthenticated, username/password auth)

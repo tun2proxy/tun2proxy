@@ -22,6 +22,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             f.write_all(format!("Failed to copy 'wintun.dll': {}\r\n", e).as_bytes())?;
         } else {
             f.write_all(format!("Copied 'wintun.dll' to '{}'\r\n", dst_path.display()).as_bytes())?;
+
+            // Set the modified time to the current time, or the publishing process will fail.
+            let file = std::fs::OpenOptions::new().write(true).open(&dst_path)?;
+            file.set_modified(std::time::SystemTime::now())?;
         }
     }
     Ok(())
@@ -43,7 +47,7 @@ fn get_cargo_target_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Erro
     Ok(target_dir.ok_or("not found")?.to_path_buf())
 }
 
-#[cfg(target_os = "windows")]
+#[allow(dead_code)]
 fn get_wintun_bin_relative_path() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
     let dll_path = if cfg!(target_arch = "x86") {
         "wintun/bin/x86/wintun.dll"
