@@ -406,7 +406,7 @@ impl ProxyHandlerManager for HttpManager {
         _udp_associate: bool,
     ) -> std::io::Result<Arc<Mutex<dyn ProxyHandler>>> {
         if info.protocol != IpProtocol::Tcp {
-            return Err(Error::from("Invalid protocol").into());
+            return Err(Error::from("Protocol not supported by HTTP proxy").into());
         }
         Ok(Arc::new(Mutex::new(
             HttpConnection::new(info, domain_name, self.credentials.clone(), self.digest_state.clone()).await?,
