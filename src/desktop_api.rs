@@ -113,15 +113,16 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     #[allow(unused_mut, unused_assignments, unused_variables)]
     let mut setup = true;
 
+    let device = tun2::create_as_async(&config)?;
+
     #[cfg(target_os = "linux")]
     {
         setup = args.setup;
         if setup {
+            log::trace!("Entering route setup");
             tproxy_config::tproxy_setup(&tproxy_args)?;
         }
     }
-
-    let device = tun2::create_as_async(&config)?;
 
     #[cfg(any(target_os = "windows", target_os = "macos"))]
     if setup {
