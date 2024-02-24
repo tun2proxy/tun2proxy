@@ -160,13 +160,19 @@ where
                 } else {
                     None
                 };
-                let proxy_handler = mgr.new_proxy_handler(info, domain_name, true).await?;
-                tokio::spawn(async move {
-                    if let Err(err) = handle_udp_associate_session(udp, server_addr, proxy_handler, ipv6_enabled).await {
-                        log::error!("{} error \"{}\"", info, err);
+                match mgr.new_proxy_handler(info, domain_name, true).await {
+                    Ok(proxy_handler) => {
+                        tokio::spawn(async move {
+                            if let Err(err) = handle_udp_associate_session(udp, server_addr, proxy_handler, ipv6_enabled).await {
+                                log::error!("{} error \"{}\"", info, err);
+                            }
+                            log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
+                        });
                     }
-                    log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
-                });
+                    Err(e) => {
+                        log::error!("Failed to create UDP connection: {}", e);
+                    }
+                }
             }
             _ => {
                 log::trace!("Unknown transport");
