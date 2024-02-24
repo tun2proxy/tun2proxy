@@ -26,7 +26,7 @@ async fn main() -> Result<(), BoxError> {
     .await;
 
     if let Err(err) = join_handle.await {
-        log::trace!("main_entry error {}", err);
+        log::error!("main_entry error {}", err);
     }
 
     Ok(())
