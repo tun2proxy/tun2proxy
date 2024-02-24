@@ -10,7 +10,14 @@ async fn main() -> Result<(), BoxError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let join_handle = tokio::spawn(desktop_run_async(args, shutdown_token.clone()));
+    let join_handle = tokio::spawn({
+        let shutdown_token = shutdown_token.clone();
+        async move {
+            if let Err(err) = desktop_run_async(args, shutdown_token).await {
+                log::error!("desktop_run_async error: {}", err);
+            }
+        }
+    });
 
     ctrlc2::set_async_handler(async move {
         log::info!("Ctrl-C received, exiting...");
