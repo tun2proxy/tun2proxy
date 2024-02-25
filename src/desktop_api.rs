@@ -6,7 +6,7 @@ use crate::{
 };
 use std::os::raw::{c_char, c_int};
 use tproxy_config::{TproxyArgs, TUN_GATEWAY, TUN_IPV4, TUN_NETMASK};
-use tun2::DEFAULT_MTU as MTU;
+use tun2::{AbstractDevice, DEFAULT_MTU as MTU};
 
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
@@ -84,8 +84,8 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     config.destination(TUN_GATEWAY);
     if let Some(tun_fd) = args.tun_fd {
         config.raw_fd(tun_fd);
-    } else {
-        config.name(&args.tun);
+    } else if let Some(ref tun) = args.tun {
+        config.tun_name(tun);
     }
 
     #[cfg(target_os = "linux")]
@@ -105,31 +105,26 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
         .tun_dns(args.dns_addr)
         .proxy_addr(args.proxy.addr)
         .bypass_ips(&bypass_ips);
-    #[allow(unused_assignments)]
-    if args.tun_fd.is_none() {
-        tproxy_args = tproxy_args.tun_name(&args.tun);
-    }
 
     #[allow(unused_mut, unused_assignments, unused_variables)]
     let mut setup = true;
 
     let device = tun2::create_as_async(&config)?;
 
+    if let Ok(tun_name) = device.as_ref().tun_name() {
+        tproxy_args = tproxy_args.tun_name(&tun_name);
+    }
+
     #[cfg(target_os = "linux")]
     {
         setup = args.setup;
-        if setup {
-            log::trace!("Entering route setup");
-            tproxy_config::tproxy_setup(&tproxy_args)?;
-        }
     }
 
-    #[cfg(any(target_os = "windows", target_os = "macos"))]
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     if setup {
+        log::trace!("Entering route setup");
         tproxy_config::tproxy_setup(&tproxy_args)?;
     }
-
-    log::info!("Proxy {} server: {}", args.proxy.proxy_type, args.proxy.addr);
 
     let join_handle = tokio::spawn(crate::run(device, MTU, args, shutdown_token));
     join_handle.await.map_err(std::io::Error::from)??;

@@ -1,7 +1,6 @@
 use crate::{Error, Result};
 use socks5_impl::protocol::UserKey;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
-use tproxy_config::TUN_NAME;
 
 #[derive(Debug, Clone, clap::Parser)]
 #[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
@@ -12,9 +11,10 @@ pub struct Args {
     #[arg(short, long, value_parser = ArgProxy::from_url, value_name = "URL")]
     pub proxy: ArgProxy,
 
-    /// Name of the tun interface
-    #[arg(short, long, value_name = "name", conflicts_with = "tun_fd", default_value = TUN_NAME)]
-    pub tun: String,
+    /// Name of the tun interface, such as tun0, utun4, etc.
+    /// If this option is not provided, the OS will generate a random one.
+    #[arg(short, long, value_name = "name", conflicts_with = "tun_fd")]
+    pub tun: Option<String>,
 
     /// File descriptor of the tun interface
     #[arg(long, value_name = "fd", conflicts_with = "tun")]
@@ -25,8 +25,8 @@ pub struct Args {
     pub ipv6_enabled: bool,
 
     #[arg(short, long)]
-    /// Routing and system setup, which decides whether to setup the routing and system configuration,
-    /// this option requires root privileges. This option is only available on Linux.
+    /// Routing and system setup, which decides whether to setup the routing and system configuration.
+    /// This option is only available on Linux and requires root privileges.
     pub setup: bool,
 
     /// DNS handling strategy
@@ -50,7 +50,7 @@ impl Default for Args {
     fn default() -> Self {
         Args {
             proxy: ArgProxy::default(),
-            tun: TUN_NAME.to_string(),
+            tun: None,
             tun_fd: None,
             ipv6_enabled: false,
             setup: false,
@@ -89,7 +89,7 @@ impl Args {
     }
 
     pub fn tun(&mut self, tun: String) -> &mut Self {
-        self.tun = tun;
+        self.tun = Some(tun);
         self
     }
 

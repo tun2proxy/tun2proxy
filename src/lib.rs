@@ -47,6 +47,8 @@ mod virtual_dns;
 const DNS_PORT: u16 = 53;
 
 const MAX_SESSIONS: u64 = 200;
+const TCP_TIMEOUT_SEC: u64 = 600; // 10 minutes
+const UDP_TIMEOUT_SEC: u64 = 10; // 10 seconds
 
 static TASK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use std::sync::atomic::Ordering::Relaxed;
@@ -61,6 +63,8 @@ pub async fn run<D>(device: D, mtu: u16, args: Args, shutdown_token: Cancellatio
 where
     D: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
+    log::info!("Proxy {} server: {}", args.proxy.proxy_type, args.proxy.addr);
+
     let server_addr = args.proxy.addr;
     let key = args.proxy.credentials.clone();
     let dns_addr = args.dns_addr;
@@ -80,8 +84,8 @@ where
 
     let mut ipstack_config = ipstack::IpStackConfig::default();
     ipstack_config.mtu(mtu);
-    ipstack_config.tcp_timeout(std::time::Duration::from_secs(600)); // 10 minutes
-    ipstack_config.udp_timeout(std::time::Duration::from_secs(10)); // 10 seconds
+    ipstack_config.tcp_timeout(std::time::Duration::from_secs(TCP_TIMEOUT_SEC));
+    ipstack_config.udp_timeout(std::time::Duration::from_secs(UDP_TIMEOUT_SEC));
 
     let mut ip_stack = ipstack::IpStack::new(ipstack_config, device);
 
