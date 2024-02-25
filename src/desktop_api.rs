@@ -131,8 +131,8 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     join_handle.await.map_err(std::io::Error::from)??;
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-    if setup && restore.is_some() {
-        tproxy_config::tproxy_remove(&restore.unwrap())?;
+    if setup {
+        tproxy_config::tproxy_remove(restore)?;
     }
 
     Ok::<(), std::io::Error>(())
