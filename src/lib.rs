@@ -202,7 +202,7 @@ async fn handle_virtual_dns_session(mut udp: IpStackUdpStream, dns: Arc<Mutex<Vi
 }
 
 async fn handle_tcp_session(
-    tcp_stack: IpStackTcpStream,
+    mut tcp_stack: IpStackTcpStream,
     server_addr: SocketAddr,
     proxy_handler: Arc<Mutex<dyn ProxyHandler>>,
 ) -> crate::Result<()> {
@@ -211,21 +211,25 @@ async fn handle_tcp_session(
     let session_info = proxy_handler.lock().await.get_session_info();
     log::info!("Beginning {}", session_info);
 
-    let _ = handle_proxy_session(&mut server, proxy_handler).await?;
+    if let Err(e) = handle_proxy_session(&mut server, proxy_handler).await {
+        tcp_stack.shutdown().await?;
+        return Err(e);
+    }
 
     let (mut t_rx, mut t_tx) = tokio::io::split(tcp_stack);
     let (mut s_rx, mut s_tx) = tokio::io::split(server);
 
-    let result = tokio::join! {
-         tokio::io::copy(&mut t_rx, &mut s_tx),
-         tokio::io::copy(&mut s_rx, &mut t_tx),
-    };
-    let result = match result {
-        (Ok(t), Ok(s)) => Ok((t, s)),
-        (Err(e), _) | (_, Err(e)) => Err(e),
-    };
-
-    log::info!("Ending {} with {:?}", session_info, result);
+    for _ in 0..2 {
+        tokio::select! {
+            _ = tokio::io::copy(&mut t_rx, &mut s_tx) => {
+                s_tx.shutdown().await?;
+            },
+            _ = tokio::io::copy(&mut s_rx, &mut t_tx) => {
+                t_tx.shutdown().await?;
+            },
+        }
+    }
+    log::info!("Ending {}", session_info);
 
     Ok(())
 }
