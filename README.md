@@ -25,6 +25,12 @@ Clone the repository and `cd` into the project folder. Then run the following:
 cargo build --release
 ```
 
+### Building Framework for Apple Devices
+To build an XCFramework for macOS and iOS, run the following: 
+```
+./build-apple.sh
+```
+
 ## Installation
 
 ### Install from binary
