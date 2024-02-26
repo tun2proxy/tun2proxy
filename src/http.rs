@@ -172,6 +172,8 @@ impl HttpConnection {
                     return Ok(());
                 }
 
+                let header_size = self.counter;
+
                 self.counter = 0;
                 self.crlf_state = 0;
 
@@ -192,7 +194,9 @@ impl HttpConnection {
                 if status_code == 200 {
                     // Connection successful
                     self.state = HttpState::Established;
-                    self.server_inbuf.clear();
+                    // The server may have sent a banner already (SMTP, SSH, etc.).
+                    // Therefore, server_inbuf must retain this data.
+                    self.server_inbuf.drain(0..header_size);
                     return self.state_change().await;
                 }
 
