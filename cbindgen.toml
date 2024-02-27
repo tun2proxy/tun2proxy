@@ -2,7 +2,8 @@
 include = [
     "tun2proxy_run_with_fd",
     "tun2proxy_run_with_name",
-    "tun2proxy_stop",
+    "tun2proxy_with_name_stop",
+    "tun2proxy_with_fd_stop",
     "tun2proxy_set_log_callback",
 ]
 exclude = [

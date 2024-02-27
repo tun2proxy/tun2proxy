@@ -33,6 +33,6 @@ pub unsafe extern "C" fn tun2proxy_run_with_fd(
 ///
 /// Shutdown the tun2proxy component.
 #[no_mangle]
-pub unsafe extern "C" fn tun2proxy_stop() -> c_int {
+pub unsafe extern "C" fn tun2proxy_with_fd_stop() -> c_int {
     crate::mobile_api::mobile_stop()
 }

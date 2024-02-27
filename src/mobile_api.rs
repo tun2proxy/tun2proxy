@@ -7,6 +7,7 @@ static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> =
 
 /// Dummy function to make the build pass.
 #[doc(hidden)]
+#[cfg(not(target_os = "macos"))]
 pub async fn desktop_run_async(_: Args, _: tokio_util::sync::CancellationToken) -> std::io::Result<()> {
     Ok(())
 }

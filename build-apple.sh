@@ -36,6 +36,7 @@ target/x86_64-apple-darwin/release/libtun2proxy.a \
 -output ./target/libtun2proxy-macos.a
 
 echo "Creating XCFramework"
+rm -rf ./target/Tun2Proxy.xcframework
 xcodebuild -create-xcframework \
 -library ./target/aarch64-apple-ios/release/libtun2proxy.a -headers ./target/include/ \
 -library ./target/libtun2proxy-ios-sim.a -headers ./target/include/ \

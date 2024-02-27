@@ -23,7 +23,7 @@
 }
 
 + (void)shutdown {
-  tun2proxy_stop();
+  tun2proxy_with_fd_stop();
 }
 
 @end

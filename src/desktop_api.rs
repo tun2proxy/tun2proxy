@@ -1,4 +1,4 @@
-#![cfg(any(target_os = "windows", target_os = "linux"))]
+#![cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 
 use crate::{
     args::{ArgDns, ArgProxy},
@@ -142,7 +142,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
 ///
 /// Shutdown the tun2proxy component.
 #[no_mangle]
-pub unsafe extern "C" fn tun2proxy_stop() -> c_int {
+pub unsafe extern "C" fn tun2proxy_with_name_stop() -> c_int {
     if let Ok(lock) = TUN_QUIT.lock() {
         if let Some(shutdown_token) = lock.as_ref() {
             shutdown_token.cancel();
