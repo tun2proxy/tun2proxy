@@ -219,6 +219,7 @@ async fn handle_tcp_session(
     let (mut t_rx, mut t_tx) = tokio::io::split(tcp_stack);
     let (mut s_rx, mut s_tx) = tokio::io::split(server);
 
+    /*
     for _ in 0..2 {
         tokio::select! {
             _ = tokio::io::copy(&mut t_rx, &mut s_tx) => {
@@ -230,6 +231,35 @@ async fn handle_tcp_session(
         }
     }
     log::info!("Ending {}", session_info);
+    // */
+
+    let (mut s_tx_done, mut t_tx_done) = (false, false);
+    let mut res;
+
+    tokio::select! {
+        r = tokio::io::copy(&mut t_rx, &mut s_tx) => {
+            log::info!("{} copy s_tx \"{:?}\"", session_info, r);
+            res = s_tx.shutdown().await;
+            s_tx_done = true;
+        },
+        r = tokio::io::copy(&mut s_rx, &mut t_tx) => {
+            log::info!("{} copy t_tx \"{:?}\"", session_info, r);
+            res = t_tx.shutdown().await;
+            t_tx_done = true;
+        },
+    }
+    if !s_tx_done {
+        let r = tokio::io::copy(&mut t_rx, &mut s_tx).await;
+        log::info!("{} copy s_tx x \"{:?}\"", session_info, r);
+        res = s_tx.shutdown().await;
+    }
+    if !t_tx_done {
+        let r = tokio::io::copy(&mut s_rx, &mut t_tx).await;
+        log::info!("{} copy t_tx x \"{:?}\"", session_info, r);
+        // res = t_tx.shutdown().await;
+    }
+
+    log::info!("Ending {} with {:?}", session_info, res);
 
     Ok(())
 }
