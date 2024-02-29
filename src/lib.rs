@@ -29,7 +29,11 @@ pub use desktop_api::desktop_run_async;
 #[cfg(any(target_os = "ios", target_os = "android"))]
 pub use mobile_api::{desktop_run_async, mobile_run, mobile_stop};
 
+#[cfg(target_os = "macos")]
+pub use mobile_api::{mobile_run, mobile_stop};
+
 mod android;
+mod apple;
 mod args;
 mod desktop_api;
 mod directions;
@@ -37,7 +41,6 @@ mod dns;
 mod dump_logger;
 mod error;
 mod http;
-mod ios;
 mod mobile_api;
 mod proxy_handler;
 mod session_info;

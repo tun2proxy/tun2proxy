@@ -13,8 +13,15 @@ static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> =
 /// # Safety
 ///
 /// Run the tun2proxy component with some arguments.
+/// Parameters:
+/// - proxy_url: the proxy url, e.g. "socks5://127.0.0.1:1080"
+/// - tun: the tun device name, e.g. "utun5"
+/// - bypass: the bypass ip, e.g. "123.45.67.89"
+/// - dns_strategy: the dns strategy, see ArgDns enum
+/// - root_privilege: whether to run with root privilege
+/// - verbosity: the verbosity level, see ArgVerbosity enum
 #[no_mangle]
-pub unsafe extern "C" fn tun2proxy_run_with_name(
+pub unsafe extern "C" fn tun2proxy_with_name_run(
     proxy_url: *const c_char,
     tun: *const c_char,
     bypass: *const c_char,
@@ -142,7 +149,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
 ///
 /// Shutdown the tun2proxy component.
 #[no_mangle]
-pub unsafe extern "C" fn tun2proxy_stop() -> c_int {
+pub unsafe extern "C" fn tun2proxy_with_name_stop() -> c_int {
     if let Ok(lock) = TUN_QUIT.lock() {
         if let Some(shutdown_token) = lock.as_ref() {
             shutdown_token.cancel();
