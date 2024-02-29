@@ -1,4 +1,4 @@
-#![cfg(any(target_os = "ios", target_os = "android"))]
+#![cfg(any(target_os = "ios", target_os = "android", target_os = "macos"))]
 
 use crate::Args;
 use std::os::raw::c_int;
@@ -7,6 +7,7 @@ static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> =
 
 /// Dummy function to make the build pass.
 #[doc(hidden)]
+#[cfg(not(target_os = "macos"))]
 pub async fn desktop_run_async(_: Args, _: tokio_util::sync::CancellationToken) -> std::io::Result<()> {
     Ok(())
 }
@@ -28,11 +29,13 @@ pub fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
         #[cfg(unix)]
         if let Some(fd) = args.tun_fd {
             config.raw_fd(fd);
-        } else {
-            config.name(&args.tun);
+        } else if let Some(ref tun) = args.tun {
+            config.tun_name(tun);
         }
         #[cfg(windows)]
-        config.name(&args.tun);
+        if let Some(ref tun) = args.tun {
+            config.tun_name(tun);
+        }
 
         let device = tun2::create_as_async(&config).map_err(std::io::Error::from)?;
         let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));
