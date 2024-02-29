@@ -219,22 +219,41 @@ async fn handle_tcp_session(
         return Err(e);
     }
 
-    let (mut t_rx, mut t_tx) = tokio::io::split(tcp_stack);
-    let (mut s_rx, mut s_tx) = tokio::io::split(server);
+    let res = loop {
+        let mut buf1 = [0_u8; 4096];
+        let mut buf2 = [0_u8; 4096];
+        tokio::select! {
+            len = tcp_stack.read(&mut buf1) => {
+                if let Err(err) = len {
+                    break Err(err);
+                }
+                let len = len?;
+                if len == 0 {
+                    break Ok(());
+                }
+                if let Err(err) = server.write_all(&buf1[..len]).await {
+                    break Err(err);
+                }
+            }
+            len = server.read(&mut buf2) => {
+                if let Err(err) = len {
+                    break Err(err);
+                }
+                let len = len?;
+                if len == 0 {
+                    break Ok(());
+                }
+                if let Err(err) = tcp_stack.write_all(&buf2[..len]).await {
+                    break Err(err);
+                }
+            }
+        }
+    };
+    log::info!("Ending {} with {:?}", session_info, res);
 
     /*
-    for _ in 0..2 {
-        tokio::select! {
-            _ = tokio::io::copy(&mut t_rx, &mut s_tx) => {
-                s_tx.shutdown().await?;
-            },
-            _ = tokio::io::copy(&mut s_rx, &mut t_tx) => {
-                t_tx.shutdown().await?;
-            },
-        }
-    }
-    log::info!("Ending {}", session_info);
-    // */
+    let (mut t_rx, mut t_tx) = tokio::io::split(tcp_stack);
+    let (mut s_rx, mut s_tx) = tokio::io::split(server);
 
     let (mut s_tx_done, mut t_tx_done) = (false, false);
     let mut res;
@@ -248,6 +267,7 @@ async fn handle_tcp_session(
         r = tokio::io::copy(&mut s_rx, &mut t_tx) => {
             log::info!("{} copy t_tx \"{:?}\"", session_info, r);
             res = t_tx.shutdown().await;
+            log::info!("{} copy t_tx done ==========", session_info);
             t_tx_done = true;
         },
     }
@@ -263,6 +283,7 @@ async fn handle_tcp_session(
     }
 
     log::info!("Ending {} with {:?}", session_info, res);
+    // */
 
     Ok(())
 }
