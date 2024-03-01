@@ -219,71 +219,26 @@ async fn handle_tcp_session(
         return Err(e);
     }
 
-    let res = loop {
-        let mut buf1 = [0_u8; 4096];
-        let mut buf2 = [0_u8; 4096];
-        tokio::select! {
-            len = tcp_stack.read(&mut buf1) => {
-                if let Err(err) = len {
-                    break Err(err);
-                }
-                let len = len?;
-                if len == 0 {
-                    break Ok(());
-                }
-                if let Err(err) = server.write_all(&buf1[..len]).await {
-                    break Err(err);
-                }
-            }
-            len = server.read(&mut buf2) => {
-                if let Err(err) = len {
-                    break Err(err);
-                }
-                let len = len?;
-                if len == 0 {
-                    break Ok(());
-                }
-                if let Err(err) = tcp_stack.write_all(&buf2[..len]).await {
-                    break Err(err);
-                }
-            }
-        }
-    };
-    log::info!("Ending {} with {:?}", session_info, res);
-
-    /*
     let (mut t_rx, mut t_tx) = tokio::io::split(tcp_stack);
     let (mut s_rx, mut s_tx) = tokio::io::split(server);
 
-    let (mut s_tx_done, mut t_tx_done) = (false, false);
-    let mut res;
-
-    tokio::select! {
-        r = tokio::io::copy(&mut t_rx, &mut s_tx) => {
-            log::info!("{} copy s_tx \"{:?}\"", session_info, r);
-            res = s_tx.shutdown().await;
-            s_tx_done = true;
+    let res = tokio::join!(
+        async move {
+            let r = tokio::io::copy(&mut t_rx, &mut s_tx).await;
+            if let Err(err) = s_tx.shutdown().await {
+                log::trace!("{} s_tx shutdown error {}", session_info, err);
+            }
+            r
         },
-        r = tokio::io::copy(&mut s_rx, &mut t_tx) => {
-            log::info!("{} copy t_tx \"{:?}\"", session_info, r);
-            res = t_tx.shutdown().await;
-            log::info!("{} copy t_tx done ==========", session_info);
-            t_tx_done = true;
+        async move {
+            let r = tokio::io::copy(&mut s_rx, &mut t_tx).await;
+            if let Err(err) = t_tx.shutdown().await {
+                log::trace!("{} t_tx shutdown error {}", session_info, err);
+            }
+            r
         },
-    }
-    if !s_tx_done {
-        let r = tokio::io::copy(&mut t_rx, &mut s_tx).await;
-        log::info!("{} copy s_tx x \"{:?}\"", session_info, r);
-        res = s_tx.shutdown().await;
-    }
-    if !t_tx_done {
-        let r = tokio::io::copy(&mut s_rx, &mut t_tx).await;
-        log::info!("{} copy t_tx x \"{:?}\"", session_info, r);
-        // res = t_tx.shutdown().await;
-    }
-
+    );
     log::info!("Ending {} with {:?}", session_info, res);
-    // */
 
     Ok(())
 }

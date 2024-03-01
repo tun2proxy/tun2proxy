@@ -15,7 +15,7 @@ crate-type = ["staticlib", "cdylib", "lib"]
 [dependencies]
 async-recursion = "1.0"
 async-trait = "0.1"
-base64 = { version = "0.21" }
+base64 = { version = "0.22" }
 chrono = "0.4"
 clap = { version = "4.5", features = ["derive", "wrap_help", "color"] }
 ctrlc2 = { version = "3.5", features = ["tokio", "termination"] }
@@ -32,7 +32,7 @@ tokio = { version = "1.36", features = ["full"] }
 tokio-util = "0.7"
 tproxy-config = { version = "2.0", features = ["log"] }
 trust-dns-proto = "0.23"
-tun2 = { version = "1.1", features = ["async"] }
+tun2 = { version = "1.2", features = ["async"] }
 udp-stream = { version = "0.0", default-features = false }
 unicase = "2.7"
 url = "2.5"
