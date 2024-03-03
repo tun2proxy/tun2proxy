@@ -5,8 +5,8 @@ async fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
     let args = Args::parse_args();
 
-    // let default = format!("{}={:?}", module_path!(), args.verbosity);
-    let default = format!("{:?}", args.verbosity);
+    // let default = format!("{}={:?},trust_dns_proto=warn", module_path!(), args.verbosity);
+    let default = format!("{:?},trust_dns_proto=warn", args.verbosity);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();

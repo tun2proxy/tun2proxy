@@ -222,17 +222,23 @@ async fn handle_tcp_session(
     let (mut t_rx, mut t_tx) = tokio::io::split(tcp_stack);
     let (mut s_rx, mut s_tx) = tokio::io::split(server);
 
-    for _ in 0..2 {
-        tokio::select! {
-            _ = tokio::io::copy(&mut t_rx, &mut s_tx) => {
-                s_tx.shutdown().await?;
-            },
-            _ = tokio::io::copy(&mut s_rx, &mut t_tx) => {
-                t_tx.shutdown().await?;
-            },
-        }
-    }
-    log::info!("Ending {}", session_info);
+    let res = tokio::join!(
+        async move {
+            let r = tokio::io::copy(&mut t_rx, &mut s_tx).await;
+            if let Err(err) = s_tx.shutdown().await {
+                log::trace!("{} s_tx shutdown error {}", session_info, err);
+            }
+            r
+        },
+        async move {
+            let r = tokio::io::copy(&mut s_rx, &mut t_tx).await;
+            if let Err(err) = t_tx.shutdown().await {
+                log::trace!("{} t_tx shutdown error {}", session_info, err);
+            }
+            r
+        },
+    );
+    log::info!("Ending {} with {:?}", session_info, res);
 
     Ok(())
 }
