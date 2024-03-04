@@ -69,6 +69,9 @@ jobs:
             powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy.exe, README.md, target/tun2proxy-ffi.h, target/${{ matrix.target }}/release/tun2proxy.dll, target/${{ matrix.target }}/release/wintun.dll -DestinationPath mypubdir4/tun2proxy-${{ matrix.target }}.zip
           elif [[ "${{ matrix.host_os }}" == "macos-latest" ]]; then
             zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md target/tun2proxy-ffi.h target/${{ matrix.target }}/release/libtun2proxy.dylib
+            ./build-apple.sh
+            mv ./target/Tun2Proxy.xcframework .
+            zip -r mypubdir4/tun2proxy-${{ matrix.target }}.zip ./Tun2Proxy.xcframework/
           elif [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
             zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md target/tun2proxy-ffi.h target/${{ matrix.target }}/release/libtun2proxy.so
           fi

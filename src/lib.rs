@@ -171,7 +171,7 @@ where
                     Ok(proxy_handler) => {
                         tokio::spawn(async move {
                             if let Err(err) = handle_udp_associate_session(udp, server_addr, proxy_handler, ipv6_enabled).await {
-                                log::error!("{} error \"{}\"", info, err);
+                                log::trace!("{} reason \"{}\"", info, err);
                             }
                             log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
                         });
