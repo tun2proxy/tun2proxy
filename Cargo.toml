@@ -1,6 +1,6 @@
 [package]
 name = "tun2proxy"
-version = "0.2.11"
+version = "0.2.12"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/blechschmidt/tun2proxy"
