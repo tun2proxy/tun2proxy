@@ -74,11 +74,6 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
         },
     };
 
-    // release shutdown token before exit.
-    if let Ok(mut lock) = TUN_QUIT.lock() {
-        let _ = lock.take();
-    }
-
     exit_code
 }
 
@@ -150,8 +145,8 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
 /// Shutdown the tun2proxy component.
 #[no_mangle]
 pub unsafe extern "C" fn tun2proxy_with_name_stop() -> c_int {
-    if let Ok(lock) = TUN_QUIT.lock() {
-        if let Some(shutdown_token) = lock.as_ref() {
+    if let Ok(mut lock) = TUN_QUIT.lock() {
+        if let Some(shutdown_token) = lock.take() {
             shutdown_token.cancel();
             return 0;
         }

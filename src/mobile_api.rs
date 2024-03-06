@@ -15,12 +15,16 @@ pub async fn desktop_run_async(_: Args, _: tokio_util::sync::CancellationToken) 
 pub fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     {
-        let mut lock = TUN_QUIT.lock().unwrap();
-        if lock.is_some() {
-            log::error!("tun2proxy already started");
-            return -1;
+        if let Ok(mut lock) = TUN_QUIT.lock() {
+            if lock.is_some() {
+                log::error!("tun2proxy already started");
+                return -1;
+            }
+            *lock = Some(shutdown_token.clone());
+        } else {
+            log::error!("failed to lock tun2proxy quit token");
+            return -2;
         }
-        *lock = Some(shutdown_token.clone());
     }
 
     let block = async move {
@@ -57,16 +61,12 @@ pub fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
         },
     };
 
-    // release shutdown token before exit.
-    let mut lock = TUN_QUIT.lock().unwrap();
-    let _ = lock.take();
-
     exit_code
 }
 
 pub fn mobile_stop() -> c_int {
-    if let Ok(lock) = TUN_QUIT.lock() {
-        if let Some(shutdown_token) = lock.as_ref() {
+    if let Ok(mut lock) = TUN_QUIT.lock() {
+        if let Some(shutdown_token) = lock.take() {
             shutdown_token.cancel();
             return 0;
         }
