@@ -49,17 +49,16 @@ fn get_cargo_target_dir() -> Result<std::path::PathBuf, Box<dyn std::error::Erro
 
 #[allow(dead_code)]
 fn get_wintun_bin_relative_path() -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
-    let dll_path = if cfg!(target_arch = "x86") {
-        "wintun/bin/x86/wintun.dll"
-    } else if cfg!(target_arch = "x86_64") {
-        "wintun/bin/amd64/wintun.dll"
-    } else if cfg!(target_arch = "arm") {
-        "wintun/bin/arm/wintun.dll"
-    } else if cfg!(target_arch = "aarch64") {
-        "wintun/bin/arm64/wintun.dll"
-    } else {
-        return Err("Unsupported architecture".into());
+    let target_arch = std::env::var("CARGO_CFG_TARGET_ARCH")?;
+
+    let dll_path = match target_arch.as_str() {
+        "x86" => "wintun/bin/x86/wintun.dll",
+        "x86_64" => "wintun/bin/amd64/wintun.dll",
+        "arm" => "wintun/bin/arm/wintun.dll",
+        "aarch64" => "wintun/bin/arm64/wintun.dll",
+        _ => return Err("Unsupported architecture".into()),
     };
+
     Ok(dll_path.into())
 }
 
