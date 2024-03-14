@@ -15,7 +15,7 @@ echo "Generating includes..."
 mkdir -p target/include/
 cbindgen --config cbindgen.toml -l C -o target/include/tun2proxy.h
 cat > target/include/module.modulemap <<EOF
-framework module Tun2Proxy {
+framework module tun2proxy {
     umbrella header "tun2proxy.h"
 
     export *
@@ -24,21 +24,23 @@ framework module Tun2Proxy {
 EOF
 
 echo "lipo..."
+
 echo "Simulator"
 lipo -create \
-target/aarch64-apple-ios-sim/release/libtun2proxy.a \
-target/x86_64-apple-ios/release/libtun2proxy.a \
--output ./target/libtun2proxy-ios-sim.a
+    target/aarch64-apple-ios-sim/release/libtun2proxy.a \
+    target/x86_64-apple-ios/release/libtun2proxy.a \
+    -output ./target/libtun2proxy-ios-sim.a
+
 echo "MacOS"
 lipo -create \
-target/aarch64-apple-darwin/release/libtun2proxy.a \
-target/x86_64-apple-darwin/release/libtun2proxy.a \
--output ./target/libtun2proxy-macos.a
+    target/aarch64-apple-darwin/release/libtun2proxy.a \
+    target/x86_64-apple-darwin/release/libtun2proxy.a \
+    -output ./target/libtun2proxy-macos.a
 
 echo "Creating XCFramework"
-rm -rf ./target/Tun2Proxy.xcframework
+rm -rf ./tun2proxy.xcframework
 xcodebuild -create-xcframework \
--library ./target/aarch64-apple-ios/release/libtun2proxy.a -headers ./target/include/ \
--library ./target/libtun2proxy-ios-sim.a -headers ./target/include/ \
--library ./target/libtun2proxy-macos.a -headers ./target/include/ \
--output ./target/Tun2Proxy.xcframework
+    -library ./target/aarch64-apple-ios/release/libtun2proxy.a -headers ./target/include/ \
+    -library ./target/libtun2proxy-ios-sim.a -headers ./target/include/ \
+    -library ./target/libtun2proxy-macos.a -headers ./target/include/ \
+    -output ./tun2proxy.xcframework
