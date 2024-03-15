@@ -117,7 +117,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
         tproxy_args = tproxy_args.tun_name(&tun_name);
     }
 
-    let mut restore: Option<tproxy_config::TproxyRestore> = None;
+    let mut restore: Option<tproxy_config::TproxyState> = None;
 
     #[cfg(target_os = "linux")]
     {
