@@ -13,7 +13,7 @@ readme = "README.md"
 crate-type = ["staticlib", "cdylib", "lib"]
 
 [dependencies]
-async-recursion = "1.0"
+async-recursion = "1.1"
 async-trait = "0.1"
 base64 = { version = "0.22" }
 chrono = "0.4"
@@ -24,7 +24,7 @@ dotenvy = "0.15"
 env_logger = "0.11"
 hashlink = "0.9"
 httparse = "1.8"
-ipstack = { version = "0.0", features = ["log"] }
+ipstack = { version = "0.0" }
 log = { version = "0.4", features = ["std"] }
 socks5-impl = { version = "0.5" }
 thiserror = "1.0"
