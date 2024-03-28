@@ -12,7 +12,7 @@ pub async fn desktop_run_async(_: Args, _: tokio_util::sync::CancellationToken) 
     Ok(())
 }
 
-pub fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
+pub fn mobile_run(args: Args, tun_mtu: u16, _packet_information: bool) -> c_int {
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     {
         if let Ok(mut lock) = TUN_QUIT.lock() {
@@ -40,6 +40,12 @@ pub fn mobile_run(args: Args, tun_mtu: u16) -> c_int {
         if let Some(ref tun) = args.tun {
             config.tun_name(tun);
         }
+
+        #[cfg(unix)]
+        config.platform_config(|config| {
+            #[allow(deprecated)]
+            config.packet_information(_packet_information);
+        });
 
         let device = tun2::create_as_async(&config).map_err(std::io::Error::from)?;
         let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));

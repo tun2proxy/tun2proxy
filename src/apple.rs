@@ -12,6 +12,7 @@ use std::os::raw::{c_char, c_int, c_ushort};
 /// Parameters:
 /// - proxy_url: the proxy url, e.g. "socks5://127.0.0.1:1080"
 /// - tun_fd: the tun file descriptor
+/// - packet_information: whether exists packet information in tun_fd
 /// - tun_mtu: the tun mtu
 /// - dns_strategy: the dns strategy, see ArgDns enum
 /// - verbosity: the verbosity level, see ArgVerbosity enum
@@ -19,6 +20,7 @@ use std::os::raw::{c_char, c_int, c_ushort};
 pub unsafe extern "C" fn tun2proxy_with_fd_run(
     proxy_url: *const c_char,
     tun_fd: c_int,
+    packet_information: bool,
     tun_mtu: c_ushort,
     dns_strategy: ArgDns,
     verbosity: ArgVerbosity,
@@ -32,7 +34,7 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
     let mut args = Args::default();
     args.proxy(proxy).tun_fd(Some(tun_fd)).dns(dns_strategy).verbosity(verbosity);
 
-    crate::mobile_api::mobile_run(args, tun_mtu)
+    crate::mobile_api::mobile_run(args, tun_mtu, packet_information)
 }
 
 /// # Safety

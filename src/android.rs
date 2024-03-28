@@ -39,7 +39,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
 
     let mut args = Args::default();
     args.proxy(proxy).tun_fd(Some(tun_fd)).dns(dns).verbosity(verbosity);
-    crate::mobile_api::mobile_run(args, tun_mtu)
+    crate::mobile_api::mobile_run(args, tun_mtu, false)
 }
 
 /// # Safety
