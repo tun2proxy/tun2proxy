@@ -5,16 +5,27 @@ rustup target add aarch64-apple-ios aarch64-apple-ios-sim x86_64-apple-ios x86_6
 cargo install cbindgen
 
 echo "Building..."
+
+echo "cargo build --release --target x86_64-apple-darwin"
 cargo build --release --target x86_64-apple-darwin
+
+echo "cargo build --release --target aarch64-apple-darwin"
 cargo build --release --target aarch64-apple-darwin
+
+echo "cargo build --release --target aarch64-apple-ios"
 cargo build --release --target aarch64-apple-ios
+
+echo "cargo build --release --target x86_64-apple-ios"
 cargo build --release --target x86_64-apple-ios
+
+echo "cargo build --release --target x86_64-apple-ios-sim"
 cargo build --release --target aarch64-apple-ios-sim
 
 echo "Generating includes..."
 mkdir -p target/include/
+rm -rf target/include/*
 cbindgen --config cbindgen.toml -l C -o target/include/tun2proxy.h
-cat > target/include/module.modulemap <<EOF
+cat > target/include/tun2proxy.modulemap <<EOF
 framework module tun2proxy {
     umbrella header "tun2proxy.h"
 

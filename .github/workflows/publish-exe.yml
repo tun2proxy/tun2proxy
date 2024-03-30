@@ -70,6 +70,8 @@ jobs:
           elif [[ "${{ matrix.host_os }}" == "macos-latest" ]]; then
             zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md target/tun2proxy-ffi.h target/${{ matrix.target }}/release/libtun2proxy.dylib
             if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
+              ./build-aarch64-apple-ios.sh
+              zip -r mypubdir4/tun2proxy-aarch64-apple-ios-xcframework.zip ./tun2proxy.xcframework/
               ./build-apple.sh
               zip -r mypubdir4/tun2proxy-apple-xcframework.zip ./tun2proxy.xcframework/
             fi

@@ -11,7 +11,7 @@ use std::os::raw::{c_char, c_int, c_ushort};
 /// Run the tun2proxy component with some arguments.
 /// Parameters:
 /// - proxy_url: the proxy url, e.g. "socks5://127.0.0.1:1080"
-/// - tun_fd: the tun file descriptor
+/// - tun_fd: the tun file descriptor, it will be owned by tun2proxy
 /// - packet_information: whether exists packet information in tun_fd
 /// - tun_mtu: the tun mtu
 /// - dns_strategy: the dns strategy, see ArgDns enum
@@ -26,7 +26,9 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
     verbosity: ArgVerbosity,
 ) -> c_int {
     log::set_max_level(verbosity.into());
-    log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()).unwrap();
+    if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
+        log::error!("failed to set logger: {:?}", err);
+    }
 
     let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
     let proxy = ArgProxy::from_url(proxy_url).unwrap();

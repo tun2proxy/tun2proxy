@@ -41,9 +41,8 @@ pub fn mobile_run(args: Args, tun_mtu: u16, _packet_information: bool) -> c_int 
             config.tun_name(tun);
         }
 
-        #[cfg(unix)]
+        #[cfg(any(target_os = "ios", target_os = "macos"))]
         config.platform_config(|config| {
-            #[allow(deprecated)]
             config.packet_information(_packet_information);
         });
 

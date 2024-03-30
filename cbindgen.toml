@@ -10,3 +10,10 @@ exclude = [
     "Java_com_github_shadowsocks_bg_Tun2proxy_run",
     "Java_com_github_shadowsocks_bg_Tun2proxy_stop",
 ]
+
+[export.rename]
+"ArgVerbosity" = "Tun2proxyVerbosity"
+"ArgDns" = "Tun2proxyDns"
+
+[enum]
+prefix_with_name = true
