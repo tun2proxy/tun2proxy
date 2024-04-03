@@ -20,10 +20,8 @@ async fn main() -> Result<(), BoxError> {
                 }
                 #[cfg(not(target_os = "linux"))]
                 log::error!("Your platform doesn't support unprivileged namespaces");
-            } else {
-                if let Err(err) = tun2proxy::desktop_run_async(args, shutdown_token).await {
-                    log::error!("main loop error: {}", err);
-                }
+            } else if let Err(err) = tun2proxy::desktop_run_async(args, shutdown_token).await {
+                log::error!("main loop error: {}", err);
             }
         }
     });
