@@ -9,6 +9,7 @@ env:
 jobs:
   build_n_test:
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
 
@@ -16,11 +17,23 @@ jobs:
 
     steps:
     - uses: actions/checkout@v3
+
     - name: rustfmt
+      if: ${{ !cancelled() }}
       run: cargo fmt --all -- --check
+
     - name: check
+      if: ${{ !cancelled() }}
       run: cargo check --verbose
+
     - name: clippy
+      if: ${{ !cancelled() }}
       run: cargo clippy --all-targets --all-features -- -D warnings
+
     - name: Build
+      if: ${{ !cancelled() }}
       run: cargo build --verbose --tests --all-features
+
+    - name: Abort on error
+      if: ${{ failure() }}
+      run: echo "Some of jobs failed" && false
