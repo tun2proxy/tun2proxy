@@ -45,6 +45,10 @@ pub struct Args {
     #[arg(long, value_name = "seconds", default_value = "600")]
     pub tcp_timeout: u64,
 
+    /// UDP timeout in seconds
+    #[arg(long, value_name = "seconds", default_value = "10")]
+    pub udp_timeout: u64,
+
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     pub verbosity: ArgVerbosity,
@@ -62,6 +66,7 @@ impl Default for Args {
             dns_addr: "8.8.8.8".parse().unwrap(),
             bypass: vec![],
             tcp_timeout: 600,
+            udp_timeout: 10,
             verbosity: ArgVerbosity::Info,
         }
     }

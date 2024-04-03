@@ -50,7 +50,6 @@ mod virtual_dns;
 const DNS_PORT: u16 = 53;
 
 const MAX_SESSIONS: u64 = 200;
-const UDP_TIMEOUT_SEC: u64 = 10; // 10 seconds
 
 static TASK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use std::sync::atomic::Ordering::Relaxed;
@@ -87,7 +86,7 @@ where
     let mut ipstack_config = ipstack::IpStackConfig::default();
     ipstack_config.mtu(mtu);
     ipstack_config.tcp_timeout(std::time::Duration::from_secs(args.tcp_timeout));
-    ipstack_config.udp_timeout(std::time::Duration::from_secs(UDP_TIMEOUT_SEC));
+    ipstack_config.udp_timeout(std::time::Duration::from_secs(args.udp_timeout));
 
     let mut ip_stack = ipstack::IpStack::new(ipstack_config, device);
 
