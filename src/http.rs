@@ -38,6 +38,7 @@ enum HttpState {
 pub(crate) type DigestState = digest_auth::WwwAuthenticateHeader;
 
 pub struct HttpConnection {
+    server_addr: SocketAddr,
     state: HttpState,
     client_inbuf: VecDeque<u8>,
     server_inbuf: VecDeque<u8>,
@@ -61,12 +62,14 @@ static CONTENT_LENGTH: &str = "Content-Length";
 
 impl HttpConnection {
     async fn new(
+        server_addr: SocketAddr,
         info: SessionInfo,
         domain_name: Option<String>,
         credentials: Option<UserKey>,
         digest_state: Arc<Mutex<Option<DigestState>>>,
     ) -> Result<Self> {
         let mut res = Self {
+            server_addr,
             state: HttpState::ExpectResponseHeaders,
             client_inbuf: VecDeque::default(),
             server_inbuf: VecDeque::default(),
@@ -330,6 +333,10 @@ impl HttpConnection {
 
 #[async_trait::async_trait]
 impl ProxyHandler for HttpConnection {
+    fn get_server_addr(&self) -> SocketAddr {
+        self.server_addr
+    }
+
     fn get_session_info(&self) -> SessionInfo {
         self.info
     }
@@ -413,7 +420,7 @@ impl ProxyHandlerManager for HttpManager {
             return Err(Error::from("Protocol not supported by HTTP proxy").into());
         }
         Ok(Arc::new(Mutex::new(
-            HttpConnection::new(info, domain_name, self.credentials.clone(), self.digest_state.clone()).await?,
+            HttpConnection::new(self.server, info, domain_name, self.credentials.clone(), self.digest_state.clone()).await?,
         )))
     }
 

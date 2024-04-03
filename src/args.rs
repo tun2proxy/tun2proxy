@@ -1,6 +1,9 @@
 use crate::{Error, Result};
 use socks5_impl::protocol::UserKey;
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::{
+    ffi::OsString,
+    net::{IpAddr, SocketAddr, ToSocketAddrs},
+};
 
 #[derive(Debug, Clone, clap::Parser)]
 #[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
@@ -20,13 +23,29 @@ pub struct Args {
     #[arg(long, value_name = "fd", conflicts_with = "tun")]
     pub tun_fd: Option<i32>,
 
+    /// Create a tun interface in a newly created unprivileged namespace
+    /// while maintaining proxy connectivity via the global network namespace.
+    #[arg(long)]
+    pub unshare: bool,
+
+    /// File descriptor for UNIX datagram socket meant to transfer
+    /// network sockets from global namespace to the new one.
+    /// See `unshare(1)`, `namespaces(7)`, `sendmsg(2)`, `unix(7)`.
+    #[arg(long)]
+    pub socket_transfer_fd: Option<i32>,
+
+    /// Specify a command to run with root-like capabilities in the new namespace.
+    /// This could be useful to start additional daemons, e.g. `openvpn` instance.
+    #[arg(requires = "unshare")]
+    pub admin_command: Vec<OsString>,
+
     /// IPv6 enabled
     #[arg(short = '6', long)]
     pub ipv6_enabled: bool,
 
     #[arg(short, long)]
     /// Routing and system setup, which decides whether to setup the routing and system configuration.
-    /// This option is only available on Linux and requires root privileges.
+    /// This option is only available on Linux and requires root-like privileges. See `capabilities(7)`.
     pub setup: bool,
 
     /// DNS handling strategy
@@ -60,6 +79,9 @@ impl Default for Args {
             proxy: ArgProxy::default(),
             tun: None,
             tun_fd: None,
+            unshare: false,
+            socket_transfer_fd: None,
+            admin_command: Vec::new(),
             ipv6_enabled: false,
             setup: false,
             dns: ArgDns::default(),

@@ -16,6 +16,10 @@ struct NoProxyHandler {
 
 #[async_trait::async_trait]
 impl ProxyHandler for NoProxyHandler {
+    fn get_server_addr(&self) -> SocketAddr {
+        self.info.dst
+    }
+
     fn get_session_info(&self) -> SessionInfo {
         self.info
     }

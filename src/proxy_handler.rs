@@ -7,6 +7,7 @@ use tokio::sync::Mutex;
 
 #[async_trait::async_trait]
 pub(crate) trait ProxyHandler: Send + Sync {
+    fn get_server_addr(&self) -> SocketAddr;
     fn get_session_info(&self) -> SessionInfo;
     fn get_domain_name(&self) -> Option<String>;
     async fn push_data(&mut self, event: IncomingDataEvent<'_>) -> std::io::Result<()>;
