@@ -249,6 +249,14 @@ impl std::fmt::Display for ArgProxy {
 
 impl ArgProxy {
     pub fn from_url(s: &str) -> Result<ArgProxy> {
+        if s == "none" {
+            return Ok(ArgProxy {
+                proxy_type: ProxyType::None,
+                addr: "0.0.0.0:0".parse().unwrap(),
+                credentials: None,
+            });
+        }
+
         let e = format!("`{s}` is not a valid proxy URL");
         let url = url::Url::parse(s).map_err(|_| Error::from(&e))?;
         let e = format!("`{s}` does not contain a host");
@@ -299,6 +307,7 @@ pub enum ProxyType {
     Socks4,
     #[default]
     Socks5,
+    None,
 }
 
 impl std::fmt::Display for ProxyType {
@@ -307,6 +316,7 @@ impl std::fmt::Display for ProxyType {
             ProxyType::Socks4 => write!(f, "socks4"),
             ProxyType::Socks5 => write!(f, "socks5"),
             ProxyType::Http => write!(f, "http"),
+            ProxyType::None => write!(f, "none"),
         }
     }
 }
