@@ -43,7 +43,7 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
 
     log::set_max_level(verbosity.into());
     if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
-        log::error!("set logger error: {}", err);
+        log::warn!("set logger error: {}", err);
     }
 
     let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();

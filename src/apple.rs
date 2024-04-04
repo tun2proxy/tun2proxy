@@ -27,7 +27,7 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
 ) -> c_int {
     log::set_max_level(verbosity.into());
     if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
-        log::error!("failed to set logger: {:?}", err);
+        log::warn!("failed to set logger: {:?}", err);
     }
 
     let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
