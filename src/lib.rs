@@ -214,7 +214,7 @@ where
         ProxyType::Socks5 => Arc::new(SocksProxyManager::new(server_addr, V5, key)) as Arc<dyn ProxyHandlerManager>,
         ProxyType::Socks4 => Arc::new(SocksProxyManager::new(server_addr, V4, key)) as Arc<dyn ProxyHandlerManager>,
         ProxyType::Http => Arc::new(HttpManager::new(server_addr, key)) as Arc<dyn ProxyHandlerManager>,
-        ProxyType::None => Arc::new(NoProxyManager::new(server_addr)) as Arc<dyn ProxyHandlerManager>,
+        ProxyType::None => Arc::new(NoProxyManager::new()) as Arc<dyn ProxyHandlerManager>,
     };
 
     let mut ipstack_config = ipstack::IpStackConfig::default();

@@ -27,5 +27,4 @@ pub(crate) trait ProxyHandlerManager: Send + Sync {
         domain_name: Option<String>,
         udp_associate: bool,
     ) -> std::io::Result<Arc<Mutex<dyn ProxyHandler>>>;
-    fn get_server_addr(&self) -> SocketAddr;
 }

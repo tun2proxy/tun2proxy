@@ -423,10 +423,6 @@ impl ProxyHandlerManager for HttpManager {
             HttpConnection::new(self.server, info, domain_name, self.credentials.clone(), self.digest_state.clone()).await?,
         )))
     }
-
-    fn get_server_addr(&self) -> SocketAddr {
-        self.server
-    }
 }
 
 impl HttpManager {

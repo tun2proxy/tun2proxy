@@ -80,9 +80,7 @@ impl ProxyHandler for NoProxyHandler {
     }
 }
 
-pub(crate) struct NoProxyManager {
-    server: SocketAddr,
-}
+pub(crate) struct NoProxyManager;
 
 #[async_trait::async_trait]
 impl ProxyHandlerManager for NoProxyManager {
@@ -100,14 +98,10 @@ impl ProxyHandlerManager for NoProxyManager {
             udp_associate,
         })))
     }
-
-    fn get_server_addr(&self) -> SocketAddr {
-        self.server
-    }
 }
 
 impl NoProxyManager {
-    pub(crate) fn new(server: SocketAddr) -> Self {
-        Self { server }
+    pub(crate) fn new() -> Self {
+        Self
     }
 }

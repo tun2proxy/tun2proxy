@@ -354,10 +354,6 @@ impl ProxyHandlerManager for SocksProxyManager {
             command,
         )?)))
     }
-
-    fn get_server_addr(&self) -> SocketAddr {
-        self.server
-    }
 }
 
 impl SocksProxyManager {
