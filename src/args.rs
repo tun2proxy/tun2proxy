@@ -16,7 +16,7 @@ pub struct Args {
 
     /// Name of the tun interface, such as tun0, utun4, etc.
     /// If this option is not provided, the OS will generate a random one.
-    #[arg(short, long, value_name = "name", conflicts_with = "tun_fd")]
+    #[arg(short, long, value_name = "name", conflicts_with = "tun_fd", value_parser = validate_tun)]
     pub tun: Option<String>,
 
     /// File descriptor of the tun interface
@@ -31,7 +31,7 @@ pub struct Args {
     /// File descriptor for UNIX datagram socket meant to transfer
     /// network sockets from global namespace to the new one.
     /// See `unshare(1)`, `namespaces(7)`, `sendmsg(2)`, `unix(7)`.
-    #[arg(long)]
+    #[arg(long, value_name = "fd")]
     pub socket_transfer_fd: Option<i32>,
 
     /// Specify a command to run with root-like capabilities in the new namespace.
@@ -43,9 +43,9 @@ pub struct Args {
     #[arg(short = '6', long)]
     pub ipv6_enabled: bool,
 
-    #[arg(short, long)]
     /// Routing and system setup, which decides whether to setup the routing and system configuration.
     /// This option is only available on Linux and requires root-like privileges. See `capabilities(7)`.
+    #[arg(short, long, default_value = if cfg!(target_os = "linux") { "false" } else { "true" })]
     pub setup: bool,
 
     /// DNS handling strategy
@@ -73,8 +73,20 @@ pub struct Args {
     pub verbosity: ArgVerbosity,
 }
 
+fn validate_tun(p: &str) -> Result<String> {
+    #[cfg(target_os = "macos")]
+    if p.len() <= 4 || &p[..4] != "utun" {
+        return Err(Error::from("Invalid tun interface name, please use utunX"));
+    }
+    Ok(p.to_string())
+}
+
 impl Default for Args {
     fn default() -> Self {
+        #[cfg(target_os = "linux")]
+        let setup = false;
+        #[cfg(not(target_os = "linux"))]
+        let setup = true;
         Args {
             proxy: ArgProxy::default(),
             tun: None,
@@ -83,7 +95,7 @@ impl Default for Args {
             socket_transfer_fd: None,
             admin_command: Vec::new(),
             ipv6_enabled: false,
-            setup: false,
+            setup,
             dns: ArgDns::default(),
             dns_addr: "8.8.8.8".parse().unwrap(),
             bypass: vec![],
@@ -95,9 +107,16 @@ impl Default for Args {
 }
 
 impl Args {
+    #[allow(clippy::let_and_return)]
     pub fn parse_args() -> Self {
         use clap::Parser;
-        Self::parse()
+        let args = Self::parse();
+        #[cfg(target_os = "linux")]
+        if !args.setup && args.tun.is_none() {
+            eprintln!("Missing required argument, '--tun' must present when '--setup' is not used.");
+            std::process::exit(-1);
+        }
+        args
     }
 
     pub fn proxy(&mut self, proxy: ArgProxy) -> &mut Self {

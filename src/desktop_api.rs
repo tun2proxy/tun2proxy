@@ -83,25 +83,25 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
 pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::CancellationToken) -> std::io::Result<()> {
     let bypass_ips = args.bypass.clone();
 
-    let mut config = tun2::Configuration::default();
-    config.address(TUN_IPV4).netmask(TUN_NETMASK).mtu(MTU).up();
-    config.destination(TUN_GATEWAY);
+    let mut tun_config = tun2::Configuration::default();
+    tun_config.address(TUN_IPV4).netmask(TUN_NETMASK).mtu(MTU).up();
+    tun_config.destination(TUN_GATEWAY);
     if let Some(tun_fd) = args.tun_fd {
-        config.raw_fd(tun_fd);
+        tun_config.raw_fd(tun_fd);
     } else if let Some(ref tun) = args.tun {
-        config.tun_name(tun);
+        tun_config.tun_name(tun);
     }
 
     #[cfg(target_os = "linux")]
-    config.platform_config(|config| {
+    tun_config.platform_config(|cfg| {
         #[allow(deprecated)]
-        config.packet_information(true);
-        config.ensure_root_privileges(args.setup);
+        cfg.packet_information(true);
+        cfg.ensure_root_privileges(args.setup);
     });
 
     #[cfg(target_os = "windows")]
-    config.platform_config(|config| {
-        config.device_guid(Some(12324323423423434234_u128));
+    tun_config.platform_config(|cfg| {
+        cfg.device_guid(Some(12324323423423434234_u128));
     });
 
     #[allow(unused_variables)]
@@ -113,7 +113,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     #[allow(unused_mut, unused_assignments, unused_variables)]
     let mut setup = true;
 
-    let device = tun2::create_as_async(&config)?;
+    let device = tun2::create_as_async(&tun_config)?;
 
     if let Ok(tun_name) = device.as_ref().tun_name() {
         tproxy_args = tproxy_args.tun_name(&tun_name);
