@@ -119,7 +119,9 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
         tproxy_args = tproxy_args.tun_name(&tun_name);
     }
 
-    let mut restore: Option<tproxy_config::TproxyState> = None;
+    // TproxyState implements the Drop trait to restore network configuration,
+    // so we we need to assign it to a variable, even if it is not used.
+    let mut _restore: Option<tproxy_config::TproxyState> = None;
 
     #[cfg(target_os = "linux")]
     {
@@ -128,7 +130,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     if setup {
-        restore = Some(tproxy_config::tproxy_setup(&tproxy_args)?);
+        _restore = Some(tproxy_config::tproxy_setup(&tproxy_args)?);
     }
 
     #[cfg(target_os = "linux")]
@@ -190,13 +192,6 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
 
     let join_handle = tokio::spawn(crate::run(device, MTU, args, shutdown_token));
     join_handle.await.map_err(std::io::Error::from)??;
-
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-    if setup {
-        // TODO: This probably should be handled by a destructor
-        // since otherwise removal is not guaranteed if anything above returns early.
-        tproxy_config::tproxy_remove(restore)?;
-    }
 
     Ok::<(), std::io::Error>(())
 }
