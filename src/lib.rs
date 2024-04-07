@@ -405,6 +405,8 @@ async fn handle_udp_associate_session(
 
     log::info!("Beginning {}", session_info);
 
+    // `_server` is meaningful here, it must be alive all the time
+    // to ensure that UDP transmission will not be interrupted accidentally.
     let (_server, udp_addr) = match udp_addr {
         Some(udp_addr) => (None, udp_addr),
         None => {
@@ -567,6 +569,9 @@ async fn handle_dns_over_tcp_session(
     Ok(())
 }
 
+/// This function is used to handle the business logic of tun2proxy and SOCKS5 server.
+/// When handling UDP proxy, the return value UDP associate IP address is the result of this business logic.
+/// However, when handling TCP business logic, the return value Ok(None) is meaningless, just indicating that the operation was successful.
 async fn handle_proxy_session(server: &mut TcpStream, proxy_handler: Arc<Mutex<dyn ProxyHandler>>) -> crate::Result<Option<SocketAddr>> {
     let mut launched = false;
     let mut proxy_handler = proxy_handler.lock().await;
