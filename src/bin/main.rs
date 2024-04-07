@@ -13,14 +13,15 @@ async fn main() -> Result<(), BoxError> {
     let join_handle = tokio::spawn({
         let shutdown_token = shutdown_token.clone();
         async move {
+            #[cfg(target_os = "linux")]
             if args.unshare && args.socket_transfer_fd.is_none() {
-                #[cfg(target_os = "linux")]
                 if let Err(err) = namespace_proxy_main(args, shutdown_token).await {
                     log::error!("namespace proxy error: {}", err);
                 }
-                #[cfg(not(target_os = "linux"))]
-                log::error!("Your platform doesn't support unprivileged namespaces");
-            } else if let Err(err) = tun2proxy::desktop_run_async(args, shutdown_token).await {
+                return;
+            }
+
+            if let Err(err) = tun2proxy::desktop_run_async(args, shutdown_token).await {
                 log::error!("main loop error: {}", err);
             }
         }

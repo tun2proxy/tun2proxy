@@ -149,6 +149,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
             run_ip_util(format!("-6 route delete 80::/1 dev {}", tproxy_args.tun_name));
         }
 
+        #[cfg(target_os = "linux")]
         if setup && args.unshare {
             // New namespace doesn't have any other routing device by default
             // So our `tun` device should act as such to make space for other proxies.
@@ -164,27 +165,27 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
                 run_ip_util(format!("-6 route add ::/0 dev {}", tproxy_args.tun_name));
             }
         }
-    }
 
-    let mut admin_command_args = args.admin_command.iter();
-    if let Some(command) = admin_command_args.next() {
-        let child = tokio::process::Command::new(command)
-            .args(admin_command_args)
-            .kill_on_drop(true)
-            .spawn();
+        let mut admin_command_args = args.admin_command.iter();
+        if let Some(command) = admin_command_args.next() {
+            let child = tokio::process::Command::new(command)
+                .args(admin_command_args)
+                .kill_on_drop(true)
+                .spawn();
 
-        match child {
-            Err(err) => {
-                log::warn!("Failed to start admin process: {err}");
-            }
-            Ok(mut child) => {
-                tokio::spawn(async move {
-                    if let Err(err) = child.wait().await {
-                        log::warn!("Admin process terminated: {err}");
-                    }
-                });
-            }
-        };
+            match child {
+                Err(err) => {
+                    log::warn!("Failed to start admin process: {err}");
+                }
+                Ok(mut child) => {
+                    tokio::spawn(async move {
+                        if let Err(err) = child.wait().await {
+                            log::warn!("Admin process terminated: {err}");
+                        }
+                    });
+                }
+            };
+        }
     }
 
     let join_handle = tokio::spawn(crate::run(device, MTU, args, shutdown_token));
