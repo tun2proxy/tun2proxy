@@ -6,6 +6,10 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
+    #[cfg(target_os = "linux")]
+    #[error("nix::errno::Errno {0:?}")]
+    NixErrno(#[from] nix::errno::Errno),
+
     #[error("TryFromIntError {0:?}")]
     TryFromInt(#[from] std::num::TryFromIntError),
 
@@ -39,6 +43,10 @@ pub enum Error {
 
     #[error("std::num::ParseIntError {0:?}")]
     IntParseError(#[from] std::num::ParseIntError),
+
+    #[cfg(target_os = "linux")]
+    #[error("bincode::Error {0:?}")]
+    BincodeError(#[from] bincode::Error),
 }
 
 impl From<&str> for Error {

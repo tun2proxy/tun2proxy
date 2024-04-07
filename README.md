@@ -114,22 +114,32 @@ sudo ip link del tun0
 ```
 Tunnel interface to proxy.
 
-Usage: tun2proxy [OPTIONS] --proxy <URL>
+Usage: tun2proxy [OPTIONS] --proxy <URL> [ADMIN_COMMAND]...
+
+Arguments:
+  [ADMIN_COMMAND]...  Specify a command to run with root-like capabilities in the new namespace when using `--unshare`.
+                      This could be useful to start additional daemons, e.g. `openvpn` instance
 
 Options:
-  -p, --proxy <URL>        Proxy URL in the form proto://[username[:password]@]host:port, where proto is one of socks4,
-                           socks5, http. For example: socks5://myname:password@127.0.0.1:1080
-  -t, --tun <name>         Name of the tun interface [default: tun0]
-      --tun-fd <fd>        File descriptor of the tun interface
-  -6, --ipv6-enabled       IPv6 enabled
-  -s, --setup              Routing and system setup, which decides whether to setup the routing and system configuration,
-                           this option requires root privileges
-  -d, --dns <strategy>     DNS handling strategy [default: direct] [possible values: virtual, over-tcp, direct]
-      --dns-addr <IP>      DNS resolver address [default: 8.8.8.8]
-  -b, --bypass <IP>        IPs used in routing setup which should bypass the tunnel
-  -v, --verbosity <level>  Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
-  -h, --help               Print help
-  -V, --version            Print version
+  -p, --proxy <URL>            Proxy URL in the form proto://[username[:password]@]host:port, where proto is one of
+                               socks4, socks5, http. For example: socks5://myname:password@127.0.0.1:1080
+  -t, --tun <name>             Name of the tun interface, such as tun0, utun4, etc. If this option is not provided, the
+                               OS will generate a random one
+      --tun-fd <fd>            File descriptor of the tun interface
+      --unshare                Create a tun interface in a newly created unprivileged namespace while maintaining proxy
+                               connectivity via the global network namespace
+  -6, --ipv6-enabled           IPv6 enabled
+  -s, --setup                  Routing and system setup, which decides whether to setup the routing and system
+                               configuration. This option is only available on Linux and requires root-like privileges.
+                               See `capabilities(7)`
+  -d, --dns <strategy>         DNS handling strategy [default: direct] [possible values: virtual, over-tcp, direct]
+      --dns-addr <IP>          DNS resolver address [default: 8.8.8.8]
+  -b, --bypass <IP>            IPs used in routing setup which should bypass the tunnel
+      --tcp-timeout <seconds>  TCP timeout in seconds [default: 600]
+      --udp-timeout <seconds>  UDP timeout in seconds [default: 10]
+  -v, --verbosity <level>      Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
+  -h, --help                   Print help
+  -V, --version                Print version
 ```
 Currently, tun2proxy supports HTTP, SOCKS4/SOCKS4a and SOCKS5. A proxy is supplied to the `--proxy` argument in the
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is

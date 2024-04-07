@@ -1,5 +1,9 @@
 use crate::{Error, Result};
 use socks5_impl::protocol::UserKey;
+
+#[cfg(target_os = "linux")]
+use std::ffi::OsString;
+
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 
 #[derive(Debug, Clone, clap::Parser)]
@@ -13,20 +17,40 @@ pub struct Args {
 
     /// Name of the tun interface, such as tun0, utun4, etc.
     /// If this option is not provided, the OS will generate a random one.
-    #[arg(short, long, value_name = "name", conflicts_with = "tun_fd")]
+    #[arg(short, long, value_name = "name", conflicts_with = "tun_fd", value_parser = validate_tun)]
     pub tun: Option<String>,
 
     /// File descriptor of the tun interface
     #[arg(long, value_name = "fd", conflicts_with = "tun")]
     pub tun_fd: Option<i32>,
 
+    /// Create a tun interface in a newly created unprivileged namespace
+    /// while maintaining proxy connectivity via the global network namespace.
+    #[cfg(target_os = "linux")]
+    #[arg(long)]
+    pub unshare: bool,
+
+    /// File descriptor for UNIX datagram socket meant to transfer
+    /// network sockets from global namespace to the new one.
+    /// See `unshare(1)`, `namespaces(7)`, `sendmsg(2)`, `unix(7)`.
+    #[cfg(target_os = "linux")]
+    #[arg(long, value_name = "fd", hide(true))]
+    pub socket_transfer_fd: Option<i32>,
+
+    /// Specify a command to run with root-like capabilities in the new namespace
+    /// when using `--unshare`.
+    /// This could be useful to start additional daemons, e.g. `openvpn` instance.
+    #[cfg(target_os = "linux")]
+    #[arg(requires = "unshare")]
+    pub admin_command: Vec<OsString>,
+
     /// IPv6 enabled
     #[arg(short = '6', long)]
     pub ipv6_enabled: bool,
 
-    #[arg(short, long)]
     /// Routing and system setup, which decides whether to setup the routing and system configuration.
-    /// This option is only available on Linux and requires root privileges.
+    /// This option is only available on Linux and requires root-like privileges. See `capabilities(7)`.
+    #[arg(short, long, default_value = if cfg!(target_os = "linux") { "false" } else { "true" })]
     pub setup: bool,
 
     /// DNS handling strategy
@@ -45,32 +69,62 @@ pub struct Args {
     #[arg(long, value_name = "seconds", default_value = "600")]
     pub tcp_timeout: u64,
 
+    /// UDP timeout in seconds
+    #[arg(long, value_name = "seconds", default_value = "10")]
+    pub udp_timeout: u64,
+
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     pub verbosity: ArgVerbosity,
 }
 
+fn validate_tun(p: &str) -> Result<String> {
+    #[cfg(target_os = "macos")]
+    if p.len() <= 4 || &p[..4] != "utun" {
+        return Err(Error::from("Invalid tun interface name, please use utunX"));
+    }
+    Ok(p.to_string())
+}
+
 impl Default for Args {
     fn default() -> Self {
+        #[cfg(target_os = "linux")]
+        let setup = false;
+        #[cfg(not(target_os = "linux"))]
+        let setup = true;
         Args {
             proxy: ArgProxy::default(),
             tun: None,
             tun_fd: None,
+            #[cfg(target_os = "linux")]
+            unshare: false,
+            #[cfg(target_os = "linux")]
+            socket_transfer_fd: None,
+            #[cfg(target_os = "linux")]
+            admin_command: Vec::new(),
             ipv6_enabled: false,
-            setup: false,
+            setup,
             dns: ArgDns::default(),
             dns_addr: "8.8.8.8".parse().unwrap(),
             bypass: vec![],
             tcp_timeout: 600,
+            udp_timeout: 10,
             verbosity: ArgVerbosity::Info,
         }
     }
 }
 
 impl Args {
+    #[allow(clippy::let_and_return)]
     pub fn parse_args() -> Self {
         use clap::Parser;
-        Self::parse()
+        let args = Self::parse();
+        #[cfg(target_os = "linux")]
+        if !args.setup && args.tun.is_none() {
+            eprintln!("Missing required argument, '--tun' must present when '--setup' is not used.");
+            std::process::exit(-1);
+        }
+        args
     }
 
     pub fn proxy(&mut self, proxy: ArgProxy) -> &mut Self {
@@ -244,6 +298,14 @@ impl std::fmt::Display for ArgProxy {
 
 impl ArgProxy {
     pub fn from_url(s: &str) -> Result<ArgProxy> {
+        if s == "none" {
+            return Ok(ArgProxy {
+                proxy_type: ProxyType::None,
+                addr: "0.0.0.0:0".parse().unwrap(),
+                credentials: None,
+            });
+        }
+
         let e = format!("`{s}` is not a valid proxy URL");
         let url = url::Url::parse(s).map_err(|_| Error::from(&e))?;
         let e = format!("`{s}` does not contain a host");
@@ -294,6 +356,7 @@ pub enum ProxyType {
     Socks4,
     #[default]
     Socks5,
+    None,
 }
 
 impl std::fmt::Display for ProxyType {
@@ -302,6 +365,7 @@ impl std::fmt::Display for ProxyType {
             ProxyType::Socks4 => write!(f, "socks4"),
             ProxyType::Socks5 => write!(f, "socks5"),
             ProxyType::Http => write!(f, "http"),
+            ProxyType::None => write!(f, "none"),
         }
     }
 }

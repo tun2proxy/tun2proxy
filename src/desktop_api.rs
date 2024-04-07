@@ -83,25 +83,25 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
 pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::CancellationToken) -> std::io::Result<()> {
     let bypass_ips = args.bypass.clone();
 
-    let mut config = tun2::Configuration::default();
-    config.address(TUN_IPV4).netmask(TUN_NETMASK).mtu(MTU).up();
-    config.destination(TUN_GATEWAY);
+    let mut tun_config = tun2::Configuration::default();
+    tun_config.address(TUN_IPV4).netmask(TUN_NETMASK).mtu(MTU).up();
+    tun_config.destination(TUN_GATEWAY);
     if let Some(tun_fd) = args.tun_fd {
-        config.raw_fd(tun_fd);
+        tun_config.raw_fd(tun_fd);
     } else if let Some(ref tun) = args.tun {
-        config.tun_name(tun);
+        tun_config.tun_name(tun);
     }
 
     #[cfg(target_os = "linux")]
-    config.platform_config(|config| {
+    tun_config.platform_config(|cfg| {
         #[allow(deprecated)]
-        config.packet_information(true);
-        config.ensure_root_privileges(args.setup);
+        cfg.packet_information(true);
+        cfg.ensure_root_privileges(args.setup);
     });
 
     #[cfg(target_os = "windows")]
-    config.platform_config(|config| {
-        config.device_guid(Some(12324323423423434234_u128));
+    tun_config.platform_config(|cfg| {
+        cfg.device_guid(Some(12324323423423434234_u128));
     });
 
     #[allow(unused_variables)]
@@ -113,7 +113,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     #[allow(unused_mut, unused_assignments, unused_variables)]
     let mut setup = true;
 
-    let device = tun2::create_as_async(&config)?;
+    let device = tun2::create_as_async(&tun_config)?;
 
     if let Ok(tun_name) = device.as_ref().tun_name() {
         tproxy_args = tproxy_args.tun_name(&tun_name);
@@ -131,11 +131,70 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
         restore = Some(tproxy_config::tproxy_setup(&tproxy_args)?);
     }
 
+    #[cfg(target_os = "linux")]
+    {
+        let run_ip_util = |args: String| {
+            tokio::process::Command::new("ip")
+                .args(args.split(' '))
+                .stdout(std::process::Stdio::null())
+                .stderr(std::process::Stdio::null())
+                .spawn()
+                .ok();
+        };
+
+        if setup && !args.ipv6_enabled {
+            // Remove ipv6 connectivity if not explicitly required
+            // TODO: remove this when upstream will get updated
+            run_ip_util(format!("-6 route delete ::/1 dev {}", tproxy_args.tun_name));
+            run_ip_util(format!("-6 route delete 80::/1 dev {}", tproxy_args.tun_name));
+        }
+
+        #[cfg(target_os = "linux")]
+        if setup && args.unshare {
+            // New namespace doesn't have any other routing device by default
+            // So our `tun` device should act as such to make space for other proxies.
+            run_ip_util(format!("route delete 0.0.0.0/1 dev {}", tproxy_args.tun_name));
+            run_ip_util(format!("route delete 128.0.0.0/1 dev {}", tproxy_args.tun_name));
+
+            run_ip_util(format!("route add 0.0.0.0/0 dev {}", tproxy_args.tun_name));
+
+            if args.ipv6_enabled {
+                run_ip_util(format!("-6 route delete ::/1 dev {}", tproxy_args.tun_name));
+                run_ip_util(format!("-6 route delete 80::/1 dev {}", tproxy_args.tun_name));
+
+                run_ip_util(format!("-6 route add ::/0 dev {}", tproxy_args.tun_name));
+            }
+        }
+
+        let mut admin_command_args = args.admin_command.iter();
+        if let Some(command) = admin_command_args.next() {
+            let child = tokio::process::Command::new(command)
+                .args(admin_command_args)
+                .kill_on_drop(true)
+                .spawn();
+
+            match child {
+                Err(err) => {
+                    log::warn!("Failed to start admin process: {err}");
+                }
+                Ok(mut child) => {
+                    tokio::spawn(async move {
+                        if let Err(err) = child.wait().await {
+                            log::warn!("Admin process terminated: {err}");
+                        }
+                    });
+                }
+            };
+        }
+    }
+
     let join_handle = tokio::spawn(crate::run(device, MTU, args, shutdown_token));
     join_handle.await.map_err(std::io::Error::from)??;
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     if setup {
+        // TODO: This probably should be handled by a destructor
+        // since otherwise removal is not guaranteed if anything above returns early.
         tproxy_config::tproxy_remove(restore)?;
     }
 

@@ -20,6 +20,7 @@ enum SocksState {
 }
 
 struct SocksProxyImpl {
+    server_addr: SocketAddr,
     info: SessionInfo,
     domain_name: Option<String>,
     state: SocksState,
@@ -35,6 +36,7 @@ struct SocksProxyImpl {
 
 impl SocksProxyImpl {
     fn new(
+        server_addr: SocketAddr,
         info: SessionInfo,
         domain_name: Option<String>,
         credentials: Option<UserKey>,
@@ -42,6 +44,7 @@ impl SocksProxyImpl {
         command: protocol::Command,
     ) -> Result<Self> {
         let mut result = Self {
+            server_addr,
             info,
             domain_name,
             state: SocksState::ClientHello,
@@ -260,6 +263,10 @@ impl SocksProxyImpl {
 
 #[async_trait::async_trait]
 impl ProxyHandler for SocksProxyImpl {
+    fn get_server_addr(&self) -> SocketAddr {
+        self.server_addr
+    }
+
     fn get_session_info(&self) -> SessionInfo {
         self.info
     }
@@ -339,16 +346,13 @@ impl ProxyHandlerManager for SocksProxyManager {
         let command = if udp_associate { UdpAssociate } else { Connect };
         let credentials = self.credentials.clone();
         Ok(Arc::new(Mutex::new(SocksProxyImpl::new(
+            self.server,
             info,
             domain_name,
             credentials,
             self.version,
             command,
         )?)))
-    }
-
-    fn get_server_addr(&self) -> SocketAddr {
-        self.server
     }
 }
 
