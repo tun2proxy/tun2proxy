@@ -45,13 +45,17 @@ async fn namespace_proxy_main(
     _args: Args,
     _shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<std::process::ExitStatus, tun2proxy::Error> {
+    use nix::fcntl::{open, OFlag};
+    use nix::sys::stat::Mode;
     use std::os::fd::AsRawFd;
 
     let (socket, remote_fd) = tun2proxy::socket_transfer::create_transfer_socket_pair().await?;
 
+    let fd = open("/proc/self/exe", OFlag::O_PATH, Mode::empty())?;
+
     let child = tokio::process::Command::new("unshare")
         .args("--user --map-current-user --net --mount --keep-caps --kill-child --fork".split(' '))
-        .arg(std::env::current_exe()?)
+        .arg(format!("/proc/self/fd/{}", fd))
         .arg("--socket-transfer-fd")
         .arg(remote_fd.as_raw_fd().to_string())
         .args(std::env::args().skip(1))
