@@ -305,9 +305,8 @@ where
                     Ok(proxy_handler) => {
                         let socket_queue = socket_queue.clone();
                         tokio::spawn(async move {
-                            if let Err(err) =
-                                handle_udp_associate_session(udp, args.proxy.proxy_type, proxy_handler, socket_queue, ipv6_enabled).await
-                            {
+                            let ty = args.proxy.proxy_type;
+                            if let Err(err) = handle_udp_associate_session(udp, ty, proxy_handler, socket_queue, ipv6_enabled).await {
                                 log::info!("Ending {} with \"{}\"", info, err);
                             }
                             log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
@@ -406,13 +405,12 @@ async fn handle_udp_associate_session(
 
     log::info!("Beginning {}", session_info);
 
-    let udp_addr = match udp_addr {
-        Some(udp_addr) => udp_addr,
+    let (_server, udp_addr) = match udp_addr {
+        Some(udp_addr) => (None, udp_addr),
         None => {
             let mut server = create_tcp_stream(&socket_queue, server_addr).await?;
-
             let udp_addr = handle_proxy_session(&mut server, proxy_handler).await?;
-            udp_addr.ok_or("udp associate failed")?
+            (Some(server), udp_addr.ok_or("udp associate failed")?)
         }
     };
 
