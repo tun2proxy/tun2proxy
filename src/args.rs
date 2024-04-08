@@ -326,8 +326,8 @@ impl ArgProxy {
         let credentials = if url.username() == "" && url.password().is_none() {
             None
         } else {
-            let username = String::from(url.username());
-            let password = String::from(url.password().unwrap_or(""));
+            let username = url_escape::decode(url.username());
+            let password = url_escape::decode(url.password().unwrap_or(""));
             Some(UserKey::new(username, password))
         };
 
