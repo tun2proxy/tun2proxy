@@ -10,7 +10,8 @@ use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 #[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
 pub struct Args {
     /// Proxy URL in the form proto://[username[:password]@]host:port,
-    /// where proto is one of socks4, socks5, http. For example:
+    /// where proto is one of socks4, socks5, http.
+    /// Username and password are encoded in percent encoding. For example:
     /// socks5://myname:password@127.0.0.1:1080
     #[arg(short, long, value_parser = ArgProxy::from_url, value_name = "URL")]
     pub proxy: ArgProxy,
@@ -327,8 +328,8 @@ impl ArgProxy {
             None
         } else {
             use percent_encoding::percent_decode;
-            let username = percent_decode(url.username().as_bytes()).decode_utf8().unwrap();
-            let password = percent_decode(url.password().unwrap_or("").as_bytes()).decode_utf8().unwrap();
+            let username = percent_decode(url.username().as_bytes()).decode_utf8()?;
+            let password = percent_decode(url.password().unwrap_or("").as_bytes()).decode_utf8()?;
             Some(UserKey::new(username, password))
         };
 
