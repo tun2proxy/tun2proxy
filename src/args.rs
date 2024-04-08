@@ -12,7 +12,7 @@ pub struct Args {
     /// Proxy URL in the form proto://[username[:password]@]host:port,
     /// where proto is one of socks4, socks5, http.
     /// Username and password are encoded in percent encoding. For example:
-    /// socks5://myname:password@127.0.0.1:1080
+    /// socks5://myname:pass%40word@127.0.0.1:1080
     #[arg(short, long, value_parser = ArgProxy::from_url, value_name = "URL")]
     pub proxy: ArgProxy,
 
@@ -333,15 +333,12 @@ impl ArgProxy {
             Some(UserKey::new(username, password))
         };
 
-        let scheme = url.scheme();
-
         let proxy_type = match url.scheme().to_ascii_lowercase().as_str() {
-            "socks4" => Some(ProxyType::Socks4),
-            "socks5" => Some(ProxyType::Socks5),
-            "http" => Some(ProxyType::Http),
-            _ => None,
-        }
-        .ok_or(Error::from(&format!("`{scheme}` is an invalid proxy type")))?;
+            "socks4" => Ok(ProxyType::Socks4),
+            "socks5" => Ok(ProxyType::Socks5),
+            "http" => Ok(ProxyType::Http),
+            scheme => Err(Error::from(&format!("`{scheme}` is an invalid proxy type"))),
+        }?;
 
         Ok(ArgProxy {
             proxy_type,
