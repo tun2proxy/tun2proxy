@@ -152,7 +152,6 @@ impl HttpConnection {
         Ok(())
     }
 
-    #[async_recursion::async_recursion]
     async fn state_change(&mut self) -> Result<()> {
         match self.state {
             HttpState::ExpectResponseHeaders => {
@@ -200,7 +199,7 @@ impl HttpConnection {
                     // The server may have sent a banner already (SMTP, SSH, etc.).
                     // Therefore, server_inbuf must retain this data.
                     self.server_inbuf.drain(0..header_size);
-                    return self.state_change().await;
+                    return Box::pin(self.state_change()).await;
                 }
 
                 if status_code != 407 {
@@ -295,7 +294,7 @@ impl HttpConnection {
                 self.state = HttpState::ExpectResponse;
                 self.skip = content_length + len;
 
-                return self.state_change().await;
+                return Box::pin(self.state_change()).await;
             }
             HttpState::ExpectResponse => {
                 if self.skip > 0 {
@@ -312,7 +311,7 @@ impl HttpConnection {
                     self.send_tunnel_request().await?;
                     self.state = HttpState::ExpectResponseHeaders;
 
-                    return self.state_change().await;
+                    return Box::pin(self.state_change()).await;
                 }
             }
             HttpState::Established => {
@@ -323,7 +322,7 @@ impl HttpConnection {
             }
             HttpState::Reset => {
                 self.state = HttpState::ExpectResponseHeaders;
-                return self.state_change().await;
+                return Box::pin(self.state_change()).await;
             }
             _ => {}
         }

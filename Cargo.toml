@@ -8,12 +8,12 @@ homepage = "https://github.com/blechschmidt/tun2proxy"
 authors = ["B. Blechschmidt", "ssrlive"]
 description = "Tunnel interface to proxy"
 readme = "README.md"
+rust-version = "1.77"
 
 [lib]
 crate-type = ["staticlib", "cdylib", "lib"]
 
 [dependencies]
-async-recursion = "1.1"
 async-trait = "0.1"
 base64 = { version = "0.22" }
 chrono = "0.4"
