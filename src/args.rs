@@ -333,12 +333,7 @@ impl ArgProxy {
             Some(UserKey::new(username, password))
         };
 
-        let proxy_type = match url.scheme().to_ascii_lowercase().as_str() {
-            "socks4" => Ok(ProxyType::Socks4),
-            "socks5" => Ok(ProxyType::Socks5),
-            "http" => Ok(ProxyType::Http),
-            scheme => Err(Error::from(&format!("`{scheme}` is an invalid proxy type"))),
-        }?;
+        let proxy_type = url.scheme().to_ascii_lowercase().as_str().try_into()?;
 
         Ok(ArgProxy {
             proxy_type,
@@ -356,6 +351,19 @@ pub enum ProxyType {
     #[default]
     Socks5,
     None,
+}
+
+impl TryFrom<&str> for ProxyType {
+    type Error = Error;
+    fn try_from(value: &str) -> Result<Self> {
+        match value {
+            "http" => Ok(ProxyType::Http),
+            "socks4" => Ok(ProxyType::Socks4),
+            "socks5" => Ok(ProxyType::Socks5),
+            "none" => Ok(ProxyType::None),
+            scheme => Err(Error::from(&format!("`{scheme}` is an invalid proxy type"))),
+        }
+    }
 }
 
 impl std::fmt::Display for ProxyType {
