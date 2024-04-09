@@ -108,7 +108,8 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     let mut tproxy_args = TproxyArgs::new()
         .tun_dns(args.dns_addr)
         .proxy_addr(args.proxy.addr)
-        .bypass_ips(&bypass_ips);
+        .bypass_ips(&bypass_ips)
+        .ipv6_default_route(args.ipv6_enabled);
 
     #[allow(unused_mut, unused_assignments, unused_variables)]
     let mut setup = true;
@@ -135,39 +136,6 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
 
     #[cfg(target_os = "linux")]
     {
-        let run_ip_util = |args: String| {
-            tokio::process::Command::new("ip")
-                .args(args.split(' '))
-                .stdout(std::process::Stdio::null())
-                .stderr(std::process::Stdio::null())
-                .spawn()
-                .ok();
-        };
-
-        if setup && !args.ipv6_enabled {
-            // Remove ipv6 connectivity if not explicitly required
-            // TODO: remove this when upstream will get updated
-            run_ip_util(format!("-6 route delete ::/1 dev {}", tproxy_args.tun_name));
-            run_ip_util(format!("-6 route delete 80::/1 dev {}", tproxy_args.tun_name));
-        }
-
-        #[cfg(target_os = "linux")]
-        if setup && args.unshare {
-            // New namespace doesn't have any other routing device by default
-            // So our `tun` device should act as such to make space for other proxies.
-            run_ip_util(format!("route delete 0.0.0.0/1 dev {}", tproxy_args.tun_name));
-            run_ip_util(format!("route delete 128.0.0.0/1 dev {}", tproxy_args.tun_name));
-
-            run_ip_util(format!("route add 0.0.0.0/0 dev {}", tproxy_args.tun_name));
-
-            if args.ipv6_enabled {
-                run_ip_util(format!("-6 route delete ::/1 dev {}", tproxy_args.tun_name));
-                run_ip_util(format!("-6 route delete 80::/1 dev {}", tproxy_args.tun_name));
-
-                run_ip_util(format!("-6 route add ::/0 dev {}", tproxy_args.tun_name));
-            }
-        }
-
         let mut admin_command_args = args.admin_command.iter();
         if let Some(command) = admin_command_args.next() {
             let child = tokio::process::Command::new(command)
