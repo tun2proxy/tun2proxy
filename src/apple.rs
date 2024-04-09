@@ -31,7 +31,7 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
     }
 
     let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
-    let proxy = ArgProxy::from_url(proxy_url).unwrap();
+    let proxy = ArgProxy::try_from(proxy_url).unwrap();
 
     let mut args = Args::default();
     args.proxy(proxy).tun_fd(Some(tun_fd)).dns(dns_strategy).verbosity(verbosity);

@@ -13,7 +13,7 @@ pub struct Args {
     /// where proto is one of socks4, socks5, http.
     /// Username and password are encoded in percent encoding. For example:
     /// socks5://myname:pass%40word@127.0.0.1:1080
-    #[arg(short, long, value_parser = ArgProxy::from_url, value_name = "URL")]
+    #[arg(short, long, value_parser = |s: &str| ArgProxy::try_from(s), value_name = "URL")]
     pub proxy: ArgProxy,
 
     /// Name of the tun interface, such as tun0, utun4, etc.
@@ -297,8 +297,9 @@ impl std::fmt::Display for ArgProxy {
     }
 }
 
-impl ArgProxy {
-    pub fn from_url(s: &str) -> Result<ArgProxy> {
+impl TryFrom<&str> for ArgProxy {
+    type Error = Error;
+    fn try_from(s: &str) -> Result<Self> {
         if s == "none" {
             return Ok(ArgProxy {
                 proxy_type: ProxyType::None,

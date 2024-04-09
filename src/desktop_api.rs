@@ -47,7 +47,7 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
     }
 
     let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
-    let proxy = ArgProxy::from_url(proxy_url).unwrap();
+    let proxy = ArgProxy::try_from(proxy_url).unwrap();
     let tun = std::ffi::CStr::from_ptr(tun).to_str().unwrap().to_string();
 
     let mut args = Args::default();
