@@ -329,7 +329,14 @@ where
 async fn handle_virtual_dns_session(mut udp: IpStackUdpStream, dns: Arc<Mutex<VirtualDns>>) -> crate::Result<()> {
     let mut buf = [0_u8; 4096];
     loop {
-        let len = udp.read(&mut buf).await?;
+        let len = match udp.read(&mut buf).await {
+            Err(e) => {
+                // indicate UDP read fails not an error.
+                log::debug!("Virtual DNS session error: {}", e);
+                break;
+            }
+            Ok(len) => len,
+        };
         if len == 0 {
             break;
         }
