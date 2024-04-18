@@ -272,6 +272,7 @@ where
                         info.dst.set_ip(dns_addr);
                     }
                     if args.dns == ArgDns::OverTcp {
+                        info.protocol = IpProtocol::Tcp;
                         let proxy_handler = mgr.new_proxy_handler(info, None, false).await?;
                         let socket_queue = socket_queue.clone();
                         tokio::spawn(async move {
