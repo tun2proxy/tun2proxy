@@ -1,12 +1,12 @@
 import glob
-import logging
-import os
-import unittest
-import subprocess
-import requests
-import dotenv
-import time
 import itertools
+import os
+import subprocess
+import time
+import unittest
+
+import dotenv
+import requests
 
 dotenv.load_dotenv()
 
@@ -34,21 +34,16 @@ def get_tool_path():
     return os.environ.get('TOOL_PATH', default)
 
 
-def start_process(*args):
-    pass
-
-
 class Tun2ProxyTest(unittest.TestCase):
     @staticmethod
     def _test(ip_version, dns, proxy_var):
         ip_noproxy = get_ip(ip_version)
-        print(ip_noproxy)
         additional = ['-6'] if ip_version == 6 else []
-        p = subprocess.Popen([get_tool_path(), "--proxy", os.getenv(proxy_var), '--setup', '-v', 'trace', '--dns', dns, *additional])
+        p = subprocess.Popen(
+            [get_tool_path(), "--proxy", os.getenv(proxy_var), '--setup', '-v', 'trace', '--dns', dns, *additional])
         try:
             time.sleep(1)
             ip_withproxy = get_ip(ip_version)
-            print(ip_withproxy)
 
             assert ip_noproxy != ip_withproxy
         except Exception as e:
@@ -59,8 +54,13 @@ class Tun2ProxyTest(unittest.TestCase):
 
     @classmethod
     def add_tests(cls):
-        for ip_version, dns, proxy_var in itertools.product([None, 4, 6], ['virtual', 'over-tcp'], ['SOCKS5_PROXY', 'HTTP_PROXY']):
-            setattr(cls, 'test_ipv%s_dns%s_proxy%s' % (ip_version, dns, proxy_var), lambda self: cls._test(ip_version, dns, proxy_var))
+        ip_options = [None, 4]
+        if bool(int(os.environ.get('IPV6', 1))):
+            ip_options.append(6)
+        for ip_version, dns, proxy_var in itertools.product(ip_options, ['virtual', 'over-tcp'],
+                                                            ['SOCKS5_PROXY', 'HTTP_PROXY']):
+            setattr(cls, 'test_ipv%s_dns%s_proxy%s' % (ip_version, dns, proxy_var),
+                    lambda self: cls._test(ip_version, dns, proxy_var))
 
 
 if __name__ == '__main__':

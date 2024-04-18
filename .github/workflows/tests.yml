@@ -1,0 +1,33 @@
+on:
+  pull_request_review:
+    types: [submitted]
+  push:
+  workflow_dispatch:
+  pull_request_target:
+    types: [labeled]
+
+name: Integration Tests
+
+jobs:
+  proxy_tests:
+    name: Proxy Tests
+    runs-on: ubuntu-latest
+    if: github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'safe to test')
+    steps:
+      - uses: actions/checkout@v2
+      - uses: actions-rs/toolchain@v1
+        with:
+          profile: minimal
+          toolchain: stable
+          override: true
+      - name: Populate .env
+        env:
+          DOTENV: ${{ secrets.DOTENV }}
+        run: echo "$DOTENV" > .env
+      - name: Run tests
+        run: >-
+          pwd;
+          ls -la;
+          sudo python -m pip install -r tests/requirements.txt;
+          cargo build --release;
+          sudo python tests/tests.py
