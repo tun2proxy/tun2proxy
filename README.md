@@ -61,7 +61,7 @@ Apart from SOCKS5, SOCKS4 and HTTP are supported.
 
 Note that if your proxy is a non-global IP address (e.g. because the proxy is provided by some tunneling tool running
 locally), you will additionally need to provide the public IP address of the server through which the traffic is
-actually tunneled. In such a case, the tool will tell you to specify the address through `--bypass <IP>` if you
+actually tunneled. In such a case, the tool will tell you to specify the address through `--bypass <IP/CIDR>` if you
 wish to make use of the automated setup feature.
 
 ## Manual Setup
@@ -134,7 +134,8 @@ Options:
                                See `capabilities(7)`
   -d, --dns <strategy>         DNS handling strategy [default: direct] [possible values: virtual, over-tcp, direct]
       --dns-addr <IP>          DNS resolver address [default: 8.8.8.8]
-  -b, --bypass <IP>            IPs used in routing setup which should bypass the tunnel
+  -b, --bypass <IP/CIDR>       IPs used in routing setup which should bypass the tunnel, in the form of IP or IP/CIDR.
+                               Multiple IPs can be specified, e.g. --bypass 3.4.5.0/24 --bypass 5.6.7.8
       --tcp-timeout <seconds>  TCP timeout in seconds [default: 600]
       --udp-timeout <seconds>  UDP timeout in seconds [default: 10]
   -v, --verbosity <level>      Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]

@@ -1,5 +1,6 @@
 use crate::{Error, Result};
 use socks5_impl::protocol::UserKey;
+use tproxy_config::IpCidr;
 
 #[cfg(target_os = "linux")]
 use std::ffi::OsString;
@@ -62,9 +63,11 @@ pub struct Args {
     #[arg(long, value_name = "IP", default_value = "8.8.8.8")]
     pub dns_addr: IpAddr,
 
-    /// IPs used in routing setup which should bypass the tunnel
-    #[arg(short, long, value_name = "IP")]
-    pub bypass: Vec<IpAddr>,
+    /// IPs used in routing setup which should bypass the tunnel,
+    /// in the form of IP or IP/CIDR. Multiple IPs can be specified,
+    /// e.g. --bypass 3.4.5.0/24 --bypass 5.6.7.8
+    #[arg(short, long, value_name = "IP/CIDR")]
+    pub bypass: Vec<IpCidr>,
 
     /// TCP timeout in seconds
     #[arg(long, value_name = "seconds", default_value = "600")]
@@ -158,7 +161,7 @@ impl Args {
         self
     }
 
-    pub fn bypass(&mut self, bypass: IpAddr) -> &mut Self {
+    pub fn bypass(&mut self, bypass: IpCidr) -> &mut Self {
         self.bypass.push(bypass);
         self
     }

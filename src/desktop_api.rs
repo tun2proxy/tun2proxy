@@ -16,7 +16,7 @@ static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> =
 /// Parameters:
 /// - proxy_url: the proxy url, e.g. "socks5://127.0.0.1:1080"
 /// - tun: the tun device name, e.g. "utun5"
-/// - bypass: the bypass ip, e.g. "123.45.67.89"
+/// - bypass: the bypass IP/CIDR, e.g. "123.45.67.0/24"
 /// - dns_strategy: the dns strategy, see ArgDns enum
 /// - root_privilege: whether to run with root privilege
 /// - verbosity: the verbosity level, see ArgVerbosity enum
