@@ -1,4 +1,4 @@
-#![cfg(any(target_os = "ios", target_os = "macos"))]
+#![cfg(any(target_os = "android", target_os = "ios", target_os = "macos"))]
 
 use crate::{
     args::{ArgDns, ArgProxy},

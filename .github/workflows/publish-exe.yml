@@ -77,6 +77,10 @@ jobs:
             fi
           elif [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
             zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy README.md target/tun2proxy-ffi.h target/${{ matrix.target }}/release/libtun2proxy.so
+            if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
+              ./build-android.sh
+              cp ./tun2proxy-android-libs.zip ./mypubdir4/
+            fi
           fi
 
       - name: Publish
