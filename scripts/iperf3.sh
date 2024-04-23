@@ -39,7 +39,7 @@ sleep 1
 ip tuntap add name tun0 mode tun
 ip link set tun0 up
 ip route add 10.0.0.4 dev tun0
-"$tun2proxy" --proxy socks5://10.0.0.3:10800 -v off &
+"$tun2proxy" --tun tun0 --proxy socks5://10.0.0.3:10800 -v off &
 
 sleep 3
 
