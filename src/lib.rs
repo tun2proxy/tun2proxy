@@ -319,8 +319,13 @@ where
                     }
                 }
             }
-            _ => {
-                log::trace!("Unknown transport");
+            IpStackStream::UnknownTransport(u) => {
+                let len = u.payload().len();
+                log::info!("#0 unhandled transport - Ip Protocol {:?}, length {}", u.ip_protocol(), len);
+                continue;
+            }
+            IpStackStream::UnknownNetwork(pkt) => {
+                log::info!("#0 unknown transport - {} bytes", pkt.len());
                 continue;
             }
         }
