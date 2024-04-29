@@ -50,6 +50,7 @@ jobs:
         run: |
           mkdir mypubdir4
           rustup target add ${{ matrix.target }}
+          cargo install cbindgen
           if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
             sudo .github/workflows/install-cross.sh
           fi
