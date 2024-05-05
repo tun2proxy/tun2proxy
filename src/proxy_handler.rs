@@ -14,7 +14,9 @@ pub(crate) trait ProxyHandler: Send + Sync {
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
     fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent;
     fn connection_established(&self) -> bool;
+    #[allow(dead_code)]
     fn data_len(&self, dir: OutgoingDirection) -> usize;
+    #[allow(dead_code)]
     fn reset_connection(&self) -> bool;
     fn get_udp_associate(&self) -> Option<SocketAddr>;
 }
