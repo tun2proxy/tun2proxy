@@ -10,7 +10,7 @@ cargo build --target aarch64-apple-ios
 echo "Generating includes..."
 mkdir -p target/include/
 rm -rf target/include/*
-cbindgen --config cbindgen.toml -l C -o target/include/tun2proxy.h
+cbindgen --config cbindgen.toml -l C --cpp-compat -o target/include/tun2proxy.h
 cat > target/include/tun2proxy.modulemap <<EOF
 framework module tun2proxy {
     umbrella header "tun2proxy.h"

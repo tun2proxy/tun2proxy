@@ -63,7 +63,7 @@ jobs:
           else
             cargo build --all-features --release --target ${{ matrix.target }}
           fi
-          cbindgen --config cbindgen.toml -l C -o target/tun2proxy-ffi.h
+          cbindgen --config cbindgen.toml -l C --cpp-compat -o target/tun2proxy-ffi.h
           if [[ "${{ matrix.host_os }}" == "windows-latest" ]]; then
             powershell -Command "(Get-Item README.md).LastWriteTime = Get-Date"
             powershell -Command "(Get-Item target/${{ matrix.target }}/release/wintun.dll).LastWriteTime = Get-Date"
