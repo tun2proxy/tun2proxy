@@ -57,3 +57,6 @@ serde_json = "1.0"
 [[bin]]
 name = "tun2proxy"
 path = "src/bin/main.rs"
+
+[profile.release]
+strip = "symbols"
