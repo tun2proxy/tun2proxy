@@ -168,7 +168,7 @@ where
 
         // Process received file descriptors
         let mut sockets = Vec::<T>::with_capacity(number as usize);
-        for cmsg in msg.cmsgs() {
+        for cmsg in msg.cmsgs()? {
             if let ControlMessageOwned::ScmRights(fds) = cmsg {
                 for fd in fds {
                     if fd < 0 {
