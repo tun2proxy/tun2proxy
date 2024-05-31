@@ -84,6 +84,11 @@ jobs:
             fi
           fi
 
+      # Enable build verification
+      - name: Verifiable Build
+        shell: bash
+        run: sha256sum ./mypubdir4/*
+
       - name: Publish
         uses: softprops/action-gh-release@v1
         env:
