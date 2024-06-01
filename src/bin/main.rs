@@ -72,6 +72,7 @@ async fn namespace_proxy_main(
         child => child?,
     };
 
+    let unshare_pid = child.id().unwrap_or(0);
     log::info!("The tun proxy is running in unprivileged mode. See `namespaces(7)`.");
     log::info!("");
     log::info!("If you need to run a process that relies on root-like capabilities (e.g. `openvpn`)");
@@ -80,10 +81,13 @@ async fn namespace_proxy_main(
     log::info!("To run a new process in the created namespace (e.g. a flatpak app)");
     log::info!(
         "Use `nsenter --preserve-credentials --user --net --mount  --target {} /bin/sh`",
-        child.id().unwrap_or(0)
+        unshare_pid
     );
     log::info!("");
-
+    if let Some(pidfile) = _args.unshare_pidfile.as_ref() {
+        log::info!("Writing unshare pid to {}", pidfile);
+        std::fs::write(pidfile, unshare_pid.to_string()).ok();
+    }
     tokio::spawn(async move { tun2proxy::socket_transfer::process_socket_requests(&socket).await });
 
     Ok(child.wait().await?)

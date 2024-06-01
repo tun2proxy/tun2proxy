@@ -32,6 +32,11 @@ pub struct Args {
     #[arg(long)]
     pub unshare: bool,
 
+    /// Create a pidfile of `unshare` process when using `--unshare`.
+    #[cfg(target_os = "linux")]
+    #[arg(long)]
+    pub unshare_pidfile: Option<String>,
+
     /// File descriptor for UNIX datagram socket meant to transfer
     /// network sockets from global namespace to the new one.
     /// See `unshare(1)`, `namespaces(7)`, `sendmsg(2)`, `unix(7)`.
@@ -102,6 +107,8 @@ impl Default for Args {
             tun_fd: None,
             #[cfg(target_os = "linux")]
             unshare: false,
+            #[cfg(target_os = "linux")]
+            unshare_pidfile: None,
             #[cfg(target_os = "linux")]
             socket_transfer_fd: None,
             #[cfg(target_os = "linux")]
