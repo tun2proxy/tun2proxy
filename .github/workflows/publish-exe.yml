@@ -8,6 +8,12 @@ name: Publish Releases
 jobs:
   build_publish:
     name: Publishing Tasks
+
+    permissions:
+      id-token: write
+      contents: read
+      attestations: write
+
     strategy:
       matrix:
         target:
@@ -84,10 +90,24 @@ jobs:
             fi
           fi
 
-      # Enable build verification
-      - name: Verifiable Build
+      # Support verifiable builds
+      - name: Calculate hashes
         shell: bash
-        run: sha256sum ./mypubdir4/*
+        run: |
+          echo "--- BEGIN SHA256SUM ---"
+          sha256sum ./mypubdir4/*
+          echo "--- END SHA256SUM ---"
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin
+          path: mypubdir4/*
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: mypubdir4/*
 
       - name: Publish
         uses: softprops/action-gh-release@v1
