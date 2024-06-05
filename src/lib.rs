@@ -27,6 +27,7 @@ use udp_stream::UdpStream;
 pub use {
     args::{ArgDns, ArgProxy, ArgVerbosity, Args, ProxyType},
     error::{BoxError, Error, Result},
+    traffic_status::{tun2proxy_set_traffic_status_callback, TrafficStatus},
 };
 
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
@@ -53,6 +54,7 @@ mod proxy_handler;
 mod session_info;
 pub mod socket_transfer;
 mod socks;
+mod traffic_status;
 mod virtual_dns;
 
 const DNS_PORT: u16 = 53;
@@ -354,6 +356,29 @@ async fn handle_virtual_dns_session(mut udp: IpStackUdpStream, dns: Arc<Mutex<Vi
     Ok(())
 }
 
+async fn copy_and_record_traffic<R, W>(reader: &mut R, writer: &mut W, is_tx: bool) -> tokio::io::Result<u64>
+where
+    R: tokio::io::AsyncRead + Unpin + ?Sized,
+    W: tokio::io::AsyncWrite + Unpin + ?Sized,
+{
+    let mut buf = vec![0; 8192];
+    let mut total = 0;
+    loop {
+        match reader.read(&mut buf).await? {
+            0 => break, // EOF
+            n => {
+                total += n as u64;
+                let (tx, rx) = if is_tx { (n, 0) } else { (0, n) };
+                if let Err(e) = crate::traffic_status::traffic_status_update(tx, rx) {
+                    log::debug!("Record traffic status error: {}", e);
+                }
+                writer.write_all(&buf[..n]).await?;
+            }
+        }
+    }
+    Ok(total)
+}
+
 async fn handle_tcp_session(
     mut tcp_stack: IpStackTcpStream,
     proxy_handler: Arc<Mutex<dyn ProxyHandler>>,
@@ -379,14 +404,14 @@ async fn handle_tcp_session(
 
     let res = tokio::join!(
         async move {
-            let r = tokio::io::copy(&mut t_rx, &mut s_tx).await;
+            let r = copy_and_record_traffic(&mut t_rx, &mut s_tx, true).await;
             if let Err(err) = s_tx.shutdown().await {
                 log::trace!("{} s_tx shutdown error {}", session_info, err);
             }
             r
         },
         async move {
-            let r = tokio::io::copy(&mut s_rx, &mut t_tx).await;
+            let r = copy_and_record_traffic(&mut s_rx, &mut t_tx, false).await;
             if let Err(err) = t_tx.shutdown().await {
                 log::trace!("{} t_tx shutdown error {}", session_info, err);
             }
@@ -443,6 +468,8 @@ async fn handle_udp_associate_session(
                 }
                 let buf1 = &buf1[..len];
 
+                crate::traffic_status::traffic_status_update(len, 0)?;
+
                 if let ProxyType::Socks4 | ProxyType::Socks5 = proxy_type {
                     let s5addr = if let Some(domain_name) = &domain_name {
                         Address::DomainAddress(domain_name.clone(), session_info.dst.port())
@@ -466,6 +493,8 @@ async fn handle_udp_associate_session(
                     break;
                 }
                 let buf2 = &buf2[..len];
+
+                crate::traffic_status::traffic_status_update(0, len)?;
 
                 if let ProxyType::Socks4 | ProxyType::Socks5 = proxy_type {
                     // Remove SOCKS5 UDP header from the server data
@@ -533,6 +562,8 @@ async fn handle_dns_over_tcp_session(
                 buf.extend_from_slice(buf1);
 
                 server.write_all(&buf).await?;
+
+                crate::traffic_status::traffic_status_update(buf.len(), 0)?;
             }
             len = server.read(&mut buf2) => {
                 let len = len?;
@@ -540,6 +571,8 @@ async fn handle_dns_over_tcp_session(
                     break;
                 }
                 let mut buf = buf2[..len].to_vec();
+
+                crate::traffic_status::traffic_status_update(0, len)?;
 
                 let mut to_send: VecDeque<Vec<u8>> = VecDeque::new();
                 loop {
@@ -590,6 +623,7 @@ async fn handle_proxy_session(server: &mut TcpStream, proxy_handler: Arc<Mutex<d
     let mut launched = false;
     let mut proxy_handler = proxy_handler.lock().await;
     let dir = OutgoingDirection::ToServer;
+    let (mut tx, mut rx) = (0, 0);
 
     loop {
         if proxy_handler.connection_established() {
@@ -604,6 +638,7 @@ async fn handle_proxy_session(server: &mut TcpStream, proxy_handler: Arc<Mutex<d
             }
             server.write_all(data).await?;
             proxy_handler.consume_data(dir, len);
+            tx += len;
 
             launched = true;
         }
@@ -613,6 +648,7 @@ async fn handle_proxy_session(server: &mut TcpStream, proxy_handler: Arc<Mutex<d
         if len == 0 {
             return Err("server closed accidentially".into());
         }
+        rx += len;
         let event = IncomingDataEvent {
             direction: IncomingDirection::FromServer,
             buffer: &buf[..len],
@@ -624,7 +660,9 @@ async fn handle_proxy_session(server: &mut TcpStream, proxy_handler: Arc<Mutex<d
         if len > 0 {
             server.write_all(data).await?;
             proxy_handler.consume_data(dir, len);
+            tx += len;
         }
     }
+    crate::traffic_status::traffic_status_update(tx, rx)?;
     Ok(proxy_handler.get_udp_associate())
 }

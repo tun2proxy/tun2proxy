@@ -5,6 +5,7 @@ include = [
     "tun2proxy_with_name_stop",
     "tun2proxy_with_fd_stop",
     "tun2proxy_set_log_callback",
+    "tun2proxy_set_traffic_status_callback",
 ]
 exclude = [
     "Java_com_github_shadowsocks_bg_Tun2proxy_run",
@@ -14,6 +15,7 @@ exclude = [
 [export.rename]
 "ArgVerbosity" = "Tun2proxyVerbosity"
 "ArgDns" = "Tun2proxyDns"
+"TrafficStatus" = "Tun2proxyTrafficStatus"
 
 [enum]
 prefix_with_name = true
