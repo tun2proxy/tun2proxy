@@ -21,6 +21,12 @@ async fn main() -> Result<(), BoxError> {
                 return;
             }
 
+            unsafe extern "C" fn traffic_cb(status: *const tun2proxy::TrafficStatus, _: *mut std::ffi::c_void) {
+                let status = &*status;
+                log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
+            }
+            unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
+
             if let Err(err) = tun2proxy::desktop_run_async(args, shutdown_token).await {
                 log::error!("main loop error: {}", err);
             }
