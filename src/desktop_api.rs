@@ -101,7 +101,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
 
     #[cfg(target_os = "windows")]
     tun_config.platform_config(|cfg| {
-        cfg.device_guid(Some(12324323423423434234_u128));
+        cfg.device_guid(12324323423423434234_u128);
     });
 
     #[allow(unused_variables)]
