@@ -8,6 +8,12 @@ name: Publish Releases
 jobs:
   build_publish:
     name: Publishing Tasks
+
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
     strategy:
       matrix:
         target:
@@ -83,6 +89,17 @@ jobs:
               cp ./tun2proxy-android-libs.zip ./mypubdir4/
             fi
           fi
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: mypubdir4/*
+
+      - name: Generate artifact attestation
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: mypubdir4/*
 
       - name: Publish
         uses: softprops/action-gh-release@v1
