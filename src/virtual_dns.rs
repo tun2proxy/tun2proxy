@@ -19,6 +19,7 @@ struct NameCacheEntry {
 /// The IP addresses are in the range of private IP addresses.
 /// The DNS server is implemented as a LRU cache.
 pub struct VirtualDns {
+    trailing_dot: bool,
     lru_cache: LruCache<IpAddr, NameCacheEntry>,
     name_to_ip: HashMap<String, IpAddr>,
     network_addr: IpAddr,
@@ -35,6 +36,7 @@ impl Default for VirtualDns {
         let broadcast_addr = calculate_broadcast_addr(start_addr, prefix_len);
 
         Self {
+            trailing_dot: false,
             next_addr: start_addr.into(),
             name_to_ip: HashMap::default(),
             network_addr: IpAddr::from(network_addr),
@@ -54,7 +56,11 @@ impl VirtualDns {
         use crate::dns;
         let message = dns::parse_data_to_dns_message(data, false)?;
         let qname = dns::extract_domain_from_dns_message(&message)?;
-        let ip = self.allocate_ip(qname.clone())?;
+        let mut insert_name = qname.clone();
+        if insert_name.ends_with('.') && !self.trailing_dot {
+            insert_name = String::from(insert_name.trim_end_matches('.'));
+        }
+        let ip = self.allocate_ip(insert_name)?;
         let message = dns::build_dns_response(message, &qname, ip, 5)?;
         Ok((message.to_vec()?, qname, ip))
     }
