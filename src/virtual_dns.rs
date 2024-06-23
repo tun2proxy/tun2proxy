@@ -113,26 +113,32 @@ impl VirtualDns {
 
         let now = Instant::now();
 
+        // Iterate through all entries of the LRU cache and remove those that have expired.
         loop {
             let (ip, entry) = match self.lru_cache.iter().next() {
                 None => break,
                 Some((ip, entry)) => (ip, entry),
             };
+
+            // The entry has expired.
             if now > entry.expiry {
                 let name = entry.name.clone();
                 self.lru_cache.remove(&ip.clone());
                 self.name_to_ip.remove(&name);
-                continue;
+                continue; // There might be another expired entry after this one.
             }
-            break;
+
+            break; // The entry has not expired and all following entries are newer.
         }
 
+        // Return the IP if it is stored inside our LRU cache.
         if let Some(ip) = self.name_to_ip.get(&insert_name) {
             let ip = *ip;
             self.touch_ip(&ip);
             return Ok(ip);
         }
 
+        // Otherwise, store name and IP pair inside the LRU cache.
         let started_at = self.next_addr;
 
         loop {
