@@ -56,11 +56,7 @@ impl VirtualDns {
         use crate::dns;
         let message = dns::parse_data_to_dns_message(data, false)?;
         let qname = dns::extract_domain_from_dns_message(&message)?;
-        let mut insert_name = qname.clone();
-        if insert_name.ends_with('.') && !self.trailing_dot {
-            insert_name = String::from(insert_name.trim_end_matches('.'));
-        }
-        let ip = self.allocate_ip(insert_name)?;
+        let ip = self.find_or_allocate_ip(qname.clone())?;
         let message = dns::build_dns_response(message, &qname, ip, 5)?;
         Ok((message.to_vec()?, qname, ip))
     }
@@ -106,7 +102,15 @@ impl VirtualDns {
         self.lru_cache.get(addr).map(|entry| &entry.name)
     }
 
-    fn allocate_ip(&mut self, name: String) -> Result<IpAddr> {
+    fn find_or_allocate_ip(&mut self, name: String) -> Result<IpAddr> {
+        // This function is a search and creation function.
+        // Thus, it is sufficient to canonicalize the name here.
+        let insert_name = if name.ends_with('.') && !self.trailing_dot {
+            String::from(name.trim_end_matches('.'))
+        } else {
+            name
+        };
+
         let now = Instant::now();
 
         loop {
@@ -123,7 +127,7 @@ impl VirtualDns {
             break;
         }
 
-        if let Some(ip) = self.name_to_ip.get(&name) {
+        if let Some(ip) = self.name_to_ip.get(&insert_name) {
             let ip = *ip;
             self.touch_ip(&ip);
             return Ok(ip);
@@ -134,8 +138,8 @@ impl VirtualDns {
         loop {
             if let RawEntryMut::Vacant(vacant) = self.lru_cache.raw_entry_mut().from_key(&self.next_addr) {
                 let expiry = Instant::now() + Duration::from_secs(MAPPING_TIMEOUT);
-                let name0 = name.clone();
-                vacant.insert(self.next_addr, NameCacheEntry { name, expiry });
+                let name0 = insert_name.clone();
+                vacant.insert(self.next_addr, NameCacheEntry { name: insert_name, expiry });
                 self.name_to_ip.insert(name0, self.next_addr);
                 return Ok(self.next_addr);
             }
