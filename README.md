@@ -37,6 +37,13 @@ To build an XCFramework for macOS and iOS, run the following:
 
 Download the binary from [releases](https://github.com/blechschmidt/tun2proxy/releases) and put it in your `PATH`.
 
+Since v0.2.23 [build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds#verifying-artifact-attestations-with-the-github-cli)
+are supported. These allow you to ensure that the builds have been generated from the code on GitHub through the GitHub
+CI/CD pipeline. To verify the authenticity of the build files, you can use the [GitHub CLI](https://cli.github.com/):
+```shell
+gh attestation verify <*.zip file> --owner tun2proxy
+```
+
 ### Install from source
 
 If you have [rust](https://rustup.rs/) toolchain installed, this should work:
