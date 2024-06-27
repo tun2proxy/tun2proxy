@@ -134,7 +134,7 @@ async fn create_udp_stream(socket_queue: &Option<Arc<SocketQueue>>, peer: Socket
         Some(queue) => {
             let socket = queue.recv_udp(peer.ip().into()).await?;
             socket.connect(peer).await?;
-            UdpStream::from_tokio(socket).await
+            UdpStream::from_tokio(socket, peer).await
         }
     }
 }
