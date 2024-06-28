@@ -24,7 +24,7 @@ dotenvy = "0.15"
 env_logger = "0.11"
 hashlink = "0.9"
 httparse = "1"
-ipstack = { version = "0.0" }
+ipstack = { version = "0.0.10" }
 lazy_static = "1"
 log = { version = "0.4", features = ["std"] }
 percent-encoding = "2"
@@ -35,7 +35,7 @@ tokio-util = "0.7"
 tproxy-config = { version = "5", features = ["log"] }
 trust-dns-proto = "0.23"
 tun2 = { version = "2", features = ["async"] }
-udp-stream = { version = "0.0", default-features = false }
+udp-stream = { version = "0.0.12", default-features = false }
 unicase = "2"
 url = "2"
 
