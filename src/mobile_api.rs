@@ -46,6 +46,10 @@ pub fn mobile_run(args: Args, tun_mtu: u16, _packet_information: bool) -> c_int 
             config.packet_information(_packet_information);
         });
 
+        if let Some(close_fd_on_drop) = args.close_fd_on_drop {
+            config.close_fd_on_drop(close_fd_on_drop);
+        };
+
         let device = tun2::create_as_async(&config).map_err(std::io::Error::from)?;
         let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));
 

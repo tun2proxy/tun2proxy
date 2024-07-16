@@ -82,6 +82,8 @@ pub struct Args {
     #[arg(long, value_name = "seconds", default_value = "10")]
     pub udp_timeout: u64,
 
+    pub close_fd_on_drop: Option<bool>,
+
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     pub verbosity: ArgVerbosity,
@@ -120,6 +122,7 @@ impl Default for Args {
             bypass: vec![],
             tcp_timeout: 600,
             udp_timeout: 10,
+            close_fd_on_drop: None,
             verbosity: ArgVerbosity::Info,
         }
     }
