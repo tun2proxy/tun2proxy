@@ -88,6 +88,9 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     tun_config.destination(TUN_GATEWAY);
     if let Some(tun_fd) = args.tun_fd {
         tun_config.raw_fd(tun_fd);
+        if let Some(v) = args.close_fd_on_drop {
+            tun_config.close_fd_on_drop(v);
+        };
     } else if let Some(ref tun) = args.tun {
         tun_config.tun_name(tun);
     }

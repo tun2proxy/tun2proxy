@@ -26,6 +26,13 @@ pub struct Args {
     #[arg(long, value_name = "fd", conflicts_with = "tun")]
     pub tun_fd: Option<i32>,
 
+    /// Set whether to close the received raw file descriptor on drop or not.
+    /// This setting is passed to the tun2 crate.
+    /// See [tun2::Configuration::close_fd_on_drop].
+    #[cfg(unix)]
+    #[arg(long, conflicts_with = "tun")]
+    pub close_fd_on_drop: Option<bool>,
+
     /// Create a tun interface in a newly created unprivileged namespace
     /// while maintaining proxy connectivity via the global network namespace.
     #[cfg(target_os = "linux")]
@@ -82,8 +89,6 @@ pub struct Args {
     #[arg(long, value_name = "seconds", default_value = "10")]
     pub udp_timeout: u64,
 
-    pub close_fd_on_drop: Option<bool>,
-
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     pub verbosity: ArgVerbosity,
@@ -107,6 +112,8 @@ impl Default for Args {
             proxy: ArgProxy::default(),
             tun: None,
             tun_fd: None,
+            #[cfg(unix)]
+            close_fd_on_drop: None,
             #[cfg(target_os = "linux")]
             unshare: false,
             #[cfg(target_os = "linux")]
@@ -122,7 +129,6 @@ impl Default for Args {
             bypass: vec![],
             tcp_timeout: 600,
             udp_timeout: 10,
-            close_fd_on_drop: None,
             verbosity: ArgVerbosity::Info,
         }
     }
@@ -153,6 +159,11 @@ impl Args {
 
     pub fn tun_fd(&mut self, tun_fd: Option<i32>) -> &mut Self {
         self.tun_fd = tun_fd;
+        self
+    }
+
+    pub fn close_fd_on_drop(&mut self, close_fd_on_drop: bool) -> &mut Self {
+        self.close_fd_on_drop = Some(close_fd_on_drop);
         self
     }
 

@@ -33,6 +33,9 @@ pub fn mobile_run(args: Args, tun_mtu: u16, _packet_information: bool) -> c_int 
         #[cfg(unix)]
         if let Some(fd) = args.tun_fd {
             config.raw_fd(fd);
+            if let Some(v) = args.close_fd_on_drop {
+                config.close_fd_on_drop(v);
+            };
         } else if let Some(ref tun) = args.tun {
             config.tun_name(tun);
         }
@@ -45,10 +48,6 @@ pub fn mobile_run(args: Args, tun_mtu: u16, _packet_information: bool) -> c_int 
         config.platform_config(|config| {
             config.packet_information(_packet_information);
         });
-
-        if let Some(close_fd_on_drop) = args.close_fd_on_drop {
-            config.close_fd_on_drop(close_fd_on_drop);
-        };
 
         let device = tun2::create_as_async(&config).map_err(std::io::Error::from)?;
         let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));
