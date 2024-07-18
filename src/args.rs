@@ -162,6 +162,7 @@ impl Args {
         self
     }
 
+    #[cfg(unix)]
     pub fn close_fd_on_drop(&mut self, close_fd_on_drop: bool) -> &mut Self {
         self.close_fd_on_drop = Some(close_fd_on_drop);
         self
