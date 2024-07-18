@@ -86,13 +86,17 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     let mut tun_config = tun2::Configuration::default();
     tun_config.address(TUN_IPV4).netmask(TUN_NETMASK).mtu(MTU).up();
     tun_config.destination(TUN_GATEWAY);
-    if let Some(tun_fd) = args.tun_fd {
-        tun_config.raw_fd(tun_fd);
-        #[cfg(unix)]
+    #[cfg(unix)]
+    if let Some(fd) = args.tun_fd {
+        tun_config.raw_fd(fd);
         if let Some(v) = args.close_fd_on_drop {
             tun_config.close_fd_on_drop(v);
         };
     } else if let Some(ref tun) = args.tun {
+        tun_config.tun_name(tun);
+    }
+    #[cfg(windows)]
+    if let Some(ref tun) = args.tun {
         tun_config.tun_name(tun);
     }
 

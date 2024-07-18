@@ -23,6 +23,7 @@ pub struct Args {
     pub tun: Option<String>,
 
     /// File descriptor of the tun interface
+    #[cfg(unix)]
     #[arg(long, value_name = "fd", conflicts_with = "tun")]
     pub tun_fd: Option<i32>,
 
@@ -111,6 +112,7 @@ impl Default for Args {
         Args {
             proxy: ArgProxy::default(),
             tun: None,
+            #[cfg(unix)]
             tun_fd: None,
             #[cfg(unix)]
             close_fd_on_drop: None,
@@ -157,6 +159,7 @@ impl Args {
         self
     }
 
+    #[cfg(unix)]
     pub fn tun_fd(&mut self, tun_fd: Option<i32>) -> &mut Self {
         self.tun_fd = tun_fd;
         self
