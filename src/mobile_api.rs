@@ -33,6 +33,9 @@ pub fn mobile_run(args: Args, tun_mtu: u16, _packet_information: bool) -> c_int 
         #[cfg(unix)]
         if let Some(fd) = args.tun_fd {
             config.raw_fd(fd);
+            if let Some(v) = args.close_fd_on_drop {
+                config.close_fd_on_drop(v);
+            };
         } else if let Some(ref tun) = args.tun {
             config.tun_name(tun);
         }

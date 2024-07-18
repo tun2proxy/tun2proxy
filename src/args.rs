@@ -23,8 +23,16 @@ pub struct Args {
     pub tun: Option<String>,
 
     /// File descriptor of the tun interface
+    #[cfg(unix)]
     #[arg(long, value_name = "fd", conflicts_with = "tun")]
     pub tun_fd: Option<i32>,
+
+    /// Set whether to close the received raw file descriptor on drop or not.
+    /// This setting is passed to the tun2 crate.
+    /// See [tun2::Configuration::close_fd_on_drop].
+    #[cfg(unix)]
+    #[arg(long, conflicts_with = "tun")]
+    pub close_fd_on_drop: Option<bool>,
 
     /// Create a tun interface in a newly created unprivileged namespace
     /// while maintaining proxy connectivity via the global network namespace.
@@ -104,7 +112,10 @@ impl Default for Args {
         Args {
             proxy: ArgProxy::default(),
             tun: None,
+            #[cfg(unix)]
             tun_fd: None,
+            #[cfg(unix)]
+            close_fd_on_drop: None,
             #[cfg(target_os = "linux")]
             unshare: false,
             #[cfg(target_os = "linux")]
@@ -148,8 +159,15 @@ impl Args {
         self
     }
 
+    #[cfg(unix)]
     pub fn tun_fd(&mut self, tun_fd: Option<i32>) -> &mut Self {
         self.tun_fd = tun_fd;
+        self
+    }
+
+    #[cfg(unix)]
+    pub fn close_fd_on_drop(&mut self, close_fd_on_drop: bool) -> &mut Self {
+        self.close_fd_on_drop = Some(close_fd_on_drop);
         self
     }
 
