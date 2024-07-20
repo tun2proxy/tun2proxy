@@ -26,7 +26,7 @@ pub enum Error {
     IpStack(#[from] ipstack::IpStackError),
 
     #[error("DnsProtoError {0:?}")]
-    DnsProto(#[from] trust_dns_proto::error::ProtoError),
+    DnsProto(#[from] hickory_proto::error::ProtoError),
 
     #[error("httparse::Error {0:?}")]
     Httparse(#[from] httparse::Error),

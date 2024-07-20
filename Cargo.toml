@@ -1,6 +1,6 @@
 [package]
 name = "tun2proxy"
-version = "0.2.24"
+version = "0.3.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/blechschmidt/tun2proxy"
@@ -23,6 +23,7 @@ digest_auth = "0.3"
 dotenvy = "0.15"
 env_logger = "0.11"
 hashlink = "0.9"
+hickory-proto = "0.24"
 httparse = "1"
 ipstack = { version = "0.0.10" }
 lazy_static = "1"
@@ -33,7 +34,6 @@ thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tproxy-config = { version = "6", default-features = false }
-trust-dns-proto = "0.23"
 tun2 = { version = "2", features = ["async"] }
 udp-stream = { version = "0.0.12", default-features = false }
 unicase = "2"

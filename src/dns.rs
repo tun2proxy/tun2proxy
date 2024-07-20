@@ -1,9 +1,9 @@
-use std::{net::IpAddr, str::FromStr};
-use trust_dns_proto::op::MessageType;
-use trust_dns_proto::{
+use hickory_proto::op::MessageType;
+use hickory_proto::{
     op::{Message, ResponseCode},
     rr::{record_type::RecordType, Name, RData, Record},
 };
+use std::{net::IpAddr, str::FromStr};
 
 pub fn build_dns_response(mut request: Message, domain: &str, ip: IpAddr, ttl: u32) -> Result<Message, String> {
     let record = match ip {
