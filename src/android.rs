@@ -7,19 +7,27 @@ use crate::{
 };
 use jni::{
     objects::{JClass, JString},
-    sys::{jchar, jint},
+    sys::{jboolean, jchar, jint},
     JNIEnv,
 };
 
 /// # Safety
 ///
-/// Running tun2proxy
+/// Running tun2proxy with some arguments
+/// Parameters:
+/// - proxy_url: the proxy url, e.g. "socks5://127.0.0.1:1080"
+/// - tun_fd: the tun file descriptor, it will be owned by tun2proxy
+/// - close_fd_on_drop: whether close the tun_fd on drop
+/// - tun_mtu: the tun mtu
+/// - dns_strategy: the dns strategy, see ArgDns enum
+/// - verbosity: the verbosity level, see ArgVerbosity enum
 #[no_mangle]
 pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     mut env: JNIEnv,
     _clazz: JClass,
     proxy_url: JString,
     tun_fd: jint,
+    close_fd_on_drop: jboolean,
     tun_mtu: jchar,
     verbosity: jint,
     dns_strategy: jint,
@@ -36,9 +44,14 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     );
     let proxy_url = get_java_string(&mut env, &proxy_url).unwrap();
     let proxy = ArgProxy::try_from(proxy_url.as_str()).unwrap();
+    let close_fd_on_drop = close_fd_on_drop != 0;
 
     let mut args = Args::default();
-    args.proxy(proxy).tun_fd(Some(tun_fd)).dns(dns).verbosity(verbosity);
+    args.proxy(proxy)
+        .tun_fd(Some(tun_fd))
+        .close_fd_on_drop(close_fd_on_drop)
+        .dns(dns)
+        .verbosity(verbosity);
     crate::mobile_api::mobile_run(args, tun_mtu, false)
 }
 
