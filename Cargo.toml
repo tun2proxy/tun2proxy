@@ -1,6 +1,6 @@
 [package]
 name = "tun2proxy"
-version = "0.3.0"
+version = "0.3.1"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/blechschmidt/tun2proxy"
@@ -25,7 +25,7 @@ env_logger = "0.11"
 hashlink = "0.9"
 hickory-proto = "0.24"
 httparse = "1"
-ipstack = { version = "0.0.10" }
+ipstack = { version = "0.1" }
 lazy_static = "1"
 log = { version = "0.4", features = ["std"] }
 percent-encoding = "2"
