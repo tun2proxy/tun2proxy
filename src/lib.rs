@@ -30,6 +30,10 @@ pub use {
     traffic_status::{tun2proxy_set_traffic_status_callback, TrafficStatus},
 };
 
+#[cfg(feature = "mimalloc")]
+#[global_allocator]
+static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 #[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
 pub use desktop_api::desktop_run_async;
 
