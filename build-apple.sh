@@ -13,7 +13,7 @@ echo "cargo build --release --target aarch64-apple-darwin"
 cargo build --release --target aarch64-apple-darwin
 
 echo "cargo build --release --target aarch64-apple-ios"
-cargo build --release --target aarch64-apple-ios
+cargo build --release --target aarch64-apple-ios --features mimalloc
 
 echo "cargo build --release --target x86_64-apple-ios"
 cargo build --release --target x86_64-apple-ios
@@ -28,7 +28,6 @@ cbindgen --config cbindgen.toml -l C --cpp-compat -o target/include/tun2proxy.h
 cat > target/include/tun2proxy.modulemap <<EOF
 framework module tun2proxy {
     umbrella header "tun2proxy.h"
-
     export *
     module * { export * }
 }
