@@ -4,9 +4,9 @@ use std::{
     collections::HashMap,
     convert::TryInto,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
-    str::FromStr,
     time::{Duration, Instant},
 };
+use tproxy_config::IpCidr;
 
 const MAPPING_TIMEOUT: u64 = 60; // Mapping timeout in seconds
 
@@ -27,28 +27,16 @@ pub struct VirtualDns {
     next_addr: IpAddr,
 }
 
-impl Default for VirtualDns {
-    fn default() -> Self {
-        let start_addr = Ipv4Addr::from_str("198.18.0.0").unwrap();
-        let prefix_len = 15;
-
-        let network_addr = calculate_network_addr(start_addr, prefix_len);
-        let broadcast_addr = calculate_broadcast_addr(start_addr, prefix_len);
-
+impl VirtualDns {
+    pub fn new(ip_pool: IpCidr) -> Self {
         Self {
             trailing_dot: false,
-            next_addr: start_addr.into(),
+            next_addr: ip_pool.first_address(),
             name_to_ip: HashMap::default(),
-            network_addr: IpAddr::from(network_addr),
-            broadcast_addr: IpAddr::from(broadcast_addr),
+            network_addr: ip_pool.first_address(),
+            broadcast_addr: ip_pool.last_address(),
             lru_cache: LruCache::new_unbounded(),
         }
-    }
-}
-
-impl VirtualDns {
-    pub fn new() -> Self {
-        VirtualDns::default()
     }
 
     /// Returns the DNS response to send back to the client.
@@ -158,32 +146,5 @@ impl VirtualDns {
                 return Err("Virtual IP space for DNS exhausted".into());
             }
         }
-    }
-}
-
-fn calculate_network_addr(ip: std::net::Ipv4Addr, prefix_len: u8) -> std::net::Ipv4Addr {
-    let mask = (!0u32) << (32 - prefix_len);
-    let ip_u32 = u32::from_be_bytes(ip.octets());
-    std::net::Ipv4Addr::from((ip_u32 & mask).to_be_bytes())
-}
-
-fn calculate_broadcast_addr(ip: std::net::Ipv4Addr, prefix_len: u8) -> std::net::Ipv4Addr {
-    let mask = (!0u32) >> prefix_len;
-    let ip_u32 = u32::from_be_bytes(ip.octets());
-    std::net::Ipv4Addr::from((ip_u32 | mask).to_be_bytes())
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn test_cidr_addr() {
-        let start_addr = Ipv4Addr::from_str("198.18.0.0").unwrap();
-        let prefix_len = 15;
-        let network_addr = calculate_network_addr(start_addr, prefix_len);
-        let broadcast_addr = calculate_broadcast_addr(start_addr, prefix_len);
-        assert_eq!(network_addr, Ipv4Addr::from_str("198.18.0.0").unwrap());
-        assert_eq!(broadcast_addr, Ipv4Addr::from_str("198.19.255.255").unwrap());
     }
 }

@@ -6,6 +6,7 @@ use tproxy_config::IpCidr;
 use std::ffi::OsString;
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, clap::Parser)]
 #[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
@@ -76,6 +77,10 @@ pub struct Args {
     #[arg(long, value_name = "IP", default_value = "8.8.8.8")]
     pub dns_addr: IpAddr,
 
+    /// IP address pool to be used by virtual DNS in CIDR notation.
+    #[arg(long, value_name = "CIDR", default_value = "198.18.0.0/15")]
+    pub virtual_dns_pool: IpCidr,
+
     /// IPs used in routing setup which should bypass the tunnel,
     /// in the form of IP or IP/CIDR. Multiple IPs can be specified,
     /// e.g. --bypass 3.4.5.0/24 --bypass 5.6.7.8
@@ -132,6 +137,7 @@ impl Default for Args {
             tcp_timeout: 600,
             udp_timeout: 10,
             verbosity: ArgVerbosity::Info,
+            virtual_dns_pool: IpCidr::from_str("198.18.0.0/15").unwrap(),
         }
     }
 }
