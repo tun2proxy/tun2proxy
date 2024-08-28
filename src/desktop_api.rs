@@ -6,7 +6,7 @@ use crate::{
 };
 use std::os::raw::{c_char, c_int};
 use tproxy_config::{TproxyArgs, TUN_GATEWAY, TUN_IPV4, TUN_NETMASK};
-use tun2::{AbstractDevice, DEFAULT_MTU as MTU};
+use tun2::DEFAULT_MTU as MTU;
 
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
