@@ -20,7 +20,8 @@ pub struct Args {
 
     /// Name of the tun interface, such as tun0, utun4, etc.
     /// If this option is not provided, the OS will generate a random one.
-    #[arg(short, long, value_name = "name", conflicts_with = "tun_fd", value_parser = validate_tun)]
+    #[arg(short, long, value_name = "name", value_parser = validate_tun)]
+    #[cfg_attr(unix, arg(conflicts_with = "tun_fd"))]
     pub tun: Option<String>,
 
     /// File descriptor of the tun interface
