@@ -5,8 +5,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         use std::io::Write;
         f.write_all(format!("CARGO_TARGET_DIR: '{}'\r\n", cargo_target_dir.display()).as_bytes())?;
 
-        // The wintun crate's root directory
-        let crate_dir = get_crate_dir("wintun")?;
+        // The wintun-bindings crate's root directory
+        let crate_dir = get_crate_dir("wintun-bindings")?;
 
         // The path to the DLL file, relative to the crate root, depending on the target architecture
         let dll_path = get_wintun_bin_relative_path()?;

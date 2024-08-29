@@ -6,6 +6,7 @@ use tproxy_config::IpCidr;
 use std::ffi::OsString;
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, clap::Parser)]
 #[command(author, version, about = "Tunnel interface to proxy.", long_about = None)]
@@ -19,7 +20,8 @@ pub struct Args {
 
     /// Name of the tun interface, such as tun0, utun4, etc.
     /// If this option is not provided, the OS will generate a random one.
-    #[arg(short, long, value_name = "name", conflicts_with = "tun_fd", value_parser = validate_tun)]
+    #[arg(short, long, value_name = "name", value_parser = validate_tun)]
+    #[cfg_attr(unix, arg(conflicts_with = "tun_fd"))]
     pub tun: Option<String>,
 
     /// File descriptor of the tun interface
@@ -75,6 +77,10 @@ pub struct Args {
     /// DNS resolver address
     #[arg(long, value_name = "IP", default_value = "8.8.8.8")]
     pub dns_addr: IpAddr,
+
+    /// IP address pool to be used by virtual DNS in CIDR notation.
+    #[arg(long, value_name = "CIDR", default_value = "198.18.0.0/15")]
+    pub virtual_dns_pool: IpCidr,
 
     /// IPs used in routing setup which should bypass the tunnel,
     /// in the form of IP or IP/CIDR. Multiple IPs can be specified,
@@ -132,6 +138,7 @@ impl Default for Args {
             tcp_timeout: 600,
             udp_timeout: 10,
             verbosity: ArgVerbosity::Info,
+            virtual_dns_pool: IpCidr::from_str("198.18.0.0/15").unwrap(),
         }
     }
 }

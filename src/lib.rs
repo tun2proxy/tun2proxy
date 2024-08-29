@@ -161,7 +161,7 @@ where
     let dns_addr = args.dns_addr;
     let ipv6_enabled = args.ipv6_enabled;
     let virtual_dns = if args.dns == ArgDns::Virtual {
-        Some(Arc::new(Mutex::new(VirtualDns::new())))
+        Some(Arc::new(Mutex::new(VirtualDns::new(args.virtual_dns_pool))))
     } else {
         None
     };
