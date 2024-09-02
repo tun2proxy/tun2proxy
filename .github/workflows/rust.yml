@@ -33,7 +33,10 @@ jobs:
 
     - name: Build
       if: ${{ !cancelled() }}
-      run: cargo build --verbose --tests --all-features
+      run: |
+        cargo build --verbose --tests --all-features
+        cargo clean
+        cargo build --verbose
 
     - name: Abort on error
       if: ${{ failure() }}
