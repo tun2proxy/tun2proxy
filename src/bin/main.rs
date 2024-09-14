@@ -5,6 +5,19 @@ async fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
     let args = Args::parse_args();
 
+    #[cfg(unix)]
+    if args.daemonize {
+        let stdout = std::fs::File::create("/tmp/tun2proxy.out")?;
+        let stderr = std::fs::File::create("/tmp/tun2proxy.err")?;
+        let daemonize = daemonize::Daemonize::new()
+            .working_directory("/tmp")
+            .umask(0o777)
+            .stdout(stdout)
+            .stderr(stderr)
+            .privileged_action(|| "Executed before drop privileges");
+        let _ = daemonize.start()?;
+    }
+
     #[cfg(target_os = "windows")]
     if args.daemonize {
         tun2proxy::win_svc::start_service()?;
