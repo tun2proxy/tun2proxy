@@ -5,6 +5,12 @@ async fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
     let args = Args::parse_args();
 
+    #[cfg(target_os = "windows")]
+    if args.daemonize {
+        tun2proxy::win_svc::start_service()?;
+        return Ok(());
+    }
+
     // let default = format!("{}={:?},trust_dns_proto=warn", module_path!(), args.verbosity);
     let default = format!("{:?},trust_dns_proto=warn", args.verbosity);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();

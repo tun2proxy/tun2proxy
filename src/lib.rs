@@ -60,6 +60,8 @@ pub mod socket_transfer;
 mod socks;
 mod traffic_status;
 mod virtual_dns;
+#[doc(hidden)]
+pub mod win_svc;
 
 const DNS_PORT: u16 = 53;
 

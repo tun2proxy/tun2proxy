@@ -99,6 +99,11 @@ pub struct Args {
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     pub verbosity: ArgVerbosity,
+
+    /// Daemonize the process as Windows service
+    #[cfg(target_os = "windows")]
+    #[arg(long)]
+    pub daemonize: bool,
 }
 
 fn validate_tun(p: &str) -> Result<String> {
@@ -139,6 +144,8 @@ impl Default for Args {
             udp_timeout: 10,
             verbosity: ArgVerbosity::Info,
             virtual_dns_pool: IpCidr::from_str("198.18.0.0/15").unwrap(),
+            #[cfg(target_os = "windows")]
+            daemonize: false,
         }
     }
 }
