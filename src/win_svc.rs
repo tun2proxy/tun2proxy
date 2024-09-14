@@ -63,14 +63,15 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
     // Tell the system that the service is running now
     status_handle.set_service_status(next_status.clone())?;
 
-    let args = crate::Args::parse_args();
+    // main logic here
+    {
+        let args = crate::Args::parse_args();
 
-    let default = format!("{:?},trust_dns_proto=warn", args.verbosity);
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
+        let default = format!("{:?},trust_dns_proto=warn", args.verbosity);
+        env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-    rt.block_on(async {
-        {
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+        rt.block_on(async {
             unsafe extern "C" fn traffic_cb(status: *const crate::TrafficStatus, _: *mut std::ffi::c_void) {
                 let status = &*status;
                 log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
@@ -80,9 +81,9 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
             if let Err(err) = crate::desktop_run_async(args, shutdown_token).await {
                 log::error!("main loop error: {}", err);
             }
-        }
-        Ok::<(), crate::Error>(())
-    })?;
+            Ok::<(), crate::Error>(())
+        })?;
+    }
 
     // Tell the system that the service is stopped now
     next_status.current_state = windows_service::service::ServiceState::Stopped;
