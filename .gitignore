@@ -4,6 +4,7 @@ tun2proxy.xcframework/
 .env
 project.xcworkspace/
 xcuserdata/
+.vs/
 .vscode/
 .VSCodeCounter/
 build/

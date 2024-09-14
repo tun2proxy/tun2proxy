@@ -68,8 +68,9 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
     let default = format!("{:?},trust_dns_proto=warn", args.verbosity);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
-    let join_handle = tokio::spawn({
-        async move {
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    rt.block_on(async {
+        {
             unsafe extern "C" fn traffic_cb(status: *const crate::TrafficStatus, _: *mut std::ffi::c_void) {
                 let status = &*status;
                 log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
@@ -79,13 +80,6 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
             if let Err(err) = crate::desktop_run_async(args, shutdown_token).await {
                 log::error!("main loop error: {}", err);
             }
-        }
-    });
-
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-    rt.block_on(async {
-        if let Err(err) = join_handle.await {
-            log::error!("main_entry error {}", err);
         }
         Ok::<(), crate::Error>(())
     })?;
