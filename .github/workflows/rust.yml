@@ -1,7 +1,12 @@
 name: Push or PR
 
 on:
-  [push, pull_request]
+  push:
+    branches:
+      - '**'
+  pull_request:
+    branches:
+      - '**'
 
 env:
   CARGO_TERM_COLOR: always
