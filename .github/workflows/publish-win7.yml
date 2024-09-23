@@ -1,0 +1,76 @@
+on:
+  push:
+    tags:
+      - "w*.*.*"
+
+name: Publish Windows 7 Releases
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_VERSION: "1.75"
+
+jobs:
+  build_publish:
+    name: Publishing Tasks
+
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - x86_64-pc-windows-msvc
+          - i686-pc-windows-msvc
+
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ env.RUST_VERSION }}
+          targets: ${{ matrix.target }}
+
+      - name: Prepare
+        shell: bash
+        run: |
+          mkdir mypubdir4
+          rustup target add ${{ matrix.target }}
+          cargo install cbindgen
+
+      - name: Build
+        if: ${{ !cancelled() }}
+        shell: bash
+        run: |
+          cargo build --all-features --release --target ${{ matrix.target }}
+          cbindgen --config cbindgen.toml -l C --cpp-compat -o target/tun2proxy-ffi.h
+          powershell -Command "(Get-Item README.md).LastWriteTime = Get-Date"
+          powershell -Command "(Get-Item target/${{ matrix.target }}/release/wintun.dll).LastWriteTime = Get-Date"
+          powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy.exe, README.md, target/tun2proxy-ffi.h, target/${{ matrix.target }}/release/tun2proxy.dll, target/${{ matrix.target }}/release/wintun.dll -DestinationPath mypubdir4/tun2proxy-${{ matrix.target }}-win7.zip
+
+      - name: Upload artifacts
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: mypubdir4/*
+
+      - name: Generate artifact attestation
+        if: ${{ !cancelled() }}
+        uses: actions/attest-build-provenance@v1
+        with:
+          subject-path: mypubdir4/*
+
+      - name: Publish
+        if: ${{ !cancelled() }}
+        uses: softprops/action-gh-release@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          files: mypubdir4/*
+
+      - name: Abort on error
+        if: ${{ failure() }}
+        run: echo "Some of jobs failed" && false
