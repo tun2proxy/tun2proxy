@@ -24,8 +24,7 @@ async fn main() -> Result<(), BoxError> {
         return Ok(());
     }
 
-    // let default = format!("{}={:?},trust_dns_proto=warn", module_path!(), args.verbosity);
-    let default = format!("{:?},trust_dns_proto=warn", args.verbosity);
+    let default = format!("{:?},hickory_proto=warn", args.verbosity);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
