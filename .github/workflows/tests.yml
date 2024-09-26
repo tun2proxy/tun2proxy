@@ -24,10 +24,24 @@ jobs:
         env:
           DOTENV: ${{ secrets.DOTENV }}
         run: echo "$DOTENV" > .env
+
+      - name: Set up Python
+        uses: actions/setup-python@v2
+        with:
+          python-version: '3.x'
+      
+      - name: Create virtual environment
+        run: python -m venv venv
+      
+      - name: Activate virtual environment and install dependencies
+        run: |
+          source venv/bin/activate
+          pip install -r tests/requirements.txt
+      
+      - name: Build project
+        run: cargo build --release
+      
       - name: Run tests
-        run: >-
-          pwd;
-          ls -la;
-          sudo python -m pip install -r tests/requirements.txt;
-          cargo build --release;
-          sudo python tests/tests.py
+        run: |
+          source venv/bin/activate
+          python tests/tests.py
