@@ -1,6 +1,5 @@
-use hickory_proto::op::MessageType;
 use hickory_proto::{
-    op::{Message, ResponseCode},
+    op::{Message, MessageType, ResponseCode},
     rr::{record_type::RecordType, Name, RData, Record},
 };
 use std::{net::IpAddr, str::FromStr};

@@ -29,8 +29,8 @@ def get_ip(version=None):
 
 
 def get_tool_path():
-    default = glob.glob(os.path.join(os.path.dirname(__file__), '..', 'target', '*', 'tun2proxy'))
-    default = default[0] if len(default) > 0 else 'tun2proxy'
+    default = glob.glob(os.path.join(os.path.dirname(__file__), '..', 'target', '*', 'tun2proxy-bin'))
+    default = default[0] if len(default) > 0 else 'tun2proxy-bin'
     return os.environ.get('TOOL_PATH', default)
 
 
@@ -40,7 +40,7 @@ class Tun2ProxyTest(unittest.TestCase):
         ip_noproxy = get_ip(ip_version)
         additional = ['-6'] if ip_version == 6 else []
         p = subprocess.Popen(
-            [get_tool_path(), "--proxy", os.getenv(proxy_var), '--setup', '-v', 'trace', '--dns', dns, *additional])
+            ['sudo', get_tool_path(), "--proxy", os.getenv(proxy_var), '--setup', '-v', 'trace', '--dns', dns, *additional])
         try:
             time.sleep(1)
             ip_withproxy = get_ip(ip_version)

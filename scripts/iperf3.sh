@@ -8,7 +8,7 @@ echo $SCRIPT_DIR
 
 netns="test"
 dante="danted"
-tun2proxy="${SCRIPT_DIR}/../target/release/tun2proxy"
+tun2proxy="${SCRIPT_DIR}/../target/release/tun2proxy-bin"
 
 ip netns add "$netns"
 
@@ -51,4 +51,4 @@ sleep 3
 iperf3 -c 10.0.0.4 -P 10
 
 # Clean up
-# sudo sh -c "pkill tun2proxy; pkill iperf3; pkill danted; ip link del tun0; ip netns del test"
+# sudo sh -c "pkill tun2proxy-bin; pkill iperf3; pkill danted; ip link del tun0; ip netns del test"

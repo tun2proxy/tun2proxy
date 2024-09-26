@@ -1,6 +1,6 @@
 [package]
 name = "tun2proxy"
-version = "0.4.5"
+version = "0.5.0"
 edition = "2021"
 license = "MIT"
 repository = "https://github.com/blechschmidt/tun2proxy"
@@ -63,7 +63,7 @@ windows-service = "0.7"
 serde_json = "1"
 
 [[bin]]
-name = "tun2proxy"
+name = "tun2proxy-bin"
 path = "src/bin/main.rs"
 
 [profile.release]

@@ -48,7 +48,7 @@ jobs:
           cbindgen --config cbindgen.toml -l C --cpp-compat -o target/tun2proxy-ffi.h
           powershell -Command "(Get-Item README.md).LastWriteTime = Get-Date"
           powershell -Command "(Get-Item target/${{ matrix.target }}/release/wintun.dll).LastWriteTime = Get-Date"
-          powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy.exe, README.md, target/tun2proxy-ffi.h, target/${{ matrix.target }}/release/tun2proxy.dll, target/${{ matrix.target }}/release/wintun.dll -DestinationPath mypubdir4/tun2proxy-${{ matrix.target }}-win7.zip
+          powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy-bin.exe, README.md, target/tun2proxy-ffi.h, target/${{ matrix.target }}/release/tun2proxy.dll, target/${{ matrix.target }}/release/wintun.dll -DestinationPath mypubdir4/tun2proxy-${{ matrix.target }}-win7.zip
 
       - name: Upload artifacts
         if: ${{ !cancelled() }}
