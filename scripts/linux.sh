@@ -30,7 +30,7 @@ function core_function() {
     else
         trap 'echo "" && echo "tun2proxy exited with code: $?" && restore' EXIT
         local SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-        local APP_BIN_PATH="${SCRIPT_DIR}/../target/release/tun2proxy"
+        local APP_BIN_PATH="${SCRIPT_DIR}/../target/release/tun2proxy-bin"
         "${APP_BIN_PATH}" --tun tun0 --proxy "${PROXY_TYPE}://${PROXY_IP}:${PROXY_PORT}" -v trace
     fi
 }

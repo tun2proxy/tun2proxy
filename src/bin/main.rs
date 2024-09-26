@@ -100,7 +100,7 @@ async fn namespace_proxy_main(
     log::info!("The tun proxy is running in unprivileged mode. See `namespaces(7)`.");
     log::info!("");
     log::info!("If you need to run a process that relies on root-like capabilities (e.g. `openvpn`)");
-    log::info!("Use `tun2proxy --unshare --setup [...] -- openvpn --config [...]`");
+    log::info!("Use `tun2proxy-bin --unshare --setup [...] -- openvpn --config [...]`");
     log::info!("");
     log::info!("To run a new process in the created namespace (e.g. a flatpak app)");
     log::info!(

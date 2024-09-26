@@ -29,8 +29,8 @@ def get_ip(version=None):
 
 
 def get_tool_path():
-    default = glob.glob(os.path.join(os.path.dirname(__file__), '..', 'target', '*', 'tun2proxy'))
-    default = default[0] if len(default) > 0 else 'tun2proxy'
+    default = glob.glob(os.path.join(os.path.dirname(__file__), '..', 'target', '*', 'tun2proxy-bin'))
+    default = default[0] if len(default) > 0 else 'tun2proxy-bin'
     return os.environ.get('TOOL_PATH', default)
 
 

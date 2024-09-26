@@ -62,7 +62,7 @@ windows-service = "0.7"
 serde_json = "1"
 
 [[bin]]
-name = "tun2proxy"
+name = "tun2proxy-bin"
 path = "src/bin/main.rs"
 
 [profile.release]

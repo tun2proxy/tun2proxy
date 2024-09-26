@@ -5,9 +5,9 @@ A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and 
 ![tun2proxy](https://docs.rs/tun2proxy/badge.svg)
 [![Documentation](https://img.shields.io/badge/docs-release-brightgreen.svg?style=flat)](https://docs.rs/tun2proxy)
 [![Download](https://img.shields.io/crates/d/tun2proxy.svg)](https://crates.io/crates/tun2proxy)
-[![License](https://img.shields.io/crates/l/tun2proxy.svg?style=flat)](https://github.com/blechschmidt/tun2proxy/blob/master/LICENSE)
+[![License](https://img.shields.io/crates/l/tun2proxy.svg?style=flat)](https://github.com/tun2proxy/tun2proxy/blob/master/LICENSE)
 
-> Additional information can be found in the [wiki](https://github.com/blechschmidt/tun2proxy/wiki)
+> Additional information can be found in the [wiki](https://github.com/tun2proxy/tun2proxy/wiki)
 
 ## Features
 - HTTP proxy support (unauthenticated, basic and digest auth)
@@ -15,7 +15,7 @@ A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and 
 - SOCKS4a and SOCKS5h support (through the virtual DNS feature)
 - Minimal configuration setup for routing all traffic
 - IPv4 and IPv6 support
-- GFW evasion mechanism for certain use cases (see [issue #35](https://github.com/blechschmidt/tun2proxy/issues/35))
+- GFW evasion mechanism for certain use cases (see [issue #35](https://github.com/tun2proxy/tun2proxy/issues/35))
 - SOCKS5 UDP support
 - Native support for proxying DNS over TCP
 
@@ -35,7 +35,7 @@ To build an XCFramework for macOS and iOS, run the following:
 
 ### Install from binary
 
-Download the binary from [releases](https://github.com/blechschmidt/tun2proxy/releases) and put it in your `PATH`.
+Download the binary from [releases](https://github.com/tun2proxy/tun2proxy/releases) and put it in your `PATH`.
 
 <details>
   <summary>Authenticity Verification</summary>
@@ -66,7 +66,7 @@ describing the manual setup, except that a bind mount is used to overlay the `/e
 
 You would then run the tool as follows:
 ```bash
-sudo ./target/release/tun2proxy --setup --proxy "socks5://1.2.3.4:1080"
+sudo ./target/release/tun2proxy-bin --setup --proxy "socks5://1.2.3.4:1080"
 ```
 
 Apart from SOCKS5, SOCKS4 and HTTP are supported.
@@ -105,7 +105,7 @@ sudo ip route add 8000::/1 dev tun0
 # Make sure that DNS queries are routed through the tunnel.
 sudo sh -c "echo nameserver 198.18.0.1 > /etc/resolv.conf"
 
-./target/release/tun2proxy --tun tun0 --proxy "$PROXY_TYPE://$PROXY_IP:$PROXY_PORT"
+./target/release/tun2proxy-bin --tun tun0 --proxy "$PROXY_TYPE://$PROXY_IP:$PROXY_PORT"
 ```
 
 This tool implements a virtual DNS feature that is used by switch `--dns virtual`. When a DNS packet to port 53 is detected, an IP
@@ -126,7 +126,7 @@ sudo ip link del tun0
 ```
 Tunnel interface to proxy.
 
-Usage: tun2proxy [OPTIONS] --proxy <URL> [ADMIN_COMMAND]...
+Usage: tun2proxy-bin [OPTIONS] --proxy <URL> [ADMIN_COMMAND]...
 
 Arguments:
   [ADMIN_COMMAND]...  Specify a command to run with root-like capabilities in the new namespace when using `--unshare`.
@@ -173,7 +173,7 @@ docker run -d \
 	--sysctl net.ipv6.conf.default.disable_ipv6=0 \
 	--cap-add NET_ADMIN \
 	--name tun2proxy \
-	tun2proxy --proxy proto://[username[:password]@]host:port
+	tun2proxy-bin --proxy proto://[username[:password]@]host:port
 ```
 
 You can then provide the running container's network to another worker container by sharing the network namespace (like kubernetes sidecar):
