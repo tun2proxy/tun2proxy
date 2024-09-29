@@ -129,7 +129,7 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
     }
 
     // TproxyState implements the Drop trait to restore network configuration,
-    // so we we need to assign it to a variable, even if it is not used.
+    // so we need to assign it to a variable, even if it is not used.
     let mut _restore: Option<tproxy_config::TproxyState> = None;
 
     #[cfg(target_os = "linux")]

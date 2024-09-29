@@ -16,7 +16,7 @@ impl std::fmt::Display for IpProtocol {
             IpProtocol::Tcp => write!(f, "TCP"),
             IpProtocol::Udp => write!(f, "UDP"),
             IpProtocol::Icmp => write!(f, "ICMP"),
-            IpProtocol::Other(v) => write!(f, "Other({})", v),
+            IpProtocol::Other(v) => write!(f, "Other(0x{:02X})", v),
         }
     }
 }
