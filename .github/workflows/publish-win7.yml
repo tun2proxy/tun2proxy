@@ -24,8 +24,16 @@ jobs:
         target:
           - x86_64-pc-windows-msvc
           - i686-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+        include:
+          - target: x86_64-pc-windows-msvc
+            host_os: windows-latest
+          - target: i686-pc-windows-msvc
+            host_os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            host_os: windows-latest
 
-    runs-on: windows-latest
+    runs-on: ${{ matrix.host_os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
