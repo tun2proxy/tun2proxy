@@ -27,6 +27,9 @@ jobs:
           - aarch64-apple-darwin
           - x86_64-pc-windows-msvc
           - i686-pc-windows-msvc
+          - aarch64-pc-windows-msvc
+          - x86_64-win7-windows-msvc
+          - i686-win7-windows-msvc
 
         include:
           - target: x86_64-unknown-linux-gnu
@@ -49,6 +52,12 @@ jobs:
             host_os: windows-latest
           - target: i686-pc-windows-msvc
             host_os: windows-latest
+          - target: aarch64-pc-windows-msvc
+            host_os: windows-latest
+          - target: x86_64-win7-windows-msvc
+            host_os: windows-latest
+          - target: i686-win7-windows-msvc
+            host_os: windows-latest
 
     runs-on: ${{ matrix.host_os }}
     steps:
@@ -59,7 +68,9 @@ jobs:
         shell: bash
         run: |
           mkdir mypubdir4
-          rustup target add ${{ matrix.target }}
+          if [[ "${{ matrix.target }}" != "x86_64-win7-windows-msvc" && "${{ matrix.target }}" != "i686-win7-windows-msvc" ]]; then
+            rustup target add ${{ matrix.target }}
+          fi
           cargo install cbindgen
           if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
             sudo .github/workflows/install-cross.sh
@@ -71,7 +82,13 @@ jobs:
           if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
             cross build --all-features --release --target ${{ matrix.target }}
           else
-            cargo build --all-features --release --target ${{ matrix.target }}
+            if [[ "${{ matrix.target }}" == "x86_64-win7-windows-msvc" || "${{ matrix.target }}" == "i686-win7-windows-msvc" ]]; then
+              rustup toolchain install nightly
+              rustup component add rust-src --toolchain nightly
+              cargo +nightly build --release -Z build-std --target ${{ matrix.target }}
+            else
+              cargo build --all-features --release --target ${{ matrix.target }}
+            fi
           fi
           cbindgen --config cbindgen.toml -l C --cpp-compat -o target/tun2proxy-ffi.h
           if [[ "${{ matrix.host_os }}" == "windows-latest" ]]; then
