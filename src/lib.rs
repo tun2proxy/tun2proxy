@@ -248,6 +248,9 @@ where
             IpStackStream::Tcp(tcp) => {
                 if TASK_COUNT.load(Relaxed) > MAX_SESSIONS {
                     log::warn!("Too many sessions that over {MAX_SESSIONS}, dropping new session");
+                    if args.exit_on_fatal_error {
+                        break;
+                    }
                     continue;
                 }
                 log::trace!("Session count {}", TASK_COUNT.fetch_add(1, Relaxed) + 1);
@@ -271,6 +274,9 @@ where
             IpStackStream::Udp(udp) => {
                 if TASK_COUNT.load(Relaxed) > MAX_SESSIONS {
                     log::warn!("Too many sessions that over {MAX_SESSIONS}, dropping new session");
+                    if args.exit_on_fatal_error {
+                        break;
+                    }
                     continue;
                 }
                 log::trace!("Session count {}", TASK_COUNT.fetch_add(1, Relaxed) + 1);
