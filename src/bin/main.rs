@@ -1,7 +1,6 @@
 use tun2proxy::{Args, BoxError};
 
-#[tokio::main]
-async fn main() -> Result<(), BoxError> {
+fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
     let args = Args::parse_args();
 
@@ -24,6 +23,11 @@ async fn main() -> Result<(), BoxError> {
         return Ok(());
     }
 
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    rt.block_on(main_async(args))
+}
+
+async fn main_async(args: Args) -> Result<(), BoxError> {
     let default = format!("{:?},hickory_proto=warn", args.verbosity);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
