@@ -28,7 +28,7 @@ async fn main() -> Result<(), BoxError> {
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let join_handle = tokio::spawn({
+    let main_loop_handle = tokio::spawn({
         let shutdown_token = shutdown_token.clone();
         async move {
             #[cfg(target_os = "linux")]
@@ -51,14 +51,20 @@ async fn main() -> Result<(), BoxError> {
         }
     });
 
-    ctrlc2::set_async_handler(async move {
+    let ctrlc_fired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let ctrlc_fired_clone = ctrlc_fired.clone();
+    let ctrlc_handel = ctrlc2::set_async_handler(async move {
         log::info!("Ctrl-C received, exiting...");
+        ctrlc_fired_clone.store(true, std::sync::atomic::Ordering::SeqCst);
         shutdown_token.cancel();
     })
     .await;
 
-    if let Err(err) = join_handle.await {
-        log::error!("main_entry error {}", err);
+    main_loop_handle.await?;
+
+    if ctrlc_fired.load(std::sync::atomic::Ordering::SeqCst) {
+        log::info!("Ctrl-C fired, waiting the handler to finish...");
+        ctrlc_handel.await.map_err(|err| err.to_string())?;
     }
 
     Ok(())
