@@ -65,8 +65,6 @@ pub mod win_svc;
 
 const DNS_PORT: u16 = 53;
 
-const MAX_SESSIONS: u64 = 200;
-
 static TASK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
 use std::sync::atomic::Ordering::Relaxed;
 
@@ -244,13 +242,15 @@ where
                 ip_stack_stream?
             }
         };
+        let max_sessions = args.max_sessions as u64;
         match ip_stack_stream {
             IpStackStream::Tcp(tcp) => {
-                if TASK_COUNT.load(Relaxed) > MAX_SESSIONS {
-                    log::warn!("Too many sessions that over {MAX_SESSIONS}, dropping new session");
+                if TASK_COUNT.load(Relaxed) > max_sessions {
                     if args.exit_on_fatal_error {
+                        log::info!("Too many sessions that over {max_sessions}, exiting...");
                         break;
                     }
+                    log::warn!("Too many sessions that over {max_sessions}, dropping new session");
                     continue;
                 }
                 log::trace!("Session count {}", TASK_COUNT.fetch_add(1, Relaxed) + 1);
@@ -272,11 +272,12 @@ where
                 });
             }
             IpStackStream::Udp(udp) => {
-                if TASK_COUNT.load(Relaxed) > MAX_SESSIONS {
-                    log::warn!("Too many sessions that over {MAX_SESSIONS}, dropping new session");
+                if TASK_COUNT.load(Relaxed) > max_sessions {
                     if args.exit_on_fatal_error {
+                        log::info!("Too many sessions that over {max_sessions}, exiting...");
                         break;
                     }
+                    log::warn!("Too many sessions that over {max_sessions}, dropping new session");
                     continue;
                 }
                 log::trace!("Session count {}", TASK_COUNT.fetch_add(1, Relaxed) + 1);
