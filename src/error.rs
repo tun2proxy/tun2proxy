@@ -47,6 +47,9 @@ pub enum Error {
     #[cfg(target_os = "linux")]
     #[error("bincode::Error {0:?}")]
     BincodeError(#[from] bincode::Error),
+
+    #[error("tokio::time::error::Elapsed")]
+    Timeout(#[from] tokio::time::error::Elapsed),
 }
 
 impl From<&str> for Error {

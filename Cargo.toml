@@ -65,5 +65,9 @@ serde_json = "1"
 name = "tun2proxy-bin"
 path = "src/bin/main.rs"
 
+[[bin]]
+name = "udpgwserver"
+path = "src/bin/udpgw_server.rs"
+
 [profile.release]
 strip = "symbols"

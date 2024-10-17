@@ -74,6 +74,10 @@ pub struct Args {
     #[arg(short, long, value_name = "strategy", value_enum, default_value = "direct")]
     pub dns: ArgDns,
 
+    /// UDP gateway address
+    #[arg(long, value_name = "IP:PORT")]
+    pub udpgw_bind_addr: Option<SocketAddr>,
+
     /// DNS resolver address
     #[arg(long, value_name = "IP", default_value = "8.8.8.8")]
     pub dns_addr: IpAddr,
@@ -136,6 +140,7 @@ impl Default for Args {
             admin_command: Vec::new(),
             ipv6_enabled: false,
             setup,
+            udpgw_bind_addr: None,
             dns: ArgDns::default(),
             dns_addr: "8.8.8.8".parse().unwrap(),
             bypass: vec![],
@@ -168,6 +173,11 @@ impl Args {
 
     pub fn dns(&mut self, dns: ArgDns) -> &mut Self {
         self.dns = dns;
+        self
+    }
+
+    pub fn udpgw(&mut self, udpgw: SocketAddr) -> &mut Self {
+        self.udpgw_bind_addr = Some(udpgw);
         self
     }
 
