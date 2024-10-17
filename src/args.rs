@@ -107,6 +107,14 @@ pub struct Args {
     /// Daemonize for unix family or run as Windows service
     #[arg(long)]
     pub daemonize: bool,
+
+    /// Exit immediately when fatal error occurs, useful for running as a service
+    #[arg(long)]
+    pub exit_on_fatal_error: bool,
+
+    /// Maximum number of sessions to be handled concurrently
+    #[arg(long, value_name = "number", default_value = "200")]
+    pub max_sessions: usize,
 }
 
 fn validate_tun(p: &str) -> Result<String> {
@@ -149,6 +157,8 @@ impl Default for Args {
             verbosity: ArgVerbosity::Info,
             virtual_dns_pool: IpCidr::from_str("198.18.0.0/15").unwrap(),
             daemonize: false,
+            exit_on_fatal_error: false,
+            max_sessions: 200,
         }
     }
 }

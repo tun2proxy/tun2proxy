@@ -1,7 +1,6 @@
 use tun2proxy::{Args, BoxError};
 
-#[tokio::main]
-async fn main() -> Result<(), BoxError> {
+fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
     let args = Args::parse_args();
 
@@ -24,11 +23,16 @@ async fn main() -> Result<(), BoxError> {
         return Ok(());
     }
 
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    rt.block_on(main_async(args))
+}
+
+async fn main_async(args: Args) -> Result<(), BoxError> {
     let default = format!("{:?},hickory_proto=warn", args.verbosity);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    let join_handle = tokio::spawn({
+    let main_loop_handle = tokio::spawn({
         let shutdown_token = shutdown_token.clone();
         async move {
             #[cfg(target_os = "linux")]
@@ -51,14 +55,20 @@ async fn main() -> Result<(), BoxError> {
         }
     });
 
-    ctrlc2::set_async_handler(async move {
+    let ctrlc_fired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let ctrlc_fired_clone = ctrlc_fired.clone();
+    let ctrlc_handel = ctrlc2::set_async_handler(async move {
         log::info!("Ctrl-C received, exiting...");
+        ctrlc_fired_clone.store(true, std::sync::atomic::Ordering::SeqCst);
         shutdown_token.cancel();
     })
     .await;
 
-    if let Err(err) = join_handle.await {
-        log::error!("main_entry error {}", err);
+    main_loop_handle.await?;
+
+    if ctrlc_fired.load(std::sync::atomic::Ordering::SeqCst) {
+        log::info!("Ctrl-C fired, waiting the handler to finish...");
+        ctrlc_handel.await.map_err(|err| err.to_string())?;
     }
 
     Ok(())
