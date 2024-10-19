@@ -1,4 +1,3 @@
-use std::collections::HashMap;
 use std::mem;
 use std::net::Ipv4Addr;
 use std::net::SocketAddr;
@@ -11,25 +10,24 @@ use tokio::net::TcpListener;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
-use tokio::sync::Mutex;
 pub use tun2proxy::udpgw::*;
 use tun2proxy::ArgVerbosity;
 use tun2proxy::Result;
-pub(crate) const CLIENT_DISCONNECT_TIMEOUT: tokio::time::Duration = std::time::Duration::from_secs(60);
+pub(crate) const CLIENT_DISCONNECT_TIMEOUT: tokio::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug)]
-struct Connection {
+struct UdpRequest {
     flags: u8,
     server_addr: SocketAddr,
     conid: u16,
     data: Vec<u8>,
 }
 
+#[derive(Debug)]
 struct Client {
     #[allow(dead_code)]
     addr: SocketAddr,
     buf: Vec<u8>,
-    connections: Arc<Mutex<HashMap<u16, Connection>>>,
     last_activity: std::time::Instant,
 }
 
@@ -42,6 +40,10 @@ pub struct UdpGwArgs {
     /// Verbosity level
     #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
     pub verbosity: ArgVerbosity,
+
+    /// Daemonize for unix family or run as Windows service
+    #[arg(long)]
+    pub daemonize: bool,
 
     /// UDP timeout in seconds
     #[arg(long, value_name = "seconds", default_value = "3")]
@@ -56,11 +58,10 @@ impl UdpGwArgs {
     #[allow(clippy::let_and_return)]
     pub fn parse_args() -> Self {
         use clap::Parser;
-        let args = Self::parse();
-        args
+        Self::parse()
     }
 }
-async fn send_error_response(tx: Sender<Vec<u8>>, con: &mut Connection) {
+async fn send_error(tx: Sender<Vec<u8>>, con: &mut UdpRequest) {
     let mut error_packet = vec![];
     error_packet.extend_from_slice(&(std::mem::size_of::<UdpgwHeader>() as u16).to_le_bytes());
     error_packet.extend_from_slice(&[UDPGW_FLAG_ERR]);
@@ -70,7 +71,13 @@ async fn send_error_response(tx: Sender<Vec<u8>>, con: &mut Connection) {
     }
 }
 
-pub fn parse_udp_req_data(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<(&[u8], u8, u16, SocketAddr)> {
+async fn send_keepalive_response(tx: Sender<Vec<u8>>, keepalive_packet: &[u8]) {
+    if let Err(e) = tx.send(keepalive_packet.to_vec()).await {
+        log::error!("send keepalive response error {:?}", e);
+    }
+}
+
+pub fn parse_udp(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<(&[u8], u8, u16, SocketAddr)> {
     if data_len < mem::size_of::<UdpgwHeader>() {
         return Err("Invalid udpgw data".into());
     }
@@ -85,10 +92,9 @@ pub fn parse_udp_req_data(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<
 
     // keepalive
     if flags & UDPGW_FLAG_KEEPALIVE != 0 {
-        return Ok((data, UDPGW_FLAG_KEEPALIVE, 0, SocketAddrV4::new(Ipv4Addr::from(0), 0).into()));
+        return Ok((data, flags, conid, SocketAddrV4::new(Ipv4Addr::from(0), 0).into()));
     }
 
-    // parse address
     let ip_data = &data[mem::size_of::<UdpgwHeader>()..];
     let mut data_len = data_len - mem::size_of::<UdpgwHeader>();
     // port_len + min(ipv4/ipv6/(domain_len + 1))
@@ -107,7 +113,6 @@ pub fn parse_udp_req_data(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<
                         .to_socket_addrs()?
                         .next()
                         .ok_or(format!("Invalid address {}", target_str))?;
-                    // check payload length
                     if data_len < 2 + domain.len() {
                         return Err("Invalid udpgw data".into());
                     }
@@ -136,7 +141,6 @@ pub fn parse_udp_req_data(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<
         };
         data_len -= mem::size_of::<UdpgwAddrIpv6>();
 
-        // check payload length
         if data_len > udp_mtu as usize {
             return Err("too much data".into());
         }
@@ -157,7 +161,6 @@ pub fn parse_udp_req_data(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<
         };
         data_len -= mem::size_of::<UdpgwAddrIpv4>();
 
-        // check payload length
         if data_len > udp_mtu as usize {
             return Err("too much data".into());
         }
@@ -171,15 +174,16 @@ pub fn parse_udp_req_data(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<
     }
 }
 
-async fn process_udp(addr: SocketAddr, udp_timeout: u64, tx: Sender<Vec<u8>>, con: &mut Connection) -> Result<()> {
+async fn process_udp(addr: SocketAddr, udp_timeout: u64, tx: Sender<Vec<u8>>, con: &mut UdpRequest) -> Result<()> {
     let std_sock = std::net::UdpSocket::bind("0.0.0.0:0")?;
     std_sock.set_nonblocking(true)?;
     nix::sys::socket::setsockopt(&std_sock, nix::sys::socket::sockopt::ReuseAddr, &true)?;
     let socket = UdpSocket::from_std(std_sock)?;
     socket.send_to(&con.data, &con.server_addr).await?;
     con.data.resize(2048, 0);
-    match tokio::time::timeout(tokio::time::Duration::from_secs(udp_timeout), socket.recv_from(&mut con.data[..])).await? {
-        Ok((len, _addr)) => {
+    match tokio::time::timeout(tokio::time::Duration::from_secs(udp_timeout), socket.recv_from(&mut con.data)).await {
+        Ok(ret) => {
+            let (len, _addr) = ret?;
             let mut packet = vec![];
             let mut pack_len = mem::size_of::<UdpgwHeader>() + len;
             match con.server_addr.into() {
@@ -203,17 +207,17 @@ async fn process_udp(addr: SocketAddr, udp_timeout: u64, tx: Sender<Vec<u8>>, co
                 }
             }
             if let Err(e) = tx.send(packet).await {
-                log::error!("client {} send udp response error {:?}", addr, e);
+                log::error!("client {} send udp response {}", addr, e);
             }
         }
         Err(e) => {
-            log::error!("client {} udp recv_from error: {:?}", addr, e);
+            log::warn!("client {} udp recv_from {}", addr, e);
         }
     }
     Ok(())
 }
 
-async fn process_client_udp_req<'a>(args: Arc<UdpGwArgs>, tx: Sender<Vec<u8>>, mut client: Client, mut tcp_read_stream: ReadHalf<'a>) {
+async fn process_client_udp_req<'a>(args: &UdpGwArgs, tx: Sender<Vec<u8>>, mut client: Client, mut tcp_read_stream: ReadHalf<'a>) {
     let mut buf = vec![0; args.udp_mtu as usize];
     let mut len_buf = [0; mem::size_of::<PackLenHeader>()];
     let udp_mtu = args.udp_mtu;
@@ -226,7 +230,7 @@ async fn process_client_udp_req<'a>(args: Arc<UdpGwArgs>, tx: Sender<Vec<u8>>, m
             }
             Err(_e) => {
                 if client.last_activity.elapsed() >= CLIENT_DISCONNECT_TIMEOUT {
-                    log::warn!("client {} last_activity elapsed", client.addr);
+                    log::debug!("client {} last_activity elapsed", client.addr);
                     return;
                 }
                 continue;
@@ -244,8 +248,7 @@ async fn process_client_udp_req<'a>(args: Arc<UdpGwArgs>, tx: Sender<Vec<u8>>, m
                     log::error!("client {} received packet too long", client.addr);
                     break;
                 }
-                log::info!("client {} recvied packet len {}", client.addr, packet_len);
-                buf.resize(packet_len as usize, 0);
+                log::debug!("client {} recvied packet len {}", client.addr, packet_len);
                 client.buf.clear();
                 let mut left_len: usize = packet_len as usize;
                 while left_len > 0 {
@@ -260,48 +263,37 @@ async fn process_client_udp_req<'a>(args: Arc<UdpGwArgs>, tx: Sender<Vec<u8>>, m
                     }
                 }
                 client.last_activity = std::time::Instant::now();
-                let ret = parse_udp_req_data(udp_mtu, client.buf.len(), &client.buf);
+                let ret = parse_udp(udp_mtu, client.buf.len(), &client.buf);
                 if let Ok((udpdata, flags, conid, reqaddr)) = ret {
                     if flags & UDPGW_FLAG_KEEPALIVE != 0 {
-                        log::debug!("client {} recvied keepalive packet", client.addr);
+                        log::debug!("client {} send keepalive", client.addr);
+                        send_keepalive_response(tx.clone(), udpdata).await;
                         continue;
                     }
                     log::debug!(
-                        "client {} recvied udp data,flags:{},conid:{},addr:{:?},data len:{}",
+                        "client {} received udp data,flags:{},conid:{},addr:{:?},data len:{}",
                         client.addr,
                         flags,
                         conid,
                         reqaddr,
                         udpdata.len()
                     );
-                    let mut con_lock = client.connections.lock().await;
-                    let con = con_lock.get_mut(&conid);
-                    if let Some(conn) = con {
-                        conn.data.clear();
-                        conn.data.extend_from_slice(udpdata);
-                        if let Err(e) = process_udp(client.addr, udp_timeout, tx.clone(), conn).await {
-                            log::error!("client {} process_udp error: {:?}", client.addr, e);
-                            send_error_response(tx.clone(), conn).await;
-                            continue;
+                    let mut req = UdpRequest {
+                        server_addr: reqaddr,
+                        conid,
+                        flags,
+                        data: udpdata.to_vec(),
+                    };
+                    let tx1 = tx.clone();
+                    let tx2 = tx.clone();
+                    tokio::spawn(async move {
+                        if let Err(e) = process_udp(client.addr, udp_timeout, tx1, &mut req).await {
+                            send_error(tx2, &mut req).await;
+                            log::error!("client {} process_udp {}", client.addr, e);
                         }
-                    } else {
-                        drop(con_lock);
-                        let mut conn = Connection {
-                            server_addr: reqaddr,
-                            conid,
-                            flags,
-                            data: udpdata.to_vec(),
-                        };
-                        if let Err(e) = process_udp(client.addr, udp_timeout, tx.clone(), &mut conn).await {
-                            send_error_response(tx.clone(), &mut conn).await;
-                            log::error!("client {} process_udp error: {:?}", client.addr, e);
-                            continue;
-                        }
-                        client.connections.lock().await.insert(conid, conn);
-                    }
+                    });
                 } else {
                     log::error!("client {} parse_udp_data {:?}", client.addr, ret.err());
-                    continue;
                 }
             }
             Err(_) => {
@@ -318,32 +310,52 @@ async fn main() -> Result<()> {
 
     let tcp_listener = TcpListener::bind(args.listen_addr).await?;
 
-    log::info!("UDP GW Server started");
-
-    let default = format!("{:?},hickory_proto=warn", args.verbosity);
+    let default = format!("{:?}", args.verbosity);
 
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
+
+    log::info!("UDP GW Server started");
+
+    #[cfg(unix)]
+    if args.daemonize {
+        let stdout = std::fs::File::create("/tmp/udpgw.out")?;
+        let stderr = std::fs::File::create("/tmp/udpgw.err")?;
+        let daemonize = daemonize::Daemonize::new()
+            .working_directory("/tmp")
+            .umask(0o777)
+            .stdout(stdout)
+            .stderr(stderr)
+            .privileged_action(|| "Executed before drop privileges");
+        let _ = daemonize
+            .start()
+            .map_err(|e| format!("Failed to daemonize process, error:{:?}", e))?;
+    }
+
+    #[cfg(target_os = "windows")]
+    if args.daemonize {
+        tun2proxy::win_svc::start_service()?;
+        return Ok(());
+    }
 
     loop {
         let (mut tcp_stream, addr) = tcp_listener.accept().await?;
         let client = Client {
             addr,
             buf: vec![],
-            connections: Arc::new(Mutex::new(HashMap::new())),
             last_activity: std::time::Instant::now(),
         };
         log::info!("client {} connected", addr);
-        let params = args.clone();
+        let params = Arc::clone(&args);
         tokio::spawn(async move {
             let (tx, mut rx) = mpsc::channel::<Vec<u8>>(100);
             let (tcp_read_stream, mut tcp_write_stream) = tcp_stream.split();
             tokio::select! {
-                _ = process_client_udp_req(params, tx, client, tcp_read_stream) =>{}
+                _ = process_client_udp_req(&params, tx, client, tcp_read_stream) =>{}
                 _ = async {
                     loop
                     {
                         if let Some(udp_response) = rx.recv().await {
-                            log::info!("client {} send udp data len:{}", addr, udp_response.len(),);
+                            log::debug!("send udp_response len {}",udp_response.len());
                             let _ = tcp_write_stream.write(&udp_response).await;
                         }
                     }

@@ -24,7 +24,7 @@ use tokio::{
 pub use tokio_util::sync::CancellationToken;
 use tproxy_config::is_private_ip;
 use udp_stream::UdpStream;
-use udpgw::{UdpGwClientStream, UdpGwResponse, UDPGW_KEEPALIVE_TIME, UDPGW_MAX_CONNECTIONS};
+use udpgw::{UdpGwClientStream, UdpGwResponse, UDPGW_KEEPALIVE_TIME};
 
 pub use {
     args::{ArgDns, ArgProxy, ArgVerbosity, Args, ProxyType},
@@ -238,7 +238,7 @@ where
         None => None,
         Some(addr) => {
             log::info!("UDPGW enabled");
-            let client = Arc::new(UdpGwClient::new(mtu, UDPGW_MAX_CONNECTIONS, UDPGW_KEEPALIVE_TIME, addr));
+            let client = Arc::new(UdpGwClient::new(mtu, args.max_udpgw_connections, UDPGW_KEEPALIVE_TIME, args.udp_timeout, addr));
             let client_keepalive = client.clone();
             tokio::spawn(async move {
                 client_keepalive.heartbeat_task().await;
@@ -485,6 +485,7 @@ async fn handle_udp_gateway_session(
     };
     let udpinfo = SessionInfo::new(udp_stack.local_addr(), udp_stack.peer_addr(), IpProtocol::Udp);
     let udp_mtu = udpgw_client.get_udp_mtu();
+    let udp_timeout =  udpgw_client.get_udp_timeout();
     let mut server_stream: UdpGwClientStream;
     let server = udpgw_client.get_server_connection().await;
     match server {
@@ -492,10 +493,12 @@ async fn handle_udp_gateway_session(
             server_stream = server;
         }
         None => {
-            log::info!("Beginning {}", session_info);
+            if udpgw_client.is_full().await {
+                return Err("max udpgw connection limit reached".into());
+            }
             let mut tcp_server_stream = create_tcp_stream(&socket_queue, server_addr).await?;
             if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
-                return Err(e);
+                return Err(format!("udpgw connection error: {}",e).into());
             }
             server_stream = UdpGwClientStream::new(udp_mtu, tcp_server_stream);
         }
@@ -503,77 +506,93 @@ async fn handle_udp_gateway_session(
 
     let udp_server_addr = udp_stack.peer_addr();
 
+    let tcp_local_addr = server_stream.local_addr().clone();
+
     match domain_name {
         Some(ref d) => {
-            log::info!("Beginning {}, domain:{}", udpinfo, d);
+            log::info!("Beginning {} <- {}, domain:{}", udpinfo, &tcp_local_addr, d);
         }
         None => {
-            log::info!("Beginning {}", udpinfo);
+            log::info!("Beginning {} <- {}", udpinfo, &tcp_local_addr);
         }
     }
 
-    log::info!("Beginning {}", udpinfo);
+    let Some(mut stream_reader) = server_stream.get_reader() else {
+        return Err("get reader failed".into());
+    };
+
+    let Some(mut stream_writer) = server_stream.get_writer() else {
+        return Err("get writer failed".into());
+    };
 
     loop {
-        let len = UdpGwClient::recv_udp_packet(&mut udp_stack, &mut server_stream).await;
-        let read_len;
-        match len {
-            Ok(n) => {
-                if n == 0 {
-                    log::info!("Ending {}", udpinfo);
-                    break;
-                }
-                read_len = n;
-                crate::traffic_status::traffic_status_update(n, 0)?;
-            }
-            Err(e) => {
-                log::info!("Ending {} with recv_udp_packet error: {}", udpinfo, e);
-                break;
-            }
-        }
-
-        if let Err(e) =
-            UdpGwClient::send_udpgw_packet(ipv6_enabled, read_len, udp_server_addr, domain_name.as_ref(), &mut server_stream).await
-        {
-            log::info!(
-                "{:?},Ending {} with send_udpgw_packet error: {}",
-                server_stream.local_addr(),
-                udpinfo,
-                e
-            );
-            break;
-        }
-
-        match UdpGwClient::recv_udpgw_packet(udp_mtu, &mut server_stream).await {
-            Ok(packet) => match packet {
-                //should not received keepalive
-                UdpGwResponse::KeepAlive => {
-                    log::error!("Ending {} with recv keepalive", udpinfo);
-                    let _ = server_stream.close().await;
-                    break;
-                }
-                UdpGwResponse::Error => {
-                    log::info!("Ending {} with recv udp error", udpinfo);
-                    continue;
-                }
-                UdpGwResponse::Data(data) => {
-                    crate::traffic_status::traffic_status_update(0, data.len())?;
-
-                    if let Err(e) = UdpGwClient::send_udp_packet(data, &mut udp_stack).await {
-                        log::info!("Ending {} with send_udp_packet error: {}", udpinfo, e);
+        tokio::select! {
+                len = UdpGwClient::recv_udp_packet(&mut udp_stack, &mut stream_writer) => {
+                let read_len;
+                match len {
+                    Ok(n) => {
+                        if n == 0 {
+                            log::info!("Ending {} <- {}",udpinfo, &tcp_local_addr);
+                            break;
+                        }
+                        read_len = n;
+                        crate::traffic_status::traffic_status_update(n, 0)?;
+                    }
+                    Err(e) => {
+                        log::info!("Ending {} <- {} with recv_udp_packet {}", udpinfo, &tcp_local_addr, e);
                         break;
                     }
                 }
-            },
-            Err(e) => {
-                log::info!("Ending {} with recv_udpgw_packet error: {}", udpinfo, e);
-                break;
+                let newid = server_stream.newid();
+                if let Err(e) =
+                UdpGwClient::send_udpgw_packet(ipv6_enabled, read_len, udp_server_addr, domain_name.as_ref(),newid,&mut stream_writer).await
+                {
+                    log::info!(
+                    "Ending {} <- {} with send_udpgw_packet {}",
+                    udpinfo, 
+                    &tcp_local_addr,
+                    e
+                    );
+                    break;
+                }
+                server_stream.update_activity();
+            }
+            ret = UdpGwClient::recv_udpgw_packet(udp_mtu, udp_timeout, &mut stream_reader) => {
+                match ret {
+                    Ok(packet) => match packet {
+                        //should not received keepalive
+                        UdpGwResponse::KeepAlive => {
+                            log::error!("Ending {} <- {} with recv keepalive", udpinfo, &tcp_local_addr);
+                            server_stream.close();
+                            break;
+                        }
+                        //server udp may be timeout,can continue to receive udp data?
+                        UdpGwResponse::Error => {
+                            log::info!("Ending {} <- {} with recv udp error", udpinfo, &tcp_local_addr);
+                            server_stream.update_activity();
+                            continue;
+                        }
+                        UdpGwResponse::Data(data) => {
+                            let len = data.len();
+                            if let Err(e) = UdpGwClient::send_udp_packet(data, &mut udp_stack).await {
+                                log::error!("Ending {} <- {} with send_udp_packet {}", udpinfo, &tcp_local_addr, e);
+                                break;
+                            }
+                            crate::traffic_status::traffic_status_update(0, len)?;
+                        }
+                    },
+                    Err(e) => {
+                        log::warn!("Ending {} <- {} with recv_udpgw_packet {}", udpinfo, &tcp_local_addr, e);
+                        break;
+                    }
+                }
+                server_stream.update_activity();
             }
         }
     }
 
-    if !server_stream.is_closed() {
-        udpgw_client.release_server_connection(server_stream).await;
+    if !server_stream.is_closed() { 
+        udpgw_client.release_server_connection_with_stream(server_stream,stream_reader,stream_writer).await;
     }
 
     Ok(())
