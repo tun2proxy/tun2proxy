@@ -479,7 +479,7 @@ async fn handle_udp_gateway_session(
     socket_queue: Option<Arc<SocketQueue>>,
     ipv6_enabled: bool,
 ) -> crate::Result<()> {
-    let (session_info, server_addr) = {
+    let (_session_info, server_addr) = {
         let handler = proxy_handler.lock().await;
         (handler.get_session_info(), handler.get_server_addr())
     };
@@ -555,6 +555,7 @@ async fn handle_udp_gateway_session(
                     );
                     break;
                 }
+                log::debug!("{} <- {} send udpgw len {}", udpinfo, &tcp_local_addr,read_len);
                 server_stream.update_activity();
             }
             ret = UdpGwClient::recv_udpgw_packet(udp_mtu, udp_timeout, &mut stream_reader) => {
@@ -574,6 +575,7 @@ async fn handle_udp_gateway_session(
                         }
                         UdpGwResponse::Data(data) => {
                             let len = data.len();
+                            log::debug!("{} <- {} receive udpgw len {}", udpinfo, &tcp_local_addr,len);
                             if let Err(e) = UdpGwClient::send_udp_packet(data, &mut udp_stack).await {
                                 log::error!("Ending {} <- {} with send_udp_packet {}", udpinfo, &tcp_local_addr, e);
                                 break;

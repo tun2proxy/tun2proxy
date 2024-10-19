@@ -281,16 +281,18 @@ impl UdpGwClient {
                 };
                 log::debug!("{:?}:{} send keepalive", stream_writer.inner.local_addr(), stream.id());
                 if let Err(e) = stream_writer.inner.write_all(&self.keepalive_packet).await {
-                    log::warn!("{:?}:{} Heartbeat failed: {}", stream_writer.inner.local_addr(), stream.id(), e);
+                    log::warn!("{:?}:{} send keepalive failed: {}", stream_writer.inner.local_addr(), stream.id(), e);
                 } else {
                     match UdpGwClient::recv_udpgw_packet(self.udp_mtu, 10, &mut stream_reader).await {
                         Ok(UdpGwResponse::KeepAlive) => {
-                            stream.last_activity = std::time::Instant::now();
+                            stream.update_activity();
                             self.release_server_connection_with_stream(stream, stream_reader, stream_writer)
                                 .await;
                         }
                         //shoud not receive other type
-                        _ => {}
+                        _ => {
+                            log::warn!("{:?}:{} keepalive no response", stream_writer.inner.local_addr(), stream.id());
+                        }
                     }
                 }
             }

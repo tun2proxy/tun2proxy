@@ -13,7 +13,7 @@ use tokio::sync::mpsc::Sender;
 pub use tun2proxy::udpgw::*;
 use tun2proxy::ArgVerbosity;
 use tun2proxy::Result;
-pub(crate) const CLIENT_DISCONNECT_TIMEOUT: tokio::time::Duration = std::time::Duration::from_secs(30);
+pub(crate) const CLIENT_DISCONNECT_TIMEOUT: tokio::time::Duration = std::time::Duration::from_secs(60);
 
 #[derive(Debug)]
 struct UdpRequest {
@@ -42,6 +42,7 @@ pub struct UdpGwArgs {
     pub verbosity: ArgVerbosity,
 
     /// Daemonize for unix family or run as Windows service
+    #[cfg(unix)]
     #[arg(long)]
     pub daemonize: bool,
 
@@ -71,8 +72,12 @@ async fn send_error(tx: Sender<Vec<u8>>, con: &mut UdpRequest) {
     }
 }
 
-async fn send_keepalive_response(tx: Sender<Vec<u8>>, keepalive_packet: &[u8]) {
-    if let Err(e) = tx.send(keepalive_packet.to_vec()).await {
+async fn send_keepalive_response(tx: Sender<Vec<u8>>, conid: u16) {
+    let mut keepalive_packet = vec![];
+    keepalive_packet.extend_from_slice(&(std::mem::size_of::<UdpgwHeader>() as u16).to_le_bytes());
+    keepalive_packet.extend_from_slice(&[UDPGW_FLAG_KEEPALIVE]);
+    keepalive_packet.extend_from_slice(&conid.to_le_bytes());
+    if let Err(e) = tx.send(keepalive_packet).await {
         log::error!("send keepalive response error {:?}", e);
     }
 }
@@ -177,6 +182,7 @@ pub fn parse_udp(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<(&[u8], u
 async fn process_udp(addr: SocketAddr, udp_timeout: u64, tx: Sender<Vec<u8>>, con: &mut UdpRequest) -> Result<()> {
     let std_sock = std::net::UdpSocket::bind("0.0.0.0:0")?;
     std_sock.set_nonblocking(true)?;
+    #[cfg(unix)]
     nix::sys::socket::setsockopt(&std_sock, nix::sys::socket::sockopt::ReuseAddr, &true)?;
     let socket = UdpSocket::from_std(std_sock)?;
     socket.send_to(&con.data, &con.server_addr).await?;
@@ -222,6 +228,7 @@ async fn process_client_udp_req<'a>(args: &UdpGwArgs, tx: Sender<Vec<u8>>, mut c
     let mut len_buf = [0; mem::size_of::<PackLenHeader>()];
     let udp_mtu = args.udp_mtu;
     let udp_timeout = args.udp_timeout;
+
     'out: loop {
         let result;
         match tokio::time::timeout(tokio::time::Duration::from_secs(2), tcp_read_stream.read(&mut len_buf)).await {
@@ -267,7 +274,7 @@ async fn process_client_udp_req<'a>(args: &UdpGwArgs, tx: Sender<Vec<u8>>, mut c
                 if let Ok((udpdata, flags, conid, reqaddr)) = ret {
                     if flags & UDPGW_FLAG_KEEPALIVE != 0 {
                         log::debug!("client {} send keepalive", client.addr);
-                        send_keepalive_response(tx.clone(), udpdata).await;
+                        send_keepalive_response(tx.clone(), conid).await;
                         continue;
                     }
                     log::debug!(
@@ -329,12 +336,6 @@ async fn main() -> Result<()> {
         let _ = daemonize
             .start()
             .map_err(|e| format!("Failed to daemonize process, error:{:?}", e))?;
-    }
-
-    #[cfg(target_os = "windows")]
-    if args.daemonize {
-        tun2proxy::win_svc::start_service()?;
-        return Ok(());
     }
 
     loop {
