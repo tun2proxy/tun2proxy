@@ -184,7 +184,7 @@ async fn process_udp(addr: SocketAddr, udp_timeout: u64, tx: Sender<Vec<u8>>, co
         std::net::UdpSocket::bind("0.0.0.0:0")?
     };
     std_sock.set_nonblocking(true)?;
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     nix::sys::socket::setsockopt(&std_sock, nix::sys::socket::sockopt::ReuseAddr, &true)?;
     let socket = UdpSocket::from_std(std_sock)?;
     socket.send_to(&con.data, &con.server_addr).await?;

@@ -42,11 +42,6 @@ url = "2"
 [target.'cfg(target_os="linux")'.dependencies]
 serde = { version = "1", features = ["derive"] }
 bincode = "1"
-nix = { version = "0.29", default-features = false, features = [
-    "fs",
-    "socket",
-    "uio",
-] }
 
 [target.'cfg(target_os="android")'.dependencies]
 android_logger = "0.14"
@@ -54,6 +49,11 @@ jni = { version = "0.21", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.5"
+nix = { version = "0.29", default-features = false, features = [
+    "fs",
+    "socket",
+    "uio",
+] }
 
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-service = "0.7"
