@@ -70,14 +70,6 @@ pub struct Args {
     #[arg(short, long, default_value = if cfg!(target_os = "linux") { "false" } else { "true" })]
     pub setup: bool,
 
-    /// UDP gateway address
-    #[arg(long, value_name = "IP:PORT")]
-    pub udpgw_bind_addr: Option<SocketAddr>,
-
-    /// Max udpgw connections
-    #[arg(long, value_name = "number", default_value = "100")]
-    pub max_udpgw_connections: u16,
-
     /// DNS handling strategy
     #[arg(short, long, value_name = "strategy", value_enum, default_value = "direct")]
     pub dns: ArgDns,
@@ -119,6 +111,14 @@ pub struct Args {
     /// Maximum number of sessions to be handled concurrently
     #[arg(long, value_name = "number", default_value = "200")]
     pub max_sessions: usize,
+
+    /// UDP gateway server address, similar to badvpn-udpgw
+    #[arg(long, value_name = "IP:PORT")]
+    pub udpgw_server: Option<SocketAddr>,
+
+    /// Max udpgw connections
+    #[arg(long, value_name = "number")]
+    pub udpgw_max_connections: Option<u16>,
 }
 
 fn validate_tun(p: &str) -> Result<String> {
@@ -152,8 +152,8 @@ impl Default for Args {
             admin_command: Vec::new(),
             ipv6_enabled: false,
             setup,
-            udpgw_bind_addr: None,
-            max_udpgw_connections: 100,
+            udpgw_server: None,
+            udpgw_max_connections: None,
             dns: ArgDns::default(),
             dns_addr: "8.8.8.8".parse().unwrap(),
             bypass: vec![],
@@ -192,7 +192,7 @@ impl Args {
     }
 
     pub fn udpgw(&mut self, udpgw: SocketAddr) -> &mut Self {
-        self.udpgw_bind_addr = Some(udpgw);
+        self.udpgw_server = Some(udpgw);
         self
     }
 

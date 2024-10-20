@@ -212,13 +212,13 @@ pub(crate) struct UdpGwClient {
     max_connections: u16,
     udp_timeout: u64,
     keepalive_time: Duration,
-    udpgw_bind_addr: SocketAddr,
+    server_addr: SocketAddr,
     keepalive_packet: Vec<u8>,
     server_connections: Mutex<VecDeque<UdpGwClientStream>>,
 }
 
 impl UdpGwClient {
-    pub fn new(udp_mtu: u16, max_connections: u16, keepalive_time: Duration, udp_timeout: u64, udpgw_bind_addr: SocketAddr) -> Self {
+    pub fn new(udp_mtu: u16, max_connections: u16, keepalive_time: Duration, udp_timeout: u64, server_addr: SocketAddr) -> Self {
         let mut keepalive_packet = vec![];
         keepalive_packet.extend_from_slice(&(std::mem::size_of::<UdpgwHeader>() as u16).to_le_bytes());
         keepalive_packet.extend_from_slice(&[UDPGW_FLAG_KEEPALIVE, 0, 0]);
@@ -227,7 +227,7 @@ impl UdpGwClient {
             udp_mtu,
             max_connections,
             udp_timeout,
-            udpgw_bind_addr,
+            server_addr,
             keepalive_time,
             keepalive_packet,
             server_connections,
@@ -269,8 +269,8 @@ impl UdpGwClient {
         }
     }
 
-    pub(crate) fn get_udpgw_bind_addr(&self) -> SocketAddr {
-        self.udpgw_bind_addr
+    pub(crate) fn get_server_addr(&self) -> SocketAddr {
+        self.server_addr
     }
 
     /// Heartbeat task asynchronous function to periodically check and maintain the active state of the server connection.

@@ -10,7 +10,7 @@ use tokio::net::TcpListener;
 use tokio::net::UdpSocket;
 use tokio::sync::mpsc;
 use tokio::sync::mpsc::Sender;
-pub use tun2proxy::udpgw::*;
+use tun2proxy::udpgw::*;
 use tun2proxy::ArgVerbosity;
 use tun2proxy::Result;
 pub(crate) const CLIENT_DISCONNECT_TIMEOUT: tokio::time::Duration = std::time::Duration::from_secs(60);

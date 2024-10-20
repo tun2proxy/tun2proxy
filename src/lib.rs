@@ -234,13 +234,13 @@ where
 
     let mut ip_stack = ipstack::IpStack::new(ipstack_config, device);
 
-    let udpgw_client = match args.udpgw_bind_addr {
+    let udpgw_client = match args.udpgw_server {
         None => None,
         Some(addr) => {
             log::info!("UDPGW enabled");
             let client = Arc::new(UdpGwClient::new(
                 mtu,
-                args.max_udpgw_connections,
+                args.udpgw_max_connections.unwrap_or(100),
                 UDPGW_KEEPALIVE_TIME,
                 args.udp_timeout,
                 addr,
@@ -346,7 +346,7 @@ where
                         SocketAddr::V4(_) => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
                         SocketAddr::V6(_) => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0)),
                     };
-                    let tcpinfo = SessionInfo::new(tcp_src, udpgw.get_udpgw_bind_addr(), IpProtocol::Tcp);
+                    let tcpinfo = SessionInfo::new(tcp_src, udpgw.get_server_addr(), IpProtocol::Tcp);
                     let proxy_handler = mgr.new_proxy_handler(tcpinfo, None, false).await?;
                     let socket_queue = socket_queue.clone();
                     tokio::spawn(async move {
