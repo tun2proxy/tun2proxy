@@ -178,7 +178,11 @@ pub fn parse_udp(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<(&[u8], u
 }
 
 async fn process_udp(addr: SocketAddr, udp_timeout: u64, tx: Sender<Vec<u8>>, con: &mut UdpRequest) -> Result<()> {
-    let std_sock = std::net::UdpSocket::bind("0.0.0.0:0")?;
+    let std_sock = if con.flags & UDPGW_FLAG_IPV6 != 0 {
+        std::net::UdpSocket::bind("[::]:0")?
+    } else {
+        std::net::UdpSocket::bind("0.0.0.0:0")?
+    };
     std_sock.set_nonblocking(true)?;
     #[cfg(target_os = "linux")]
     nix::sys::socket::setsockopt(&std_sock, nix::sys::socket::sockopt::ReuseAddr, &true)?;

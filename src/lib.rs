@@ -579,6 +579,11 @@ async fn handle_udp_gateway_session(
                             server_stream.update_activity();
                             continue;
                         }
+                        UdpGwResponse::TcpClose => {
+                            log::error!("Ending {} <- {} with tcp closed", udpinfo, &tcp_local_addr);
+                            server_stream.close();
+                            break;
+                        }
                         UdpGwResponse::Data(data) => {
                             let len = data.len();
                             log::debug!("{} <- {} receive udpgw len {}", udpinfo, &tcp_local_addr,len);

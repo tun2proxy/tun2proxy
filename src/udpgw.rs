@@ -4,6 +4,7 @@ use std::collections::VecDeque;
 use std::hash::Hash;
 use std::mem;
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6};
+use std::sync::atomic::Ordering::Relaxed;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::tcp::{OwnedReadHalf, OwnedWriteHalf};
 use tokio::net::TcpStream;
@@ -16,6 +17,8 @@ pub const UDPGW_FLAG_KEEPALIVE: u8 = 0x01;
 pub const UDPGW_FLAG_IPV6: u8 = 0x08;
 pub const UDPGW_FLAG_DOMAIN: u8 = 0x10;
 pub const UDPGW_FLAG_ERR: u8 = 0x20;
+
+static TCP_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
@@ -103,6 +106,7 @@ impl<'a> UdpGwData<'a> {
 pub(crate) enum UdpGwResponse<'a> {
     KeepAlive,
     Error,
+    TcpClose,
     Data(UdpGwData<'a>),
 }
 
@@ -127,6 +131,12 @@ pub(crate) struct UdpGwClientStream {
     conid: u16,
     closed: bool,
     last_activity: std::time::Instant,
+}
+
+impl Drop for UdpGwClientStream {
+    fn drop(&mut self) {
+        TCP_COUNTER.fetch_sub(1, Relaxed);
+    }
 }
 
 impl UdpGwClientStream {
@@ -184,6 +194,7 @@ impl UdpGwClientStream {
             inner: rx,
             recv_buf: vec![0; udp_mtu.into()],
         };
+        TCP_COUNTER.fetch_add(1, Relaxed);
         UdpGwClientStream {
             local_addr,
             reader: Some(reader),
@@ -232,7 +243,7 @@ impl UdpGwClient {
     }
 
     pub(crate) async fn is_full(&self) -> bool {
-        self.server_connections.lock().await.len() >= self.max_connections as usize
+        TCP_COUNTER.load(Relaxed) >= self.max_connections as u32
     }
 
     pub(crate) async fn get_server_connection(&self) -> Option<UdpGwClientStream> {
@@ -411,7 +422,7 @@ impl UdpGwClient {
             }
         };
         match result {
-            Ok(0) => Err(("tcp connection closed").into()),
+            Ok(0) => Ok(UdpGwResponse::TcpClose),
             Ok(n) => {
                 if n < std::mem::size_of::<PackLenHeader>() {
                     return Err("received PackLenHeader error".into());
@@ -425,12 +436,12 @@ impl UdpGwClient {
                 while left_len > 0 {
                     if let Ok(len) = stream.inner.read(&mut stream.recv_buf[recv_len..left_len]).await {
                         if len == 0 {
-                            return Err("tcp connection closed".into());
+                            return Ok(UdpGwResponse::TcpClose);
                         }
                         recv_len += len;
                         left_len -= len;
                     } else {
-                        return Err("tcp connection closed".into());
+                        return Ok(UdpGwResponse::TcpClose);
                     }
                 }
                 return UdpGwClient::parse_udp_response(udp_mtu, packet_len as usize, stream);
