@@ -126,14 +126,12 @@ pub fn parse_udp(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<(&[u8], u
                         return Err("too much data".into());
                     }
                     let udpdata = &ip_data[(2 + domain.len() + 1)..];
-                    return Ok((udpdata, flags, conid, target));
+                    Ok((udpdata, flags, conid, target))
                 }
-                Err(_) => {
-                    return Err("Invalid UTF-8 sequence in domain".into());
-                }
+                Err(_) => Err("Invalid UTF-8 sequence in domain".into()),
             }
         } else {
-            return Err("missing domain name".into());
+            Err("missing domain name".into())
         }
     } else if flags & UDPGW_FLAG_IPV6 != 0 {
         if data_len < mem::size_of::<UdpgwAddrIpv6>() {
@@ -230,11 +228,8 @@ async fn process_client_udp_req<'a>(args: &UdpGwArgs, tx: Sender<Vec<u8>>, mut c
     let udp_timeout = args.udp_timeout;
 
     'out: loop {
-        let result;
-        match tokio::time::timeout(tokio::time::Duration::from_secs(2), tcp_read_stream.read(&mut len_buf)).await {
-            Ok(ret) => {
-                result = ret;
-            }
+        let result = match tokio::time::timeout(tokio::time::Duration::from_secs(2), tcp_read_stream.read(&mut len_buf)).await {
+            Ok(ret) => ret,
             Err(_e) => {
                 if client.last_activity.elapsed() >= CLIENT_DISCONNECT_TIMEOUT {
                     log::debug!("client {} last_activity elapsed", client.addr);
@@ -263,7 +258,7 @@ async fn process_client_udp_req<'a>(args: &UdpGwArgs, tx: Sender<Vec<u8>>, mut c
                         if len == 0 {
                             break 'out;
                         }
-                        client.buf.extend_from_slice(&mut buf[..len]);
+                        client.buf.extend_from_slice(&buf[..len]);
                         left_len -= len;
                     } else {
                         break 'out;

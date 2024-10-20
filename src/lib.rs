@@ -238,7 +238,13 @@ where
         None => None,
         Some(addr) => {
             log::info!("UDPGW enabled");
-            let client = Arc::new(UdpGwClient::new(mtu, args.max_udpgw_connections, UDPGW_KEEPALIVE_TIME, args.udp_timeout, addr));
+            let client = Arc::new(UdpGwClient::new(
+                mtu,
+                args.max_udpgw_connections,
+                UDPGW_KEEPALIVE_TIME,
+                args.udp_timeout,
+                addr,
+            ));
             let client_keepalive = client.clone();
             tokio::spawn(async move {
                 client_keepalive.heartbeat_task().await;
@@ -485,7 +491,7 @@ async fn handle_udp_gateway_session(
     };
     let udpinfo = SessionInfo::new(udp_stack.local_addr(), udp_stack.peer_addr(), IpProtocol::Udp);
     let udp_mtu = udpgw_client.get_udp_mtu();
-    let udp_timeout =  udpgw_client.get_udp_timeout();
+    let udp_timeout = udpgw_client.get_udp_timeout();
     let mut server_stream: UdpGwClientStream;
     let server = udpgw_client.get_server_connection().await;
     match server {
@@ -498,7 +504,7 @@ async fn handle_udp_gateway_session(
             }
             let mut tcp_server_stream = create_tcp_stream(&socket_queue, server_addr).await?;
             if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
-                return Err(format!("udpgw connection error: {}",e).into());
+                return Err(format!("udpgw connection error: {}", e).into());
             }
             server_stream = UdpGwClientStream::new(udp_mtu, tcp_server_stream);
         }
@@ -549,7 +555,7 @@ async fn handle_udp_gateway_session(
                 {
                     log::info!(
                     "Ending {} <- {} with send_udpgw_packet {}",
-                    udpinfo, 
+                    udpinfo,
                     &tcp_local_addr,
                     e
                     );
@@ -593,8 +599,10 @@ async fn handle_udp_gateway_session(
         }
     }
 
-    if !server_stream.is_closed() { 
-        udpgw_client.release_server_connection_with_stream(server_stream,stream_reader,stream_writer).await;
+    if !server_stream.is_closed() {
+        udpgw_client
+            .release_server_connection_with_stream(server_stream, stream_reader, stream_writer)
+            .await;
     }
 
     Ok(())

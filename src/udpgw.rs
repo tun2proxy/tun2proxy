@@ -95,7 +95,7 @@ pub(crate) struct UdpGwData<'a> {
 
 impl<'a> UdpGwData<'a> {
     pub fn len(&self) -> usize {
-        return self.udpdata.len();
+        self.udpdata.len()
     }
 }
 
@@ -212,7 +212,7 @@ impl UdpGwClient {
         keepalive_packet.extend_from_slice(&(std::mem::size_of::<UdpgwHeader>() as u16).to_le_bytes());
         keepalive_packet.extend_from_slice(&[UDPGW_FLAG_KEEPALIVE, 0, 0]);
         let server_connections = Mutex::new(VecDeque::with_capacity(max_connections as usize));
-        return UdpGwClient {
+        UdpGwClient {
             udp_mtu,
             max_connections,
             udp_timeout,
@@ -220,7 +220,7 @@ impl UdpGwClient {
             keepalive_time,
             keepalive_packet,
             server_connections,
-        };
+        }
     }
 
     pub(crate) fn get_udp_mtu(&self) -> u16 {
@@ -259,7 +259,7 @@ impl UdpGwClient {
     }
 
     pub(crate) fn get_udpgw_bind_addr(&self) -> SocketAddr {
-        return self.udpgw_bind_addr;
+        self.udpgw_bind_addr
     }
 
     /// Heartbeat task asynchronous function to periodically check and maintain the active state of the server connection.
@@ -281,7 +281,12 @@ impl UdpGwClient {
                 };
                 log::debug!("{:?}:{} send keepalive", stream_writer.inner.local_addr(), stream.id());
                 if let Err(e) = stream_writer.inner.write_all(&self.keepalive_packet).await {
-                    log::warn!("{:?}:{} send keepalive failed: {}", stream_writer.inner.local_addr(), stream.id(), e);
+                    log::warn!(
+                        "{:?}:{} send keepalive failed: {}",
+                        stream_writer.inner.local_addr(),
+                        stream.id(),
+                        e
+                    );
                 } else {
                     match UdpGwClient::recv_udpgw_packet(self.udp_mtu, 10, &mut stream_reader).await {
                         Ok(UdpGwResponse::KeepAlive) => {
@@ -372,14 +377,14 @@ impl UdpGwClient {
         udp_stack: &mut IpStackUdpStream,
         stream: &mut UdpGwClientStreamWriter,
     ) -> std::result::Result<usize, std::io::Error> {
-        return udp_stack.read(&mut stream.tmp_buf).await;
+        udp_stack.read(&mut stream.tmp_buf).await
     }
 
     pub(crate) async fn send_udp_packet<'a>(
         packet: UdpGwData<'a>,
         udp_stack: &mut IpStackUdpStream,
     ) -> std::result::Result<(), std::io::Error> {
-        return udp_stack.write_all(&packet.udpdata).await;
+        udp_stack.write_all(packet.udpdata).await
     }
 
     /// Receives a UDP gateway packet.
@@ -394,24 +399,19 @@ impl UdpGwClient {
     /// # Returns
     /// - `Result<UdpGwResponse>`: Returns a result type containing the parsed UDP gateway response, or an error if one occurs.
     pub(crate) async fn recv_udpgw_packet(udp_mtu: u16, udp_timeout: u64, stream: &mut UdpGwClientStreamReader) -> Result<UdpGwResponse> {
-        let result;
-        match tokio::time::timeout(
+        let result = match tokio::time::timeout(
             tokio::time::Duration::from_secs(udp_timeout + 2),
             stream.inner.read(&mut stream.recv_buf[..2]),
         )
         .await
         {
-            Ok(ret) => {
-                result = ret;
-            }
+            Ok(ret) => ret,
             Err(_e) => {
-                return Err(format!("wait tcp data timeout").into());
+                return Err(("wait tcp data timeout").into());
             }
         };
         match result {
-            Ok(0) => {
-                return Err(format!("tcp connection closed").into());
-            }
+            Ok(0) => Err(("tcp connection closed").into()),
             Ok(n) => {
                 if n < std::mem::size_of::<PackLenHeader>() {
                     return Err("received PackLenHeader error".into());
@@ -435,9 +435,7 @@ impl UdpGwClient {
                 }
                 return UdpGwClient::parse_udp_response(udp_mtu, packet_len as usize, stream);
             }
-            Err(_) => {
-                return Err("tcp read error".into());
-            }
+            Err(_) => Err("tcp read error".into()),
         }
     }
 
@@ -518,7 +516,7 @@ impl UdpGwClient {
             },
         }
 
-        stream.inner.write_all(&packet).await?;
+        stream.inner.write_all(packet).await?;
 
         Ok(())
     }
