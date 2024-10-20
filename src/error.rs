@@ -6,7 +6,7 @@ pub enum Error {
     #[error(transparent)]
     Io(#[from] std::io::Error),
 
-    #[cfg(target_os = "linux")]
+    #[cfg(unix)]
     #[error("nix::errno::Errno {0:?}")]
     NixErrno(#[from] nix::errno::Errno),
 
