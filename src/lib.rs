@@ -346,17 +346,15 @@ where
                 #[cfg(feature = "udpgw")]
                 if let Some(udpgw) = udpgw_client.clone() {
                     let tcp_src = match udp.peer_addr() {
-                        SocketAddr::V4(_) => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
-                        SocketAddr::V6(_) => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0), 0, 0, 0)),
+                        SocketAddr::V4(_) => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)),
+                        SocketAddr::V6(_) => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0)),
                     };
                     let tcpinfo = SessionInfo::new(tcp_src, udpgw.get_server_addr(), IpProtocol::Tcp);
                     let proxy_handler = mgr.new_proxy_handler(tcpinfo, None, false).await?;
-                    let socket_queue = socket_queue.clone();
+                    let queue = socket_queue.clone();
                     tokio::spawn(async move {
-                        if let Err(err) =
-                            handle_udp_gateway_session(udp, udpgw, domain_name, proxy_handler, socket_queue, ipv6_enabled).await
-                        {
-                            log::info!("Ending {} with \"{}\"", info, err);
+                        if let Err(e) = handle_udp_gateway_session(udp, udpgw, domain_name, proxy_handler, queue, ipv6_enabled).await {
+                            log::info!("Ending {} with \"{}\"", info, e);
                         }
                         log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
                     });
@@ -496,12 +494,8 @@ async fn handle_udp_gateway_session(
     let udpinfo = SessionInfo::new(udp_stack.local_addr(), udp_stack.peer_addr(), IpProtocol::Udp);
     let udp_mtu = udpgw_client.get_udp_mtu();
     let udp_timeout = udpgw_client.get_udp_timeout();
-    let mut server_stream: UdpGwClientStream;
-    let server = udpgw_client.get_server_connection().await;
-    match server {
-        Some(server) => {
-            server_stream = server;
-        }
+    let mut server_stream = match udpgw_client.get_server_connection().await {
+        Some(server) => server,
         None => {
             if udpgw_client.is_full().await {
                 return Err("max udpgw connection limit reached".into());
@@ -510,7 +504,7 @@ async fn handle_udp_gateway_session(
             if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
                 return Err(format!("udpgw connection error: {}", e).into());
             }
-            server_stream = UdpGwClientStream::new(udp_mtu, tcp_server_stream);
+            UdpGwClientStream::new(udp_mtu, tcp_server_stream)
         }
     };
 
@@ -537,7 +531,7 @@ async fn handle_udp_gateway_session(
 
     loop {
         tokio::select! {
-                len = UdpGwClient::recv_udp_packet(&mut udp_stack, &mut stream_writer) => {
+            len = UdpGwClient::recv_udp_packet(&mut udp_stack, &mut stream_writer) => {
                 let read_len;
                 match len {
                     Ok(n) => {
@@ -554,18 +548,11 @@ async fn handle_udp_gateway_session(
                     }
                 }
                 let newid = server_stream.newid();
-                if let Err(e) =
-                UdpGwClient::send_udpgw_packet(ipv6_enabled, read_len, udp_server_addr, domain_name.as_ref(),newid,&mut stream_writer).await
-                {
-                    log::info!(
-                    "Ending {} <- {} with send_udpgw_packet {}",
-                    udpinfo,
-                    &tcp_local_addr,
-                    e
-                    );
+                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, read_len, udp_server_addr, domain_name.as_ref(), newid, &mut stream_writer).await {
+                    log::info!("Ending {} <- {} with send_udpgw_packet {}", udpinfo, &tcp_local_addr, e);
                     break;
                 }
-                log::debug!("{} <- {} send udpgw len {}", udpinfo, &tcp_local_addr,read_len);
+                log::debug!("{} <- {} send udpgw len {}", udpinfo, &tcp_local_addr, read_len);
                 server_stream.update_activity();
             }
             ret = UdpGwClient::recv_udpgw_packet(udp_mtu, udp_timeout, &mut stream_reader) => {
