@@ -240,24 +240,21 @@ where
     let mut ip_stack = ipstack::IpStack::new(ipstack_config, device);
 
     #[cfg(feature = "udpgw")]
-    let udpgw_client = match args.udpgw_server {
-        None => None,
-        Some(addr) => {
-            log::info!("UDPGW enabled");
-            let client = Arc::new(UdpGwClient::new(
-                mtu,
-                args.udpgw_max_connections.unwrap_or(100),
-                UDPGW_KEEPALIVE_TIME,
-                args.udp_timeout,
-                addr,
-            ));
-            let client_keepalive = client.clone();
-            tokio::spawn(async move {
-                client_keepalive.heartbeat_task().await;
-            });
-            Some(client)
-        }
-    };
+    let udpgw_client = args.udpgw_server.as_ref().map(|addr| {
+        log::info!("UDPGW enabled");
+        let client = Arc::new(UdpGwClient::new(
+            mtu,
+            args.udpgw_max_connections.unwrap_or(100),
+            UDPGW_KEEPALIVE_TIME,
+            args.udp_timeout,
+            *addr,
+        ));
+        let client_keepalive = client.clone();
+        tokio::spawn(async move {
+            client_keepalive.heartbeat_task().await;
+        });
+        client
+    });
 
     loop {
         let virtual_dns = virtual_dns.clone();

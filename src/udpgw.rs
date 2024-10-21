@@ -446,44 +446,36 @@ impl UdpGwClient {
     /// # Returns
     /// - `Result<UdpGwResponse>`: Returns a result type containing the parsed UDP gateway response, or an error if one occurs.
     pub(crate) async fn recv_udpgw_packet(udp_mtu: u16, udp_timeout: u64, stream: &mut UdpGwClientStreamReader) -> Result<UdpGwResponse> {
-        let result = match tokio::time::timeout(
+        let result = tokio::time::timeout(
             tokio::time::Duration::from_secs(udp_timeout + 2),
             stream.inner.read(&mut stream.recv_buf[..2]),
         )
         .await
-        {
-            Ok(ret) => ret,
-            Err(_e) => {
-                return Err(("wait tcp data timeout").into());
-            }
-        };
-        match result {
-            Ok(0) => Ok(UdpGwResponse::TcpClose),
-            Ok(n) => {
-                if n < std::mem::size_of::<PackLenHeader>() {
-                    return Err("received PackLenHeader error".into());
-                }
-                let packet_len = u16::from_le_bytes([stream.recv_buf[0], stream.recv_buf[1]]);
-                if packet_len > udp_mtu {
-                    return Err("packet too long".into());
-                }
-                let mut left_len: usize = packet_len as usize;
-                let mut recv_len = 0;
-                while left_len > 0 {
-                    if let Ok(len) = stream.inner.read(&mut stream.recv_buf[recv_len..left_len]).await {
-                        if len == 0 {
-                            return Ok(UdpGwResponse::TcpClose);
-                        }
-                        recv_len += len;
-                        left_len -= len;
-                    } else {
-                        return Ok(UdpGwResponse::TcpClose);
-                    }
-                }
-                return UdpGwClient::parse_udp_response(udp_mtu, packet_len as usize, stream);
-            }
-            Err(_) => Err("tcp read error".into()),
+        .map_err(std::io::Error::from)?;
+        let n = result?;
+        if n == 0 {
+            return Ok(UdpGwResponse::TcpClose);
         }
+        if n < std::mem::size_of::<PackLenHeader>() {
+            return Err("received PackLenHeader error".into());
+        }
+        let packet_len = u16::from_le_bytes([stream.recv_buf[0], stream.recv_buf[1]]);
+        if packet_len > udp_mtu {
+            return Err("packet too long".into());
+        }
+        let mut left_len: usize = packet_len as usize;
+        let mut recv_len = 0;
+        while left_len > 0 {
+            let Ok(len) = stream.inner.read(&mut stream.recv_buf[recv_len..left_len]).await else {
+                return Ok(UdpGwResponse::TcpClose);
+            };
+            if len == 0 {
+                return Ok(UdpGwResponse::TcpClose);
+            }
+            recv_len += len;
+            left_len -= len;
+        }
+        UdpGwClient::parse_udp_response(udp_mtu, packet_len as usize, stream)
     }
 
     /// Sends a UDP gateway packet.
