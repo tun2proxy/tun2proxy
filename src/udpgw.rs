@@ -35,6 +35,44 @@ pub struct UdpgwHeader {
     pub conid: u16,
 }
 
+impl UdpgwHeader {
+    pub fn new(flags: u8, conid: u16) -> Self {
+        UdpgwHeader { flags, conid }
+    }
+
+    pub const fn len() -> usize {
+        std::mem::size_of::<u16>() + std::mem::size_of::<UdpgwHeader>()
+    }
+}
+
+impl TryFrom<&[u8]> for UdpgwHeader {
+    type Error = std::io::Error;
+
+    fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
+        if value.len() < UdpgwHeader::len() {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid UdpgwHeader"));
+        }
+        let len = u16::from_le_bytes([value[0], value[1]]);
+        if len != std::mem::size_of::<UdpgwHeader>() as u16 {
+            return Err(std::io::Error::new(std::io::ErrorKind::InvalidData, "Invalid UdpgwHeader"));
+        }
+        Ok(UdpgwHeader {
+            flags: value[2],
+            conid: u16::from_le_bytes([value[3], value[4]]),
+        })
+    }
+}
+
+impl From<UdpgwHeader> for Vec<u8> {
+    fn from(header: UdpgwHeader) -> Vec<u8> {
+        let mut bytes = vec![0; UdpgwHeader::len()];
+        bytes[0..2].copy_from_slice(&(std::mem::size_of::<UdpgwHeader>() as u16).to_le_bytes());
+        bytes[2] = header.flags;
+        bytes[3..5].copy_from_slice(&header.conid.to_le_bytes());
+        bytes
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 #[repr(C)]
 #[repr(packed(1))]
@@ -219,9 +257,7 @@ pub(crate) struct UdpGwClient {
 
 impl UdpGwClient {
     pub fn new(udp_mtu: u16, max_connections: u16, keepalive_time: Duration, udp_timeout: u64, server_addr: SocketAddr) -> Self {
-        let mut keepalive_packet = vec![];
-        keepalive_packet.extend_from_slice(&(std::mem::size_of::<UdpgwHeader>() as u16).to_le_bytes());
-        keepalive_packet.extend_from_slice(&[UDPGW_FLAG_KEEPALIVE, 0, 0]);
+        let keepalive_packet = UdpgwHeader::new(UDPGW_FLAG_KEEPALIVE, 0).into();
         let server_connections = Mutex::new(VecDeque::with_capacity(max_connections as usize));
         UdpGwClient {
             udp_mtu,
@@ -530,5 +566,18 @@ impl UdpGwClient {
         stream.inner.write_all(packet).await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::UdpgwHeader;
+
+    #[test]
+    fn test_udpgw_header() {
+        let header = UdpgwHeader::new(0x01, 0x1234);
+        let bytes = Vec::from(header.clone());
+        let header2 = UdpgwHeader::try_from(&bytes[..]).unwrap();
+        assert_eq!(header, header2);
     }
 }

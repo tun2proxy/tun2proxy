@@ -71,20 +71,14 @@ impl UdpGwArgs {
     }
 }
 async fn send_error(tx: Sender<Vec<u8>>, con: &mut UdpRequest) {
-    let mut error_packet = vec![];
-    error_packet.extend_from_slice(&(std::mem::size_of::<UdpgwHeader>() as u16).to_le_bytes());
-    error_packet.extend_from_slice(&[UDPGW_FLAG_ERR]);
-    error_packet.extend_from_slice(&con.conid.to_le_bytes());
+    let error_packet = UdpgwHeader::new(UDPGW_FLAG_ERR, con.conid).into();
     if let Err(e) = tx.send(error_packet).await {
         log::error!("send error response error {:?}", e);
     }
 }
 
 async fn send_keepalive_response(tx: Sender<Vec<u8>>, conid: u16) {
-    let mut keepalive_packet = vec![];
-    keepalive_packet.extend_from_slice(&(std::mem::size_of::<UdpgwHeader>() as u16).to_le_bytes());
-    keepalive_packet.extend_from_slice(&[UDPGW_FLAG_KEEPALIVE]);
-    keepalive_packet.extend_from_slice(&conid.to_le_bytes());
+    let keepalive_packet = UdpgwHeader::new(UDPGW_FLAG_KEEPALIVE, conid).into();
     if let Err(e) = tx.send(keepalive_packet).await {
         log::error!("send keepalive response error {:?}", e);
     }
