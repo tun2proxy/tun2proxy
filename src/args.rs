@@ -113,10 +113,12 @@ pub struct Args {
     pub max_sessions: usize,
 
     /// UDP gateway server address, similar to badvpn-udpgw
+    #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "IP:PORT")]
     pub udpgw_server: Option<SocketAddr>,
 
     /// Max udpgw connections
+    #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "number")]
     pub udpgw_max_connections: Option<u16>,
 }
@@ -152,8 +154,6 @@ impl Default for Args {
             admin_command: Vec::new(),
             ipv6_enabled: false,
             setup,
-            udpgw_server: None,
-            udpgw_max_connections: None,
             dns: ArgDns::default(),
             dns_addr: "8.8.8.8".parse().unwrap(),
             bypass: vec![],
@@ -164,6 +164,10 @@ impl Default for Args {
             daemonize: false,
             exit_on_fatal_error: false,
             max_sessions: 200,
+            #[cfg(feature = "udpgw")]
+            udpgw_server: None,
+            #[cfg(feature = "udpgw")]
+            udpgw_max_connections: None,
         }
     }
 }
@@ -191,8 +195,15 @@ impl Args {
         self
     }
 
-    pub fn udpgw(&mut self, udpgw: SocketAddr) -> &mut Self {
+    #[cfg(feature = "udpgw")]
+    pub fn udpgw_server(&mut self, udpgw: SocketAddr) -> &mut Self {
         self.udpgw_server = Some(udpgw);
+        self
+    }
+
+    #[cfg(feature = "udpgw")]
+    pub fn udpgw_max_connections(&mut self, udpgw_max_connections: u16) -> &mut Self {
+        self.udpgw_max_connections = Some(udpgw_max_connections);
         self
     }
 

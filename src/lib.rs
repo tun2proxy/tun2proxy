@@ -1,19 +1,22 @@
+#[cfg(feature = "udpgw")]
+use crate::udpgw::UdpGwClient;
 use crate::{
     directions::{IncomingDataEvent, IncomingDirection, OutgoingDirection},
     http::HttpManager,
     no_proxy::NoProxyManager,
     session_info::{IpProtocol, SessionInfo},
-    udpgw::UdpGwClient,
     virtual_dns::VirtualDns,
 };
 use ipstack::stream::{IpStackStream, IpStackTcpStream, IpStackUdpStream};
 use proxy_handler::{ProxyHandler, ProxyHandlerManager};
 use socks::SocksProxyManager;
 pub use socks5_impl::protocol::UserKey;
+#[cfg(feature = "udpgw")]
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 use std::{
     collections::VecDeque,
     io::ErrorKind,
-    net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
+    net::{IpAddr, SocketAddr},
     sync::Arc,
 };
 use tokio::{
@@ -24,6 +27,7 @@ use tokio::{
 pub use tokio_util::sync::CancellationToken;
 use tproxy_config::is_private_ip;
 use udp_stream::UdpStream;
+#[cfg(feature = "udpgw")]
 use udpgw::{UdpGwClientStream, UdpGwResponse, UDPGW_KEEPALIVE_TIME};
 
 pub use {
@@ -61,6 +65,7 @@ mod session_info;
 pub mod socket_transfer;
 mod socks;
 mod traffic_status;
+#[cfg(feature = "udpgw")]
 pub mod udpgw;
 mod virtual_dns;
 #[doc(hidden)]
@@ -234,6 +239,7 @@ where
 
     let mut ip_stack = ipstack::IpStack::new(ipstack_config, device);
 
+    #[cfg(feature = "udpgw")]
     let udpgw_client = match args.udpgw_server {
         None => None,
         Some(addr) => {
@@ -290,7 +296,6 @@ where
                     if let Err(err) = handle_tcp_session(tcp, proxy_handler, socket_queue).await {
                         log::error!("{} error \"{}\"", info, err);
                     }
-
                     log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
                 });
             }
@@ -341,6 +346,7 @@ where
                 } else {
                     None
                 };
+                #[cfg(feature = "udpgw")]
                 if let Some(udpgw) = udpgw_client.clone() {
                     let tcp_src = match udp.peer_addr() {
                         SocketAddr::V4(_) => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::new(0, 0, 0, 0), 0)),
@@ -477,6 +483,7 @@ async fn handle_tcp_session(
     Ok(())
 }
 
+#[cfg(feature = "udpgw")]
 async fn handle_udp_gateway_session(
     mut udp_stack: IpStackUdpStream,
     udpgw_client: Arc<UdpGwClient>,

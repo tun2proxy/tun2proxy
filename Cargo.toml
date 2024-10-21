@@ -13,6 +13,10 @@ rust-version = "1.80"
 [lib]
 crate-type = ["staticlib", "cdylib", "lib"]
 
+[features]
+default = ["udpgw"]
+udpgw = []
+
 [dependencies]
 async-trait = "0.1"
 base64 = { version = "0.22" }
@@ -68,6 +72,7 @@ path = "src/bin/main.rs"
 [[bin]]
 name = "udpgw-server"
 path = "src/bin/udpgw_server.rs"
+required-features = ["udpgw"]
 
 [profile.release]
 strip = "symbols"
