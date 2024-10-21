@@ -497,7 +497,7 @@ async fn handle_udp_gateway_session(
     let mut server_stream = match udpgw_client.get_server_connection().await {
         Some(server) => server,
         None => {
-            if udpgw_client.is_full().await {
+            if udpgw_client.is_full() {
                 return Err("max udpgw connection limit reached".into());
             }
             let mut tcp_server_stream = create_tcp_stream(&socket_queue, server_addr).await?;

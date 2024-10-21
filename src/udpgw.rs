@@ -278,7 +278,7 @@ impl UdpGwClient {
         self.udp_timeout
     }
 
-    pub(crate) async fn is_full(&self) -> bool {
+    pub(crate) fn is_full(&self) -> bool {
         TCP_COUNTER.load(Relaxed) >= self.max_connections as u32
     }
 

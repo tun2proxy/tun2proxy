@@ -259,7 +259,7 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Vec<u8>>, client: C
             log::error!("client {} received packet too long", client.addr);
             break;
         }
-        log::debug!("client {} recvied packet len {}", client.addr, packet_len);
+        log::trace!("client {} recvied packet len {}", client.addr, packet_len);
         client.buf.clear();
         let mut left_len: usize = packet_len as usize;
         while left_len > 0 {
