@@ -117,7 +117,7 @@ pub struct Args {
     #[arg(long, value_name = "IP:PORT")]
     pub udpgw_server: Option<SocketAddr>,
 
-    /// Max udpgw connections
+    /// Max udpgw connections, default value is 100
     #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "number")]
     pub udpgw_max_connections: Option<u16>,

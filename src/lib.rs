@@ -513,12 +513,8 @@ async fn handle_udp_gateway_session(
     let tcp_local_addr = server_stream.local_addr().clone();
 
     match domain_name {
-        Some(ref d) => {
-            log::info!("Beginning {} <- {}, domain:{}", udpinfo, &tcp_local_addr, d);
-        }
-        None => {
-            log::info!("Beginning {} <- {}", udpinfo, &tcp_local_addr);
-        }
+        Some(ref d) => log::info!("Beginning {} <- {}, domain:{}", udpinfo, &tcp_local_addr, d),
+        None => log::info!("Beginning {} <- {}", udpinfo, &tcp_local_addr),
     }
 
     let Some(mut stream_reader) = server_stream.get_reader() else {
@@ -547,8 +543,8 @@ async fn handle_udp_gateway_session(
                         break;
                     }
                 }
-                let newid = server_stream.newid();
-                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, read_len, udp_server_addr, domain_name.as_ref(), newid, &mut stream_writer).await {
+                let new_id = server_stream.new_id();
+                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, read_len, udp_server_addr, domain_name.as_ref(), new_id, &mut stream_writer).await {
                     log::info!("Ending {} <- {} with send_udpgw_packet {}", udpinfo, &tcp_local_addr, e);
                     break;
                 }
