@@ -236,6 +236,28 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Vec<u8>>, client: C
     let udp_timeout = args.udp_timeout;
 
     'out: loop {
+        /*
+        use socks5_impl::protocol::AsyncStreamOperation;
+        let res = tokio::time::timeout(tokio::time::Duration::from_secs(2), Packet::retrieve_from_async_stream(&mut reader)).await;
+        let packet = match res {
+            Ok(Ok(packet)) => packet,
+            Ok(Err(e)) => {
+                log::error!("client {} retrieve_from_async_stream {}", client.addr, e);
+                break;
+            }
+            Err(_) => {
+                if client.last_activity.elapsed() >= CLIENT_DISCONNECT_TIMEOUT {
+                    log::debug!("client {} last_activity elapsed", client.addr);
+                    break;
+                }
+                continue;
+            }
+        };
+        client.buf.clear();
+        client.buf.extend_from_slice(&packet.data);
+        */
+
+        //*
         let result = match tokio::time::timeout(tokio::time::Duration::from_secs(2), reader.read(&mut len_buf)).await {
             Ok(ret) => ret,
             Err(_e) => {
@@ -271,6 +293,7 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Vec<u8>>, client: C
             client.buf.extend_from_slice(&buf[..len]);
             left_len -= len;
         }
+        // */
         client.last_activity = std::time::Instant::now();
         let ret = parse_udp(udp_mtu, client.buf.len(), &client.buf);
         if let Ok((udpdata, flags, conn_id, reqaddr)) = ret {
