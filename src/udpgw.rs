@@ -42,7 +42,7 @@ impl From<Packet> for Vec<u8> {
 
 impl From<&Packet> for Vec<u8> {
     fn from(packet: &Packet) -> Vec<u8> {
-        let mut bytes = vec![0; packet.len()];
+        let mut bytes: Vec<u8> = vec![];
         packet.write_to_buf(&mut bytes);
         bytes
     }
