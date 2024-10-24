@@ -86,10 +86,11 @@ async fn send_keepalive_response(tx: Sender<Vec<u8>>, conn_id: u16) {
 }
 
 pub fn parse_udp(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<(&[u8], u8, u16, SocketAddr)> {
-    if data_len < UdpgwHeader::len() {
+    let header_len = UdpgwHeader::static_len();
+    if data_len < header_len {
         return Err("Invalid udpgw data".into());
     }
-    let header_bytes = &data[..UdpgwHeader::len()];
+    let header_bytes = &data[..header_len];
     let header = UdpgwHeader {
         flags: header_bytes[0],
         conn_id: u16::from_le_bytes([header_bytes[1], header_bytes[2]]),
@@ -103,8 +104,8 @@ pub fn parse_udp(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<(&[u8], u
         return Ok((data, flags, conn_id, SocketAddrV4::new(Ipv4Addr::from(0), 0).into()));
     }
 
-    let ip_data = &data[UdpgwHeader::len()..];
-    let mut data_len = data_len - UdpgwHeader::len();
+    let ip_data = &data[header_len..];
+    let mut data_len = data_len - header_len;
     // port_len + min(ipv4/ipv6/(domain_len + 1))
     if data_len < UDPGW_LENGTH_FIELD_SIZE + 2 {
         return Err("Invalid udpgw data".into());
@@ -137,45 +138,39 @@ pub fn parse_udp(udp_mtu: u16, data_len: usize, data: &[u8]) -> Result<(&[u8], u
             Err("missing domain name".into())
         }
     } else if flags & UDPGW_FLAG_IPV6 != 0 {
-        if data_len < std::mem::size_of::<UdpgwAddrIpv6>() {
+        let addr_ipv6_len = BinSocketAddr::static_len(true);
+        if data_len < addr_ipv6_len {
             return Err("Ipv6 Invalid UDP data".into());
         }
-        let addr_ipv6_bytes = &ip_data[..std::mem::size_of::<UdpgwAddrIpv6>()];
-        let addr_ipv6 = UdpgwAddrIpv6 {
-            addr_ip: addr_ipv6_bytes[..16].try_into().map_err(|_| "Failed to convert slice to array")?,
-            addr_port: u16::from_be_bytes([addr_ipv6_bytes[16], addr_ipv6_bytes[17]]),
-        };
-        data_len -= std::mem::size_of::<UdpgwAddrIpv6>();
+        let addr_ipv6 = BinSocketAddr::try_from(&ip_data[..addr_ipv6_len])?;
+        data_len -= addr_ipv6_len;
 
         if data_len > udp_mtu as usize {
             return Err("too much data".into());
         }
         return Ok((
-            &ip_data[std::mem::size_of::<UdpgwAddrIpv6>()..(data_len + std::mem::size_of::<UdpgwAddrIpv6>())],
+            &ip_data[addr_ipv6_len..(data_len + addr_ipv6_len)],
             flags,
             conn_id,
-            UdpgwAddr::IPV6(addr_ipv6).into(),
+            addr_ipv6.into(),
         ));
     } else {
-        if data_len < std::mem::size_of::<UdpgwAddrIpv4>() {
+        let addr_ipv4_len = BinSocketAddr::static_len(false);
+        if data_len < addr_ipv4_len {
             return Err("Ipv4 Invalid UDP data".into());
         }
-        let addr_ipv4_bytes = &ip_data[..std::mem::size_of::<UdpgwAddrIpv4>()];
-        let addr_ipv4 = UdpgwAddrIpv4 {
-            addr_ip: u32::from_be_bytes([addr_ipv4_bytes[0], addr_ipv4_bytes[1], addr_ipv4_bytes[2], addr_ipv4_bytes[3]]),
-            addr_port: u16::from_be_bytes([addr_ipv4_bytes[4], addr_ipv4_bytes[5]]),
-        };
-        data_len -= std::mem::size_of::<UdpgwAddrIpv4>();
+        let addr_ipv4 = BinSocketAddr::try_from(&ip_data[..addr_ipv4_len])?;
+        data_len -= addr_ipv4_len;
 
         if data_len > udp_mtu as usize {
             return Err("too much data".into());
         }
 
         return Ok((
-            &ip_data[std::mem::size_of::<UdpgwAddrIpv4>()..(data_len + std::mem::size_of::<UdpgwAddrIpv4>())],
+            &ip_data[addr_ipv4_len..(data_len + addr_ipv4_len)],
             flags,
             conn_id,
-            UdpgwAddr::IPV4(addr_ipv4).into(),
+            addr_ipv4.into(),
         ));
     }
 }
@@ -196,24 +191,26 @@ async fn process_udp(addr: SocketAddr, udp_timeout: u64, tx: Sender<Vec<u8>>, co
         Ok(ret) => {
             let (len, _addr) = ret?;
             let mut packet = vec![];
-            let mut pack_len = UdpgwHeader::len() + len;
-            match con.server_addr.into() {
-                UdpgwAddr::IPV4(addr_ipv4) => {
-                    pack_len += std::mem::size_of::<UdpgwAddrIpv4>();
+            let mut pack_len = UdpgwHeader::static_len() + len;
+            match con.server_addr {
+                SocketAddr::V4(_) => {
+                    let addr_ipv4 = BinSocketAddr::from(con.server_addr);
+                    pack_len += addr_ipv4.len();
                     packet.extend_from_slice(&(pack_len as u16).to_le_bytes());
                     packet.extend_from_slice(&[con.flags]);
                     packet.extend_from_slice(&con.conn_id.to_le_bytes());
-                    packet.extend_from_slice(&addr_ipv4.addr_ip.to_be_bytes());
-                    packet.extend_from_slice(&addr_ipv4.addr_port.to_be_bytes());
+                    let addr_ipv4_bin: Vec<u8> = addr_ipv4.into();
+                    packet.extend_from_slice(&addr_ipv4_bin);
                     packet.extend_from_slice(&con.data[..len]);
                 }
-                UdpgwAddr::IPV6(addr_ipv6) => {
-                    pack_len += std::mem::size_of::<UdpgwAddrIpv6>();
+                SocketAddr::V6(_) => {
+                    let addr_ipv6 = BinSocketAddr::from(con.server_addr);
+                    pack_len += addr_ipv6.len();
                     packet.extend_from_slice(&(pack_len as u16).to_le_bytes());
                     packet.extend_from_slice(&[con.flags]);
                     packet.extend_from_slice(&con.conn_id.to_le_bytes());
-                    packet.extend_from_slice(&addr_ipv6.addr_ip);
-                    packet.extend_from_slice(&addr_ipv6.addr_port.to_be_bytes());
+                    let addr_ipv6_bin: Vec<u8> = addr_ipv6.into();
+                    packet.extend_from_slice(&addr_ipv6_bin);
                     packet.extend_from_slice(&con.data[..len]);
                 }
             }
