@@ -28,7 +28,7 @@ pub use tokio_util::sync::CancellationToken;
 use tproxy_config::is_private_ip;
 use udp_stream::UdpStream;
 #[cfg(feature = "udpgw")]
-use udpgw::{UdpGwClientStream, UdpGwResponse, UDPGW_KEEPALIVE_TIME};
+use udpgw::{UdpGwClientStream, UdpGwResponse, UDPGW_KEEPALIVE_TIME, UDPGW_MAX_CONNECTIONS};
 
 pub use {
     args::{ArgDns, ArgProxy, ArgVerbosity, Args, ProxyType},
@@ -244,7 +244,7 @@ where
         log::info!("UDPGW enabled");
         let client = Arc::new(UdpGwClient::new(
             mtu,
-            args.udpgw_max_connections.unwrap_or(100),
+            args.udpgw_max_connections.unwrap_or(UDPGW_MAX_CONNECTIONS),
             UDPGW_KEEPALIVE_TIME,
             args.udp_timeout,
             *addr,
@@ -502,7 +502,7 @@ async fn handle_udp_gateway_session(
             if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
                 return Err(format!("udpgw connection error: {}", e).into());
             }
-            UdpGwClientStream::new(udp_mtu, tcp_server_stream)
+            UdpGwClientStream::new(tcp_server_stream)
         }
     };
 
@@ -521,26 +521,29 @@ async fn handle_udp_gateway_session(
         return Err("get writer failed".into());
     };
 
+    let mut tmp_buf = vec![0; udp_mtu.into()];
+
     loop {
         tokio::select! {
-            len = UdpGwClient::recv_udp_packet(&mut udp_stack, &mut writer) => {
-                let read_len;
-                match len {
-                    Ok(n) => {
-                        if n == 0 {
-                            log::info!("[UdpGw] Ending {} <> {}", &tcp_local_addr, udp_dst);
-                            break;
-                        }
-                        read_len = n;
-                        crate::traffic_status::traffic_status_update(n, 0)?;
+            len = udp_stack.read(&mut tmp_buf) => {
+                let read_len = match len {
+                    Ok(0) => {
+                        log::info!("[UdpGw] Ending {} <> {}", &tcp_local_addr, udp_dst);
+                        break;
                     }
+                    Ok(n) => n,
                     Err(e) => {
                         log::info!("[UdpGw] Ending {} <> {} with recv_udp_packet {}", &tcp_local_addr, udp_dst, e);
                         break;
                     }
-                }
+                };
+                crate::traffic_status::traffic_status_update(read_len, 0)?;
                 let new_id = stream.new_id();
-                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, read_len, udp_dst, domain_name.as_ref(), new_id, &mut writer).await {
+                let remote_addr = match domain_name {
+                    Some(ref d) => socks5_impl::protocol::Address::from((d.clone(), udp_dst.port())),
+                    None => udp_dst.into(),
+                };
+                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, &tmp_buf[0..read_len], &remote_addr, new_id, &mut writer).await {
                     log::info!("[UdpGw] Ending {} <> {} with send_udpgw_packet {}", &tcp_local_addr, udp_dst, e);
                     break;
                 }
@@ -568,9 +571,10 @@ async fn handle_udp_gateway_session(
                             break;
                         }
                         UdpGwResponse::Data(data) => {
+                            use socks5_impl::protocol::StreamOperation;
                             let len = data.len();
                             log::debug!("[UdpGw] {} <- {} receive len {}", &tcp_local_addr, udp_dst, len);
-                            if let Err(e) = UdpGwClient::send_udp_packet(data, &mut udp_stack).await {
+                            if let Err(e) = udp_stack.write_all(&data.data).await {
                                 log::error!("[UdpGw] Ending {} <> {} with send_udp_packet {}", &tcp_local_addr, udp_dst, e);
                                 break;
                             }
@@ -588,7 +592,7 @@ async fn handle_udp_gateway_session(
     }
 
     if !stream.is_closed() {
-        udpgw_client.release_server_connection_with_stream(stream, reader, writer).await;
+        udpgw_client.release_server_connection_full(stream, reader, writer).await;
     }
 
     Ok(())

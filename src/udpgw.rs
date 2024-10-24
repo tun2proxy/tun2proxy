@@ -1,12 +1,6 @@
 use crate::error::Result;
-use ipstack::stream::IpStackUdpStream;
-use socks5_impl::protocol::{AsyncStreamOperation, BufMut, StreamOperation};
-use std::{
-    collections::VecDeque,
-    hash::Hash,
-    net::{Ipv4Addr, Ipv6Addr, SocketAddr, SocketAddrV4, SocketAddrV6},
-    sync::atomic::Ordering::Relaxed,
-};
+use socks5_impl::protocol::{Address, AsyncStreamOperation, BufMut, StreamOperation};
+use std::{collections::VecDeque, hash::Hash, net::SocketAddr, sync::atomic::Ordering::Relaxed};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
@@ -17,23 +11,63 @@ use tokio::{
     time::{sleep, Duration},
 };
 
-pub const UDPGW_MAX_CONNECTIONS: usize = 100;
-pub const UDPGW_KEEPALIVE_TIME: tokio::time::Duration = std::time::Duration::from_secs(10);
-pub const UDPGW_FLAG_KEEPALIVE: u8 = 0x01;
-pub const UDPGW_FLAG_IPV4: u8 = 0x00;
-pub const UDPGW_FLAG_IPV6: u8 = 0x08;
-pub const UDPGW_FLAG_DOMAIN: u8 = 0x10;
-pub const UDPGW_FLAG_ERR: u8 = 0x20;
+pub(crate) const UDPGW_LENGTH_FIELD_SIZE: usize = std::mem::size_of::<u16>();
+pub(crate) const UDPGW_MAX_CONNECTIONS: u16 = 100;
+pub(crate) const UDPGW_KEEPALIVE_TIME: tokio::time::Duration = std::time::Duration::from_secs(10);
 
-pub const UDPGW_LENGTH_FIELD_SIZE: usize = std::mem::size_of::<u16>();
+pub const UDPGW_FLAG_KEEPALIVE: u8 = 0x01;
+pub const UDPGW_FLAG_ERR: u8 = 0x20;
+pub const UDPGW_FLAG_DATA: u8 = 0x02;
 
 static TCP_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
+/// UDP Gateway Packet Format
+///
+/// The format is referenced from SOCKS5 packet format, with additional flags and connection ID fields.
+///
+/// `LEN`: This field is indicated the length of the packet, not including the length field itself.
+///
+/// `FLAGS`: This field is used to indicate the packet type. The flags are defined as follows:
+/// - `0x01`: Keepalive packet without address and data
+/// - `0x20`: Error packet without address and data
+/// - `0x02`: Data packet with address and data
+///
+/// `CONN_ID`: This field is used to indicate the unique connection ID for the packet.
+///
+/// `ATYP` & `DST.ADDR` & `DST.PORT`: This fields are used to indicate the remote address and port.
+/// It can be either an IPv4 address, an IPv6 address, or a domain name, depending on the `ATYP` field.
+/// The address format directly uses the address format of the [SOCKS5](https://datatracker.ietf.org/doc/html/rfc1928#section-4) protocol.
+/// - `ATYP`: Address Type, 1 byte, indicating the type of address ( 0x01-IPv4, 0x04-IPv6, or 0x03-domain name )
+/// - `DST.ADDR`: Destination Address. If `ATYP` is 0x01 or 0x04, it is 4 or 16 bytes of IP address;
+///   If `ATYP` is 0x03, it is a domain name, `DST.ADDR` is a variable length field,
+///   it begins with a 1-byte length field and then the domain name without null-termination,
+///   since the length field is 1 byte, the maximum length of the domain name is 255 bytes.
+/// - `DST.PORT`: Destination Port, 2 bytes, the port number of the destination address.
+///
+/// `DATA`: The data field, a variable length field, the length is determined by the `LEN` field.
+///
+/// All the digits fields are in big-endian byte order.
+///
+/// ```plain
+/// +-----+  +-------+---------+  +------+----------+----------+  +----------+
+/// | LEN |  | FLAGS | CONN_ID |  | ATYP | DST.ADDR | DST.PORT |  |   DATA   |
+/// +-----+  +-------+---------+  +------+----------+----------+  +----------+
+/// |  2  |  |   1   |    2    |  |  1   | Variable |    2     |  | Variable |
+/// +-----+  +-------+---------+  +------+----------+----------+  +----------+
+/// ```
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Packet {
-    pub length: u16,
     pub header: UdpgwHeader,
+    pub address: Option<Address>,
     pub data: Vec<u8>,
+}
+
+impl std::fmt::Display for Packet {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let addr = self.address.as_ref().map_or("None".to_string(), |addr| addr.to_string());
+        let len = self.data.len();
+        write!(f, "Packet {{ {}, address: {}, payload length: {} }}", self.header, addr, len)
+    }
 }
 
 impl From<Packet> for Vec<u8> {
@@ -57,20 +91,56 @@ impl TryFrom<&[u8]> for Packet {
         if value.len() < UDPGW_LENGTH_FIELD_SIZE {
             return Err(std::io::ErrorKind::InvalidData.into());
         }
-        let length = u16::from_le_bytes([value[0], value[1]]);
+        let mut iter = std::io::Cursor::new(value);
+        use tokio_util::bytes::Buf;
+        let length = iter.get_u16();
         if value.len() < length as usize + UDPGW_LENGTH_FIELD_SIZE {
             return Err(std::io::ErrorKind::InvalidData.into());
         }
-        let header = UdpgwHeader::try_from(&value[UDPGW_LENGTH_FIELD_SIZE..])?;
-        let data = value[UDPGW_LENGTH_FIELD_SIZE + header.len()..].to_vec();
-        Ok(Packet::new(header, data))
+        let header = UdpgwHeader::retrieve_from_stream(&mut iter)?;
+        let address = if header.flags & UDPGW_FLAG_DATA != 0 {
+            Some(Address::retrieve_from_stream(&mut iter)?)
+        } else {
+            None
+        };
+        Ok(Packet::new(header, address, iter.chunk()))
     }
 }
 
 impl Packet {
-    pub fn new(header: UdpgwHeader, data: Vec<u8>) -> Self {
-        let length = (header.len() + data.len()) as u16;
-        Packet { length, header, data }
+    pub fn new(header: UdpgwHeader, address: Option<Address>, data: &[u8]) -> Self {
+        let data = data.to_vec();
+        Packet { header, address, data }
+    }
+
+    pub fn build_keepalive_packet(conn_id: u16) -> Self {
+        Packet::new(UdpgwHeader::new(UDPGW_FLAG_KEEPALIVE, conn_id), None, &[])
+    }
+
+    pub fn build_error_packet(conn_id: u16) -> Self {
+        Packet::new(UdpgwHeader::new(UDPGW_FLAG_ERR, conn_id), None, &[])
+    }
+
+    pub fn build_packet_from_address(conn_id: u16, remote_addr: &Address, data: &[u8]) -> std::io::Result<Self> {
+        use socks5_impl::protocol::Address::{DomainAddress, SocketAddress};
+        let packet = match remote_addr {
+            SocketAddress(addr) => Packet::build_ip_packet(conn_id, *addr, data),
+            DomainAddress(domain, port) => Packet::build_domain_packet(conn_id, *port, domain, data)?,
+        };
+        Ok(packet)
+    }
+
+    pub fn build_ip_packet(conn_id: u16, remote_addr: SocketAddr, data: &[u8]) -> Self {
+        let addr: Address = remote_addr.into();
+        Packet::new(UdpgwHeader::new(UDPGW_FLAG_DATA, conn_id), Some(addr), data)
+    }
+
+    pub fn build_domain_packet(conn_id: u16, port: u16, domain: &str, data: &[u8]) -> std::io::Result<Self> {
+        if domain.len() > 255 {
+            return Err(std::io::ErrorKind::InvalidInput.into());
+        }
+        let addr = Address::from((domain, port));
+        Ok(Packet::new(UdpgwHeader::new(UDPGW_FLAG_DATA, conn_id), Some(addr), data))
     }
 }
 
@@ -82,23 +152,30 @@ impl StreamOperation for Packet {
     {
         let mut buf = [0; UDPGW_LENGTH_FIELD_SIZE];
         stream.read_exact(&mut buf)?;
-        let length = u16::from_le_bytes(buf);
-        let mut buf = [0; UdpgwHeader::static_len()];
-        stream.read_exact(&mut buf)?;
-        let header = UdpgwHeader::try_from(&buf[..])?;
-        let mut data = vec![0; length as usize - header.len()];
+        let length = u16::from_be_bytes(buf) as usize;
+        let header = UdpgwHeader::retrieve_from_stream(stream)?;
+        let address = if header.flags & UDPGW_FLAG_DATA != 0 {
+            Some(Address::retrieve_from_stream(stream)?)
+        } else {
+            None
+        };
+        let mut data = vec![0; length - header.len() - address.as_ref().map_or(0, |addr| addr.len())];
         stream.read_exact(&mut data)?;
-        Ok(Packet::new(header, data))
+        Ok(Packet::new(header, address, &data))
     }
 
     fn write_to_buf<B: BufMut>(&self, buf: &mut B) {
-        buf.put_u16_le(self.length);
+        let len = self.len() - UDPGW_LENGTH_FIELD_SIZE;
+        buf.put_u16(len as u16);
         self.header.write_to_buf(buf);
+        if let Some(addr) = &self.address {
+            addr.write_to_buf(buf);
+        }
         buf.put_slice(&self.data);
     }
 
     fn len(&self) -> usize {
-        UDPGW_LENGTH_FIELD_SIZE + self.header.len() + self.data.len()
+        UDPGW_LENGTH_FIELD_SIZE + self.header.len() + self.address.as_ref().map_or(0, |addr| addr.len()) + self.data.len()
     }
 }
 
@@ -111,20 +188,30 @@ impl AsyncStreamOperation for Packet {
     {
         let mut buf = [0; 2];
         r.read_exact(&mut buf).await?;
-        let length = u16::from_le_bytes(buf);
+        let length = u16::from_be_bytes(buf) as usize;
         let header = UdpgwHeader::retrieve_from_async_stream(r).await?;
-        let mut data = vec![0; length as usize - header.len()];
+        let address = if header.flags & UDPGW_FLAG_DATA != 0 {
+            Some(Address::retrieve_from_async_stream(r).await?)
+        } else {
+            None
+        };
+        let mut data = vec![0; length - header.len() - address.as_ref().map_or(0, |addr| addr.len())];
         r.read_exact(&mut data).await?;
-        Ok(Packet::new(header, data))
+        Ok(Packet::new(header, address, &data))
     }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-#[repr(C)]
-#[repr(packed(1))]
 pub struct UdpgwHeader {
     pub flags: u8,
     pub conn_id: u16,
+}
+
+impl std::fmt::Display for UdpgwHeader {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let id = self.conn_id;
+        write!(f, "flags: 0x{:02x}, conn_id: {}", self.flags, id)
+    }
 }
 
 impl StreamOperation for UdpgwHeader {
@@ -167,7 +254,7 @@ impl UdpgwHeader {
     }
 
     pub const fn static_len() -> usize {
-        std::mem::size_of::<UdpgwHeader>()
+        std::mem::size_of::<u8>() + std::mem::size_of::<u16>()
     }
 }
 
@@ -178,10 +265,8 @@ impl TryFrom<&[u8]> for UdpgwHeader {
         if value.len() < UdpgwHeader::static_len() {
             return Err(std::io::ErrorKind::InvalidData.into());
         }
-        Ok(UdpgwHeader {
-            flags: value[0],
-            conn_id: u16::from_le_bytes([value[1], value[2]]),
-        })
+        let conn_id = u16::from_be_bytes([value[1], value[2]]);
+        Ok(UdpgwHeader { flags: value[0], conn_id })
     }
 }
 
@@ -189,137 +274,25 @@ impl From<&UdpgwHeader> for Vec<u8> {
     fn from(header: &UdpgwHeader) -> Vec<u8> {
         let mut bytes = vec![0; header.len()];
         bytes[0] = header.flags;
-        bytes[1..3].copy_from_slice(&header.conn_id.to_le_bytes());
+        bytes[1..3].copy_from_slice(&header.conn_id.to_be_bytes());
         bytes
     }
 }
 
-#[allow(clippy::len_without_is_empty)]
-#[derive(Copy, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Debug)]
-pub struct BinSocketAddr(SocketAddr);
-
-impl BinSocketAddr {
-    pub fn len(&self) -> usize {
-        match self.0 {
-            SocketAddr::V4(_) => Self::static_len(false),
-            SocketAddr::V6(_) => Self::static_len(true),
-        }
-    }
-
-    pub fn static_len(is_ipv6: bool) -> usize {
-        if is_ipv6 {
-            std::mem::size_of::<Ipv6Addr>() + std::mem::size_of::<u16>()
-        } else {
-            std::mem::size_of::<Ipv4Addr>() + std::mem::size_of::<u16>()
-        }
-    }
-}
-
-impl From<&BinSocketAddr> for Vec<u8> {
-    fn from(addr: &BinSocketAddr) -> Vec<u8> {
-        socket_addr_to_binary(&addr.0)
-    }
-}
-
-impl From<BinSocketAddr> for Vec<u8> {
-    fn from(addr: BinSocketAddr) -> Vec<u8> {
-        socket_addr_to_binary(&addr.0)
-    }
-}
-
-impl TryFrom<&[u8]> for BinSocketAddr {
-    type Error = std::io::Error;
-    fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
-        Ok(BinSocketAddr(binary_to_socket_addr(value)?))
-    }
-}
-
-impl From<SocketAddr> for BinSocketAddr {
-    fn from(addr: SocketAddr) -> Self {
-        BinSocketAddr(addr)
-    }
-}
-
-impl From<BinSocketAddr> for SocketAddr {
-    fn from(addr: BinSocketAddr) -> Self {
-        addr.0
-    }
-}
-
-fn socket_addr_to_binary(addr: &SocketAddr) -> Vec<u8> {
-    match addr {
-        SocketAddr::V4(addr_v4) => {
-            let mut bytes = vec![0; std::mem::size_of::<SocketAddrV4>()];
-            bytes[0..4].copy_from_slice(&addr_v4.ip().octets());
-            bytes[4..6].copy_from_slice(&addr_v4.port().to_be_bytes());
-            bytes
-        }
-        SocketAddr::V6(addr_v6) => {
-            let mut bytes = vec![0; std::mem::size_of::<Ipv6Addr>() + std::mem::size_of::<u16>()];
-            bytes[0..16].copy_from_slice(&addr_v6.ip().octets());
-            bytes[16..18].copy_from_slice(&addr_v6.port().to_be_bytes());
-            bytes
-        }
-    }
-}
-
-fn binary_to_socket_addr(bytes: &[u8]) -> std::io::Result<SocketAddr> {
-    if bytes.len() == std::mem::size_of::<SocketAddrV4>() {
-        let ip = Ipv4Addr::new(bytes[0], bytes[1], bytes[2], bytes[3]);
-        let port = u16::from_be_bytes([bytes[4], bytes[5]]);
-        Ok(SocketAddr::V4(SocketAddrV4::new(ip, port)))
-    } else if bytes.len() == std::mem::size_of::<Ipv6Addr>() + std::mem::size_of::<u16>() {
-        let mut ip = [0; 16];
-        ip.copy_from_slice(&bytes[0..16]);
-        let port = u16::from_be_bytes([bytes[16], bytes[17]]);
-        Ok(SocketAddr::V6(SocketAddrV6::new(ip.into(), port, 0, 0)))
-    } else {
-        Err(std::io::ErrorKind::InvalidData.into())
-    }
-}
-
 #[allow(dead_code)]
 #[derive(Debug)]
-pub(crate) struct UdpGwData<'a> {
-    flags: u8,
-    conn_id: u16,
-    remote_addr: SocketAddr,
-    udpdata: &'a [u8],
-}
-
-impl<'a> UdpGwData<'a> {
-    pub fn len(&self) -> usize {
-        self.udpdata.len()
-    }
-}
-
-#[allow(dead_code)]
-#[derive(Debug)]
-pub(crate) enum UdpGwResponse<'a> {
+pub(crate) enum UdpGwResponse {
     KeepAlive,
     Error,
     TcpClose,
-    Data(UdpGwData<'a>),
-}
-
-#[derive(Debug)]
-pub(crate) struct UdpGwClientStreamWriter {
-    inner: OwnedWriteHalf,
-    tmp_buf: Vec<u8>,
-    send_buf: Vec<u8>,
-}
-
-#[derive(Debug)]
-pub(crate) struct UdpGwClientStreamReader {
-    inner: OwnedReadHalf,
-    recv_buf: Vec<u8>,
+    Data(Packet),
 }
 
 #[derive(Debug)]
 pub(crate) struct UdpGwClientStream {
     local_addr: String,
-    writer: Option<UdpGwClientStreamWriter>,
-    reader: Option<UdpGwClientStreamReader>,
+    writer: Option<OwnedWriteHalf>,
+    reader: Option<OwnedReadHalf>,
     conn_id: u16,
     closed: bool,
     last_activity: std::time::Instant,
@@ -335,19 +308,20 @@ impl UdpGwClientStream {
     pub fn close(&mut self) {
         self.closed = true;
     }
-    pub fn get_reader(&mut self) -> Option<UdpGwClientStreamReader> {
+
+    pub fn get_reader(&mut self) -> Option<OwnedReadHalf> {
         self.reader.take()
     }
 
-    pub fn set_reader(&mut self, mut reader: Option<UdpGwClientStreamReader>) {
-        self.reader = reader.take();
+    pub fn set_reader(&mut self, reader: Option<OwnedReadHalf>) {
+        self.reader = reader;
     }
 
-    pub fn set_writer(&mut self, mut writer: Option<UdpGwClientStreamWriter>) {
-        self.writer = writer.take();
+    pub fn set_writer(&mut self, writer: Option<OwnedWriteHalf>) {
+        self.writer = writer;
     }
 
-    pub fn get_writer(&mut self) -> Option<UdpGwClientStreamWriter> {
+    pub fn get_writer(&mut self) -> Option<OwnedWriteHalf> {
         self.writer.take()
     }
 
@@ -371,21 +345,13 @@ impl UdpGwClientStream {
         self.conn_id += 1;
         self.conn_id
     }
-    pub fn new(udp_mtu: u16, tcp_server_stream: TcpStream) -> Self {
-        let local_addr = tcp_server_stream
-            .local_addr()
-            .unwrap_or_else(|_| "0.0.0.0:0".parse::<SocketAddr>().unwrap())
-            .to_string();
+
+    pub fn new(tcp_server_stream: TcpStream) -> Self {
+        let default = "0.0.0.0:0".parse::<SocketAddr>().unwrap();
+        let local_addr = tcp_server_stream.local_addr().unwrap_or(default).to_string();
         let (rx, tx) = tcp_server_stream.into_split();
-        let writer = UdpGwClientStreamWriter {
-            inner: tx,
-            tmp_buf: vec![0; udp_mtu.into()],
-            send_buf: vec![0; udp_mtu.into()],
-        };
-        let reader = UdpGwClientStreamReader {
-            inner: rx,
-            recv_buf: vec![0; udp_mtu.into()],
-        };
+        let writer = tx;
+        let reader = rx;
         TCP_COUNTER.fetch_add(1, Relaxed);
         UdpGwClientStream {
             local_addr,
@@ -405,13 +371,11 @@ pub(crate) struct UdpGwClient {
     udp_timeout: u64,
     keepalive_time: Duration,
     server_addr: SocketAddr,
-    keepalive_packet: Vec<u8>,
     server_connections: Mutex<VecDeque<UdpGwClientStream>>,
 }
 
 impl UdpGwClient {
     pub fn new(udp_mtu: u16, max_connections: u16, keepalive_time: Duration, udp_timeout: u64, server_addr: SocketAddr) -> Self {
-        let keepalive_packet: Vec<u8> = Packet::new(UdpgwHeader::new(UDPGW_FLAG_KEEPALIVE, 0), vec![]).into();
         let server_connections = Mutex::new(VecDeque::with_capacity(max_connections as usize));
         UdpGwClient {
             udp_mtu,
@@ -419,7 +383,6 @@ impl UdpGwClient {
             udp_timeout,
             server_addr,
             keepalive_time,
-            keepalive_packet,
             server_connections,
         }
     }
@@ -446,11 +409,11 @@ impl UdpGwClient {
         }
     }
 
-    pub(crate) async fn release_server_connection_with_stream(
+    pub(crate) async fn release_server_connection_full(
         &self,
         mut stream: UdpGwClientStream,
-        reader: UdpGwClientStreamReader,
-        writer: UdpGwClientStreamWriter,
+        reader: OwnedReadHalf,
+        writer: OwnedWriteHalf,
     ) {
         if self.server_connections.lock().await.len() < self.max_connections as usize {
             stream.set_reader(Some(reader));
@@ -480,101 +443,39 @@ impl UdpGwClient {
                 let Some(mut stream_writer) = stream.get_writer() else {
                     continue;
                 };
-                let local_addr = stream_writer.inner.local_addr();
+                let local_addr = stream_writer.local_addr();
                 log::debug!("{:?}:{} send keepalive", local_addr, stream.id());
-                if let Err(e) = stream_writer.inner.write_all(&self.keepalive_packet).await {
+                let keepalive_packet: Vec<u8> = Packet::build_keepalive_packet(stream.id()).into();
+                if let Err(e) = stream_writer.write_all(&keepalive_packet).await {
                     log::warn!("{:?}:{} send keepalive failed: {}", local_addr, stream.id(), e);
-                } else {
-                    match UdpGwClient::recv_udpgw_packet(self.udp_mtu, 10, &mut stream_reader).await {
-                        Ok(UdpGwResponse::KeepAlive) => {
-                            stream.update_activity();
-                            self.release_server_connection_with_stream(stream, stream_reader, stream_writer)
-                                .await;
-                        }
-                        Ok(v) => log::warn!("{:?}:{} keepalive unexpected response: {:?}", local_addr, stream.id(), v),
-                        Err(e) => log::warn!("{:?}:{} keepalive no response, error \"{}\"", local_addr, stream.id(), e),
+                    continue;
+                }
+                match UdpGwClient::recv_udpgw_packet(self.udp_mtu, 10, &mut stream_reader).await {
+                    Ok(UdpGwResponse::KeepAlive) => {
+                        stream.update_activity();
+                        self.release_server_connection_full(stream, stream_reader, stream_writer).await;
                     }
+                    Ok(v) => log::warn!("{:?}:{} keepalive unexpected response: {:?}", local_addr, stream.id(), v),
+                    Err(e) => log::warn!("{:?}:{} keepalive no response, error \"{}\"", local_addr, stream.id(), e),
                 }
             }
         }
     }
 
     /// Parses the UDP response data.
-    pub(crate) fn parse_udp_response(udp_mtu: u16, data_len: usize, stream: &mut UdpGwClientStreamReader) -> Result<UdpGwResponse> {
-        let data = &stream.recv_buf;
-        let header_len = UdpgwHeader::static_len();
-        if data_len < header_len {
-            return Err("Invalid udpgw data".into());
-        }
-        let header_bytes = &data[..header_len];
-        let header = UdpgwHeader {
-            flags: header_bytes[0],
-            conn_id: u16::from_le_bytes([header_bytes[1], header_bytes[2]]),
-        };
-
-        let flags = header.flags;
-        let conn_id = header.conn_id;
-
-        let ip_data = &data[header_len..];
-        let mut data_len = data_len - header_len;
-
+    pub(crate) fn parse_udp_response(udp_mtu: u16, data: &[u8]) -> Result<UdpGwResponse> {
+        let packet = Packet::try_from(data)?;
+        let flags = packet.header.flags;
         if flags & UDPGW_FLAG_ERR != 0 {
             return Ok(UdpGwResponse::Error);
         }
-
         if flags & UDPGW_FLAG_KEEPALIVE != 0 {
             return Ok(UdpGwResponse::KeepAlive);
         }
-
-        if flags & UDPGW_FLAG_IPV6 != 0 {
-            let ipv6_addr_len = BinSocketAddr::static_len(true);
-            if data_len < ipv6_addr_len {
-                return Err("ipv6 Invalid UDP data".into());
-            }
-            let addr_ipv6 = BinSocketAddr::try_from(&ip_data[..ipv6_addr_len])?;
-            data_len -= ipv6_addr_len;
-
-            if data_len > udp_mtu as usize {
-                return Err("too much data".into());
-            }
-            return Ok(UdpGwResponse::Data(UdpGwData {
-                flags,
-                conn_id,
-                remote_addr: addr_ipv6.into(),
-                udpdata: &ip_data[ipv6_addr_len..(data_len + ipv6_addr_len)],
-            }));
-        } else {
-            let ipv4_addr_len = BinSocketAddr::static_len(false);
-            if data_len < ipv4_addr_len {
-                return Err("ipv4 Invalid UDP data".into());
-            }
-            let addr_ipv4 = BinSocketAddr::try_from(&ip_data[..ipv4_addr_len])?;
-            data_len -= ipv4_addr_len;
-
-            if data_len > udp_mtu as usize {
-                return Err("too much data".into());
-            }
-            return Ok(UdpGwResponse::Data(UdpGwData {
-                flags,
-                conn_id,
-                remote_addr: addr_ipv4.into(),
-                udpdata: &ip_data[ipv4_addr_len..(data_len + ipv4_addr_len)],
-            }));
+        if packet.data.len() > udp_mtu as usize {
+            return Err("too much data".into());
         }
-    }
-
-    pub(crate) async fn recv_udp_packet(
-        udp_stack: &mut IpStackUdpStream,
-        stream: &mut UdpGwClientStreamWriter,
-    ) -> std::result::Result<usize, std::io::Error> {
-        udp_stack.read(&mut stream.tmp_buf).await
-    }
-
-    pub(crate) async fn send_udp_packet<'a>(
-        packet: UdpGwData<'a>,
-        udp_stack: &mut IpStackUdpStream,
-    ) -> std::result::Result<(), std::io::Error> {
-        udp_stack.write_all(packet.udpdata).await
+        Ok(UdpGwResponse::Data(packet))
     }
 
     /// Receives a UDP gateway packet.
@@ -588,37 +489,15 @@ impl UdpGwClient {
     ///
     /// # Returns
     /// - `Result<UdpGwResponse>`: Returns a result type containing the parsed UDP gateway response, or an error if one occurs.
-    pub(crate) async fn recv_udpgw_packet(udp_mtu: u16, udp_timeout: u64, stream: &mut UdpGwClientStreamReader) -> Result<UdpGwResponse> {
-        let result = tokio::time::timeout(
-            tokio::time::Duration::from_secs(udp_timeout + 2),
-            stream.inner.read(&mut stream.recv_buf[..2]),
-        )
-        .await
-        .map_err(std::io::Error::from)?;
-        let n = result?;
-        if n == 0 {
+    pub(crate) async fn recv_udpgw_packet(udp_mtu: u16, udp_timeout: u64, stream: &mut OwnedReadHalf) -> Result<UdpGwResponse> {
+        let mut data = vec![0; udp_mtu.into()];
+        let data_len = tokio::time::timeout(tokio::time::Duration::from_secs(udp_timeout + 2), stream.read(&mut data))
+            .await
+            .map_err(std::io::Error::from)??;
+        if data_len == 0 {
             return Ok(UdpGwResponse::TcpClose);
         }
-        if n < UDPGW_LENGTH_FIELD_SIZE {
-            return Err("received Packet Length field error".into());
-        }
-        let packet_len = u16::from_le_bytes([stream.recv_buf[0], stream.recv_buf[1]]);
-        if packet_len > udp_mtu {
-            return Err("packet too long".into());
-        }
-        let mut left_len: usize = packet_len as usize;
-        let mut recv_len = 0;
-        while left_len > 0 {
-            let Ok(len) = stream.inner.read(&mut stream.recv_buf[recv_len..left_len]).await else {
-                return Ok(UdpGwResponse::TcpClose);
-            };
-            if len == 0 {
-                return Ok(UdpGwResponse::TcpClose);
-            }
-            recv_len += len;
-            left_len -= len;
-        }
-        UdpGwClient::parse_udp_response(udp_mtu, packet_len as usize, stream)
+        UdpGwClient::parse_udp_response(udp_mtu, &data[..data_len])
     }
 
     /// Sends a UDP gateway packet.
@@ -629,9 +508,8 @@ impl UdpGwClient {
     /// # Arguments
     ///
     /// * `ipv6_enabled` - Whether IPv6 is enabled
-    /// * `len` - Length of the data packet
+    /// * `data` - The data packet
     /// * `remote_addr` - Remote address
-    /// * `domain` - Target domain (optional)
     /// * `conn_id` - Connection ID
     /// * `stream` - UDP gateway client writer stream
     ///
@@ -640,80 +518,17 @@ impl UdpGwClient {
     /// Returns `Ok(())` if the packet is sent successfully, otherwise returns an error.
     pub(crate) async fn send_udpgw_packet(
         ipv6_enabled: bool,
-        len: usize,
-        remote_addr: SocketAddr,
-        domain: Option<&String>,
+        data: &[u8],
+        remote_addr: &socks5_impl::protocol::Address,
         conn_id: u16,
-        stream: &mut UdpGwClientStreamWriter,
+        stream: &mut OwnedWriteHalf,
     ) -> Result<()> {
-        stream.send_buf.clear();
-        let data = &stream.tmp_buf;
-        let mut pack_len = UdpgwHeader::static_len() + len;
-        let packet = &mut stream.send_buf;
-        match domain {
-            Some(domain) => {
-                let addr_port = remote_addr.port();
-                let domain_len = domain.len();
-                if domain_len > 255 {
-                    return Err("InvalidDomain".into());
-                }
-                pack_len += UDPGW_LENGTH_FIELD_SIZE;
-                pack_len += domain_len + 1;
-                packet.extend_from_slice(&(pack_len as u16).to_le_bytes());
-                packet.extend_from_slice(&[UDPGW_FLAG_DOMAIN]);
-                packet.extend_from_slice(&conn_id.to_le_bytes());
-                packet.extend_from_slice(&addr_port.to_be_bytes());
-                packet.extend_from_slice(domain.as_bytes());
-                packet.push(0);
-                packet.extend_from_slice(&data[..len]);
-            }
-            None => match remote_addr {
-                SocketAddr::V4(_) => {
-                    let addr_ipv4 = BinSocketAddr::from(remote_addr);
-                    pack_len += addr_ipv4.len();
-                    packet.extend_from_slice(&(pack_len as u16).to_le_bytes());
-                    packet.extend_from_slice(&[UDPGW_FLAG_IPV4]);
-                    packet.extend_from_slice(&conn_id.to_le_bytes());
-                    let addr_ipv4_bin: Vec<u8> = addr_ipv4.into();
-                    packet.extend_from_slice(&addr_ipv4_bin);
-                    packet.extend_from_slice(&data[..len]);
-                }
-                SocketAddr::V6(_) => {
-                    if !ipv6_enabled {
-                        return Err("ipv6 not support".into());
-                    }
-                    let addr_ipv6 = BinSocketAddr::from(remote_addr);
-                    pack_len += addr_ipv6.len();
-                    packet.extend_from_slice(&(pack_len as u16).to_le_bytes());
-                    packet.extend_from_slice(&[UDPGW_FLAG_IPV6]);
-                    packet.extend_from_slice(&conn_id.to_le_bytes());
-                    let addr_ipv6_bin: Vec<u8> = addr_ipv6.into();
-                    packet.extend_from_slice(&addr_ipv6_bin);
-                    packet.extend_from_slice(&data[..len]);
-                }
-            },
+        if !ipv6_enabled && remote_addr.get_type() == socks5_impl::protocol::AddressType::IPv6 {
+            return Err("ipv6 not support".into());
         }
-
-        stream.inner.write_all(packet).await?;
+        let out_data: Vec<u8> = Packet::build_packet_from_address(conn_id, remote_addr, data)?.into();
+        stream.write_all(&out_data).await?;
 
         Ok(())
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::{Packet, UdpgwHeader};
-    use socks5_impl::protocol::StreamOperation;
-
-    #[test]
-    fn test_udpgw_header() {
-        let header = UdpgwHeader::new(0x01, 0x1234);
-        let mut bytes: Vec<u8> = vec![];
-        let packet = Packet::new(header, vec![]);
-        packet.write_to_buf(&mut bytes);
-
-        let header2 = Packet::retrieve_from_stream(&mut bytes.as_slice()).unwrap().header;
-
-        assert_eq!(header, header2);
     }
 }
