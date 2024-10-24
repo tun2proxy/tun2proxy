@@ -119,7 +119,7 @@ pub struct Args {
 
     /// Max udpgw connections, default value is 100
     #[cfg(feature = "udpgw")]
-    #[arg(long, value_name = "number")]
+    #[arg(long, value_name = "number", requires = "udpgw_server")]
     pub udpgw_max_connections: Option<u16>,
 }
 
