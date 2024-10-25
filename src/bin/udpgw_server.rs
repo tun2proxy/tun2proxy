@@ -124,7 +124,7 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Packet>, mut client
             }
             Err(e) => {
                 if client.last_activity.elapsed() >= CLIENT_DISCONNECT_TIMEOUT {
-                    log::debug!("client {} last_activity elapsed {e}", client.addr);
+                    log::debug!("client {} last_activity elapsed \"{e}\"", client.addr);
                     break;
                 }
                 continue;

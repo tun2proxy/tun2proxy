@@ -159,7 +159,11 @@ impl StreamOperation for Packet {
         } else {
             None
         };
-        let mut data = vec![0; length - header.len() - address.as_ref().map_or(0, |addr| addr.len())];
+        let read_len = header.len() + address.as_ref().map_or(0, |addr| addr.len());
+        if length < read_len {
+            return Err(std::io::ErrorKind::InvalidData.into());
+        }
+        let mut data = vec![0; length - read_len];
         stream.read_exact(&mut data)?;
         Ok(Packet::new(header, address, &data))
     }
@@ -186,7 +190,7 @@ impl AsyncStreamOperation for Packet {
         R: tokio::io::AsyncRead + Unpin + Send,
         Self: Sized,
     {
-        let mut buf = [0; 2];
+        let mut buf = [0; UDPGW_LENGTH_FIELD_SIZE];
         r.read_exact(&mut buf).await?;
         let length = u16::from_be_bytes(buf) as usize;
         let header = UdpgwHeader::retrieve_from_async_stream(r).await?;
@@ -195,7 +199,11 @@ impl AsyncStreamOperation for Packet {
         } else {
             None
         };
-        let mut data = vec![0; length - header.len() - address.as_ref().map_or(0, |addr| addr.len())];
+        let read_len = header.len() + address.as_ref().map_or(0, |addr| addr.len());
+        if length < read_len {
+            return Err(std::io::ErrorKind::InvalidData.into());
+        }
+        let mut data = vec![0; length - read_len];
         r.read_exact(&mut data).await?;
         Ok(Packet::new(header, address, &data))
     }
