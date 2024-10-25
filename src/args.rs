@@ -111,6 +111,16 @@ pub struct Args {
     /// Maximum number of sessions to be handled concurrently
     #[arg(long, value_name = "number", default_value = "200")]
     pub max_sessions: usize,
+
+    /// UDP gateway server address, similar to badvpn-udpgw
+    #[cfg(feature = "udpgw")]
+    #[arg(long, value_name = "IP:PORT")]
+    pub udpgw_server: Option<SocketAddr>,
+
+    /// Max udpgw connections, default value is 100
+    #[cfg(feature = "udpgw")]
+    #[arg(long, value_name = "number", requires = "udpgw_server")]
+    pub udpgw_max_connections: Option<u16>,
 }
 
 fn validate_tun(p: &str) -> Result<String> {
@@ -154,6 +164,10 @@ impl Default for Args {
             daemonize: false,
             exit_on_fatal_error: false,
             max_sessions: 200,
+            #[cfg(feature = "udpgw")]
+            udpgw_server: None,
+            #[cfg(feature = "udpgw")]
+            udpgw_max_connections: None,
         }
     }
 }
@@ -178,6 +192,18 @@ impl Args {
 
     pub fn dns(&mut self, dns: ArgDns) -> &mut Self {
         self.dns = dns;
+        self
+    }
+
+    #[cfg(feature = "udpgw")]
+    pub fn udpgw_server(&mut self, udpgw: SocketAddr) -> &mut Self {
+        self.udpgw_server = Some(udpgw);
+        self
+    }
+
+    #[cfg(feature = "udpgw")]
+    pub fn udpgw_max_connections(&mut self, udpgw_max_connections: u16) -> &mut Self {
+        self.udpgw_max_connections = Some(udpgw_max_connections);
         self
     }
 

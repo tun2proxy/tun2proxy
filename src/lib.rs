@@ -1,3 +1,5 @@
+#[cfg(feature = "udpgw")]
+use crate::udpgw::UdpGwClient;
 use crate::{
     directions::{IncomingDataEvent, IncomingDirection, OutgoingDirection},
     http::HttpManager,
@@ -9,6 +11,8 @@ use ipstack::stream::{IpStackStream, IpStackTcpStream, IpStackUdpStream};
 use proxy_handler::{ProxyHandler, ProxyHandlerManager};
 use socks::SocksProxyManager;
 pub use socks5_impl::protocol::UserKey;
+#[cfg(feature = "udpgw")]
+use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 use std::{
     collections::VecDeque,
     io::ErrorKind,
@@ -23,6 +27,8 @@ use tokio::{
 pub use tokio_util::sync::CancellationToken;
 use tproxy_config::is_private_ip;
 use udp_stream::UdpStream;
+#[cfg(feature = "udpgw")]
+use udpgw::{UdpGwClientStream, UdpGwResponse, UDPGW_KEEPALIVE_TIME, UDPGW_MAX_CONNECTIONS};
 
 pub use {
     args::{ArgDns, ArgProxy, ArgVerbosity, Args, ProxyType},
@@ -59,6 +65,8 @@ mod session_info;
 pub mod socket_transfer;
 mod socks;
 mod traffic_status;
+#[cfg(feature = "udpgw")]
+pub mod udpgw;
 mod virtual_dns;
 #[doc(hidden)]
 pub mod win_svc;
@@ -231,6 +239,23 @@ where
 
     let mut ip_stack = ipstack::IpStack::new(ipstack_config, device);
 
+    #[cfg(feature = "udpgw")]
+    let udpgw_client = args.udpgw_server.as_ref().map(|addr| {
+        log::info!("UDPGW enabled");
+        let client = Arc::new(UdpGwClient::new(
+            mtu,
+            args.udpgw_max_connections.unwrap_or(UDPGW_MAX_CONNECTIONS),
+            UDPGW_KEEPALIVE_TIME,
+            args.udp_timeout,
+            *addr,
+        ));
+        let client_keepalive = client.clone();
+        tokio::spawn(async move {
+            client_keepalive.heartbeat_task().await;
+        });
+        client
+    });
+
     loop {
         let virtual_dns = virtual_dns.clone();
         let ip_stack_stream = tokio::select! {
@@ -318,6 +343,24 @@ where
                 } else {
                     None
                 };
+                #[cfg(feature = "udpgw")]
+                if let Some(udpgw) = udpgw_client.clone() {
+                    let tcp_src = match udp.peer_addr() {
+                        SocketAddr::V4(_) => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)),
+                        SocketAddr::V6(_) => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0)),
+                    };
+                    let tcpinfo = SessionInfo::new(tcp_src, udpgw.get_server_addr(), IpProtocol::Tcp);
+                    let proxy_handler = mgr.new_proxy_handler(tcpinfo, None, false).await?;
+                    let queue = socket_queue.clone();
+                    tokio::spawn(async move {
+                        let dst = info.dst; // real UDP destination address
+                        if let Err(e) = handle_udp_gateway_session(udp, udpgw, dst, domain_name, proxy_handler, queue, ipv6_enabled).await {
+                            log::info!("Ending {} with \"{}\"", info, e);
+                        }
+                        log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
+                    });
+                    continue;
+                }
                 match mgr.new_proxy_handler(info, domain_name, true).await {
                     Ok(proxy_handler) => {
                         let socket_queue = socket_queue.clone();
@@ -432,6 +475,125 @@ async fn handle_tcp_session(
         },
     );
     log::info!("Ending {} with {:?}", session_info, res);
+
+    Ok(())
+}
+
+#[cfg(feature = "udpgw")]
+async fn handle_udp_gateway_session(
+    mut udp_stack: IpStackUdpStream,
+    udpgw_client: Arc<UdpGwClient>,
+    udp_dst: SocketAddr,
+    domain_name: Option<String>,
+    proxy_handler: Arc<Mutex<dyn ProxyHandler>>,
+    socket_queue: Option<Arc<SocketQueue>>,
+    ipv6_enabled: bool,
+) -> crate::Result<()> {
+    let proxy_server_addr = { proxy_handler.lock().await.get_server_addr() };
+    let udp_mtu = udpgw_client.get_udp_mtu();
+    let udp_timeout = udpgw_client.get_udp_timeout();
+    let mut stream = match udpgw_client.get_server_connection().await {
+        Some(server) => server,
+        None => {
+            if udpgw_client.is_full() {
+                return Err("max udpgw connection limit reached".into());
+            }
+            let mut tcp_server_stream = create_tcp_stream(&socket_queue, proxy_server_addr).await?;
+            if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
+                return Err(format!("udpgw connection error: {}", e).into());
+            }
+            UdpGwClientStream::new(tcp_server_stream)
+        }
+    };
+
+    let tcp_local_addr = stream.local_addr().clone();
+
+    match domain_name {
+        Some(ref d) => log::info!("[UdpGw] Beginning {} -> {}, domain:{}", &tcp_local_addr, udp_dst, d),
+        None => log::info!("[UdpGw] Beginning {} -> {}", &tcp_local_addr, udp_dst),
+    }
+
+    let Some(mut reader) = stream.get_reader() else {
+        return Err("get reader failed".into());
+    };
+
+    let Some(mut writer) = stream.get_writer() else {
+        return Err("get writer failed".into());
+    };
+
+    let mut tmp_buf = vec![0; udp_mtu.into()];
+
+    loop {
+        tokio::select! {
+            len = udp_stack.read(&mut tmp_buf) => {
+                let read_len = match len {
+                    Ok(0) => {
+                        log::info!("[UdpGw] Ending {} <> {}", &tcp_local_addr, udp_dst);
+                        break;
+                    }
+                    Ok(n) => n,
+                    Err(e) => {
+                        log::info!("[UdpGw] Ending {} <> {} with recv_udp_packet {}", &tcp_local_addr, udp_dst, e);
+                        break;
+                    }
+                };
+                crate::traffic_status::traffic_status_update(read_len, 0)?;
+                let new_id = stream.new_id();
+                let remote_addr = match domain_name {
+                    Some(ref d) => socks5_impl::protocol::Address::from((d.clone(), udp_dst.port())),
+                    None => udp_dst.into(),
+                };
+                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, &tmp_buf[0..read_len], &remote_addr, new_id, &mut writer).await {
+                    log::info!("[UdpGw] Ending {} <> {} with send_udpgw_packet {}", &tcp_local_addr, udp_dst, e);
+                    break;
+                }
+                log::debug!("[UdpGw] {} -> {} send len {}", &tcp_local_addr, udp_dst, read_len);
+                stream.update_activity();
+            }
+            ret = UdpGwClient::recv_udpgw_packet(udp_mtu, udp_timeout, &mut reader) => {
+                match ret {
+                    Ok(packet) => match packet {
+                        //should not received keepalive
+                        UdpGwResponse::KeepAlive => {
+                            log::error!("[UdpGw] Ending {} <> {} with recv keepalive", &tcp_local_addr, udp_dst);
+                            stream.close();
+                            break;
+                        }
+                        //server udp may be timeout,can continue to receive udp data?
+                        UdpGwResponse::Error => {
+                            log::info!("[UdpGw] Ending {} <> {} with recv udp error",  &tcp_local_addr, udp_dst);
+                            stream.update_activity();
+                            continue;
+                        }
+                        UdpGwResponse::TcpClose => {
+                            log::error!("[UdpGw] Ending {} <> {} with tcp closed", &tcp_local_addr, udp_dst);
+                            stream.close();
+                            break;
+                        }
+                        UdpGwResponse::Data(data) => {
+                            use socks5_impl::protocol::StreamOperation;
+                            let len = data.len();
+                            log::debug!("[UdpGw] {} <- {} receive len {}", &tcp_local_addr, udp_dst, len);
+                            if let Err(e) = udp_stack.write_all(&data.data).await {
+                                log::error!("[UdpGw] Ending {} <> {} with send_udp_packet {}", &tcp_local_addr, udp_dst, e);
+                                break;
+                            }
+                            crate::traffic_status::traffic_status_update(0, len)?;
+                        }
+                    },
+                    Err(e) => {
+                        log::warn!("[UdpGw] Ending {} <> {} with recv_udpgw_packet {}", &tcp_local_addr, udp_dst, e);
+                        break;
+                    }
+                }
+                stream.update_activity();
+            }
+        }
+    }
+
+    if !stream.is_closed() {
+        udpgw_client.release_server_connection_full(stream, reader, writer).await;
+    }
 
     Ok(())
 }
