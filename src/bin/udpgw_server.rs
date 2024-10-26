@@ -1,5 +1,5 @@
 use socks5_impl::protocol::{AddressType, AsyncStreamOperation};
-use std::{net::SocketAddr, sync::Arc};
+use std::net::SocketAddr;
 use tokio::{
     io::AsyncWriteExt,
     net::{
@@ -10,7 +10,7 @@ use tokio::{
 };
 use tun2proxy::{
     udpgw::{Packet, UDPGW_FLAG_KEEPALIVE},
-    ArgVerbosity, Result,
+    ArgVerbosity, BoxError, Error, Result,
 };
 
 pub(crate) const CLIENT_DISCONNECT_TIMEOUT: tokio::time::Duration = std::time::Duration::from_secs(60);
@@ -164,18 +164,12 @@ async fn write_to_client(addr: SocketAddr, mut writer: WriteHalf<'_>, mut rx: Re
     }
 }
 
-#[tokio::main]
-async fn main() -> Result<()> {
-    let args = Arc::new(UdpGwArgs::parse_args());
-
-    let tcp_listener = tokio::net::TcpListener::bind(args.listen_addr).await?;
+fn main() -> Result<(), BoxError> {
+    dotenvy::dotenv().ok();
+    let args = UdpGwArgs::parse_args();
 
     let default = format!("{:?}", args.verbosity);
-
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
-
-    log::info!("{} {} starting...", module_path!(), env!("CARGO_PKG_VERSION"));
-    log::info!("UDP Gateway Server running at {}", args.listen_addr);
 
     #[cfg(unix)]
     if args.daemonize {
@@ -192,8 +186,43 @@ async fn main() -> Result<()> {
             .map_err(|e| format!("Failed to daemonize process, error:{:?}", e))?;
     }
 
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    rt.block_on(main_async(args))
+}
+
+async fn main_async(args: UdpGwArgs) -> Result<(), BoxError> {
+    log::info!("{} {} starting...", module_path!(), env!("CARGO_PKG_VERSION"));
+    log::info!("UDP Gateway Server running at {}", args.listen_addr);
+
+    let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let main_loop_handle = tokio::spawn(run(args, shutdown_token.clone()));
+
+    let ctrlc_fired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let ctrlc_fired_clone = ctrlc_fired.clone();
+    let ctrlc_handel = ctrlc2::set_async_handler(async move {
+        log::info!("Ctrl-C received, exiting...");
+        ctrlc_fired_clone.store(true, std::sync::atomic::Ordering::SeqCst);
+        shutdown_token.cancel();
+    })
+    .await;
+
+    let _ = main_loop_handle.await?;
+
+    if ctrlc_fired.load(std::sync::atomic::Ordering::SeqCst) {
+        log::info!("Ctrl-C fired, waiting the handler to finish...");
+        ctrlc_handel.await.map_err(|err| err.to_string())?;
+    }
+
+    Ok(())
+}
+
+pub async fn run(args: UdpGwArgs, shutdown_token: tokio_util::sync::CancellationToken) -> crate::Result<()> {
+    let tcp_listener = tokio::net::TcpListener::bind(args.listen_addr).await?;
     loop {
-        let (mut tcp_stream, addr) = tcp_listener.accept().await?;
+        let (mut tcp_stream, addr) = tokio::select! {
+            v = tcp_listener.accept() => v?,
+            _ = shutdown_token.cancelled() => break,
+        };
         let client = Client::new(addr);
         log::info!("client {} connected", addr);
         let params = args.clone();
@@ -207,4 +236,5 @@ async fn main() -> Result<()> {
             log::info!("client {} disconnected with {:?}", addr, res);
         });
     }
+    Ok::<(), Error>(())
 }
