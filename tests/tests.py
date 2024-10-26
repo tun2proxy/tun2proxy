@@ -4,6 +4,7 @@ import os
 import subprocess
 import time
 import unittest
+import psutil
 
 import dotenv
 import requests
@@ -33,6 +34,14 @@ def get_tool_path():
     default = default[0] if len(default) > 0 else 'tun2proxy-bin'
     return os.environ.get('TOOL_PATH', default)
 
+def sudo_kill_process_and_children(proc):
+    try:
+        for child in psutil.Process(proc.pid).children(recursive=True):
+            if child.name() == 'tun2proxy-bin':
+                subprocess.run(['sudo', 'kill', str(child.pid)])
+        subprocess.run(['sudo', 'kill', str(proc.pid)])
+    except psutil.NoSuchProcess:
+        pass
 
 class Tun2ProxyTest(unittest.TestCase):
     @staticmethod
@@ -49,6 +58,7 @@ class Tun2ProxyTest(unittest.TestCase):
         except Exception as e:
             raise e
         finally:
+            sudo_kill_process_and_children(p)
             p.terminate()
             p.wait()
 

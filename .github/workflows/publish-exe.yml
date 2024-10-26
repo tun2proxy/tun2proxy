@@ -94,9 +94,9 @@ jobs:
           if [[ "${{ matrix.host_os }}" == "windows-latest" ]]; then
             powershell -Command "(Get-Item README.md).LastWriteTime = Get-Date"
             powershell -Command "(Get-Item target/${{ matrix.target }}/release/wintun.dll).LastWriteTime = Get-Date"
-            powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy-bin.exe, README.md, target/tun2proxy-ffi.h, target/${{ matrix.target }}/release/tun2proxy.dll, target/${{ matrix.target }}/release/wintun.dll -DestinationPath mypubdir4/tun2proxy-${{ matrix.target }}.zip
+            powershell Compress-Archive -Path target/${{ matrix.target }}/release/tun2proxy-bin.exe, target/${{ matrix.target }}/release/udpgw-server.exe, README.md, target/tun2proxy-ffi.h, target/${{ matrix.target }}/release/tun2proxy.dll, target/${{ matrix.target }}/release/wintun.dll -DestinationPath mypubdir4/tun2proxy-${{ matrix.target }}.zip
           elif [[ "${{ matrix.host_os }}" == "macos-latest" ]]; then
-            zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy-bin README.md target/tun2proxy-ffi.h target/${{ matrix.target }}/release/libtun2proxy.dylib
+            zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy-bin target/${{ matrix.target }}/release/udpgw-server README.md target/tun2proxy-ffi.h target/${{ matrix.target }}/release/libtun2proxy.dylib
             if [[ "${{ matrix.target }}" == "x86_64-apple-darwin" ]]; then
               ./build-aarch64-apple-ios.sh
               zip -r mypubdir4/tun2proxy-aarch64-apple-ios-xcframework.zip ./tun2proxy.xcframework/
@@ -104,7 +104,7 @@ jobs:
               zip -r mypubdir4/tun2proxy-apple-xcframework.zip ./tun2proxy.xcframework/
             fi
           elif [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
-            zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy-bin README.md target/tun2proxy-ffi.h target/${{ matrix.target }}/release/libtun2proxy.so
+            zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy-bin target/${{ matrix.target }}/release/udpgw-server README.md target/tun2proxy-ffi.h target/${{ matrix.target }}/release/libtun2proxy.so
             if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
               ./build-android.sh
               cp ./tun2proxy-android-libs.zip ./mypubdir4/
