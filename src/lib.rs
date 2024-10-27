@@ -354,7 +354,11 @@ where
                     let queue = socket_queue.clone();
                     tokio::spawn(async move {
                         let dst = info.dst; // real UDP destination address
-                        if let Err(e) = handle_udp_gateway_session(udp, udpgw, dst, domain_name, proxy_handler, queue, ipv6_enabled).await {
+                        let dst_addr = match domain_name {
+                            Some(ref d) => socks5_impl::protocol::Address::from((d.clone(), dst.port())),
+                            None => dst.into(),
+                        };
+                        if let Err(e) = handle_udp_gateway_session(udp, udpgw, &dst_addr, proxy_handler, queue, ipv6_enabled).await {
                             log::info!("Ending {} with \"{}\"", info, e);
                         }
                         log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
@@ -483,8 +487,7 @@ async fn handle_tcp_session(
 async fn handle_udp_gateway_session(
     mut udp_stack: IpStackUdpStream,
     udpgw_client: Arc<UdpGwClient>,
-    udp_dst: SocketAddr,
-    domain_name: Option<String>,
+    udp_dst: &socks5_impl::protocol::Address,
     proxy_handler: Arc<Mutex<dyn ProxyHandler>>,
     socket_queue: Option<Arc<SocketQueue>>,
     ipv6_enabled: bool,
@@ -508,10 +511,7 @@ async fn handle_udp_gateway_session(
 
     let tcp_local_addr = stream.local_addr().clone();
 
-    match domain_name {
-        Some(ref d) => log::info!("[UdpGw] Beginning {} -> {}, domain:{}", &tcp_local_addr, udp_dst, d),
-        None => log::info!("[UdpGw] Beginning {} -> {}", &tcp_local_addr, udp_dst),
-    }
+    log::info!("[UdpGw] Beginning {} -> {}", &tcp_local_addr, udp_dst);
 
     let Some(mut reader) = stream.get_reader() else {
         return Err("get reader failed".into());
@@ -539,11 +539,7 @@ async fn handle_udp_gateway_session(
                 };
                 crate::traffic_status::traffic_status_update(read_len, 0)?;
                 let new_id = stream.new_id();
-                let remote_addr = match domain_name {
-                    Some(ref d) => socks5_impl::protocol::Address::from((d.clone(), udp_dst.port())),
-                    None => udp_dst.into(),
-                };
-                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, &tmp_buf[0..read_len], &remote_addr, new_id, &mut writer).await {
+                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, &tmp_buf[0..read_len], udp_dst, new_id, &mut writer).await {
                     log::info!("[UdpGw] Ending {} <> {} with send_udpgw_packet {}", &tcp_local_addr, udp_dst, e);
                     break;
                 }
