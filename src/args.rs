@@ -30,10 +30,9 @@ pub struct Args {
     pub tun_fd: Option<i32>,
 
     /// Set whether to close the received raw file descriptor on drop or not.
-    /// This setting is passed to the tun2 crate.
-    /// See [tun2::Configuration::close_fd_on_drop].
+    /// This setting is dependent on [tun_fd].
     #[cfg(unix)]
-    #[arg(long, value_name = "true or false", conflicts_with = "tun")]
+    #[arg(long, value_name = "true or false", conflicts_with = "tun", requires = "tun_fd")]
     pub close_fd_on_drop: Option<bool>,
 
     /// Create a tun interface in a newly created unprivileged namespace

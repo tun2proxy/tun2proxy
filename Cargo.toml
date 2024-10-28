@@ -38,7 +38,7 @@ thiserror = "1"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tproxy-config = { version = "6", default-features = false }
-tun2 = { version = "3", features = ["async"] }
+tun = { version = "0.7", features = ["async"] }
 udp-stream = { version = "0.0.12", default-features = false }
 unicase = "2"
 url = "2"

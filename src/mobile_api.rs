@@ -28,7 +28,7 @@ pub fn mobile_run(args: Args, tun_mtu: u16, _packet_information: bool) -> c_int 
     }
 
     let block = async move {
-        let mut config = tun2::Configuration::default();
+        let mut config = tun::Configuration::default();
 
         #[cfg(unix)]
         if let Some(fd) = args.tun_fd {
@@ -49,7 +49,7 @@ pub fn mobile_run(args: Args, tun_mtu: u16, _packet_information: bool) -> c_int 
             config.packet_information(_packet_information);
         });
 
-        let device = tun2::create_as_async(&config).map_err(std::io::Error::from)?;
+        let device = tun::create_as_async(&config).map_err(std::io::Error::from)?;
         let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));
 
         join_handle.await.map_err(std::io::Error::from)?
