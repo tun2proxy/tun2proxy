@@ -518,7 +518,7 @@ async fn handle_udp_gateway_session(
         }
     };
 
-    let tcp_local_addr = stream.local_addr().clone();
+    let tcp_local_addr = stream.local_addr();
     let sn = stream.serial_number();
 
     log::info!("[UdpGw] Beginning stream {} {} -> {}", sn, &tcp_local_addr, udp_dst);
