@@ -6,10 +6,10 @@ use tokio::{
         tcp::{ReadHalf, WriteHalf},
         UdpSocket,
     },
-    sync::mpsc::{self, Receiver, Sender},
+    sync::mpsc::{Receiver, Sender},
 };
 use tun2proxy::{
-    udpgw::{Packet, UDPGW_FLAG_KEEPALIVE},
+    udpgw::{Packet, UdpFlag},
     ArgVerbosity, BoxError, Error, Result,
 };
 
@@ -134,7 +134,7 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Packet>, mut client
 
         let flags = packet.header.flags;
         let conn_id = packet.header.conn_id;
-        if flags & UDPGW_FLAG_KEEPALIVE != 0 {
+        if flags & UdpFlag::KEEPALIVE == UdpFlag::KEEPALIVE {
             log::trace!("client {} send keepalive", client.addr);
             // 2. if keepalive packet, do nothing, send keepalive response to client
             send_keepalive_response(tx.clone(), conn_id).await;
@@ -227,7 +227,7 @@ pub async fn run(args: UdpGwArgs, shutdown_token: tokio_util::sync::Cancellation
         log::info!("client {} connected", addr);
         let params = args.clone();
         tokio::spawn(async move {
-            let (tx, rx) = mpsc::channel::<Packet>(100);
+            let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(100);
             let (tcp_read_stream, tcp_write_stream) = tcp_stream.split();
             let res = tokio::select! {
                 v = process_client_udp_req(&params, tx, client, tcp_read_stream) => v,

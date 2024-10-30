@@ -251,7 +251,7 @@ where
         ));
         let client_keepalive = client.clone();
         tokio::spawn(async move {
-            client_keepalive.heartbeat_task().await;
+            let _ = client_keepalive.heartbeat_task().await;
         });
         client
     });
@@ -349,7 +349,7 @@ where
                         SocketAddr::V4(_) => SocketAddr::V4(SocketAddrV4::new(Ipv4Addr::UNSPECIFIED, 0)),
                         SocketAddr::V6(_) => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0)),
                     };
-                    let tcpinfo = SessionInfo::new(tcp_src, udpgw.get_server_addr(), IpProtocol::Tcp);
+                    let tcpinfo = SessionInfo::new(tcp_src, udpgw.get_udpgw_server_addr(), IpProtocol::Tcp);
                     let proxy_handler = mgr.new_proxy_handler(tcpinfo, None, false).await?;
                     let queue = socket_queue.clone();
                     tokio::spawn(async move {
@@ -495,23 +495,33 @@ async fn handle_udp_gateway_session(
     let proxy_server_addr = { proxy_handler.lock().await.get_server_addr() };
     let udp_mtu = udpgw_client.get_udp_mtu();
     let udp_timeout = udpgw_client.get_udp_timeout();
-    let mut stream = match udpgw_client.get_server_connection().await {
-        Some(server) => server,
-        None => {
-            if udpgw_client.is_full() {
-                return Err("max udpgw connection limit reached".into());
+
+    let mut stream = loop {
+        match udpgw_client.pop_server_connection_from_queue().await {
+            Some(stream) => {
+                if stream.is_closed() {
+                    continue;
+                } else {
+                    break stream;
+                }
             }
-            let mut tcp_server_stream = create_tcp_stream(&socket_queue, proxy_server_addr).await?;
-            if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
-                return Err(format!("udpgw connection error: {}", e).into());
+            None => {
+                if udpgw_client.is_full() {
+                    return Err("max udpgw connection limit reached".into());
+                }
+                let mut tcp_server_stream = create_tcp_stream(&socket_queue, proxy_server_addr).await?;
+                if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
+                    return Err(format!("udpgw connection error: {}", e).into());
+                }
+                break UdpGwClientStream::new(tcp_server_stream);
             }
-            UdpGwClientStream::new(tcp_server_stream)
         }
     };
 
     let tcp_local_addr = stream.local_addr().clone();
+    let sn = stream.serial_number();
 
-    log::info!("[UdpGw] Beginning {} -> {}", &tcp_local_addr, udp_dst);
+    log::info!("[UdpGw] Beginning stream {} {} -> {}", sn, &tcp_local_addr, udp_dst);
 
     let Some(mut reader) = stream.get_reader() else {
         return Err("get reader failed".into());
@@ -528,58 +538,59 @@ async fn handle_udp_gateway_session(
             len = udp_stack.read(&mut tmp_buf) => {
                 let read_len = match len {
                     Ok(0) => {
-                        log::info!("[UdpGw] Ending {} <> {}", &tcp_local_addr, udp_dst);
+                        log::info!("[UdpGw] Ending stream {} {} <> {}", sn, &tcp_local_addr, udp_dst);
                         break;
                     }
                     Ok(n) => n,
                     Err(e) => {
-                        log::info!("[UdpGw] Ending {} <> {} with recv_udp_packet {}", &tcp_local_addr, udp_dst, e);
+                        log::info!("[UdpGw] Ending stream {} {} <> {} with recv_udp_packet {}", sn, &tcp_local_addr, udp_dst, e);
                         break;
                     }
                 };
                 crate::traffic_status::traffic_status_update(read_len, 0)?;
-                let new_id = stream.new_id();
+                let new_id = stream.new_packet_id();
                 if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, &tmp_buf[0..read_len], udp_dst, new_id, &mut writer).await {
-                    log::info!("[UdpGw] Ending {} <> {} with send_udpgw_packet {}", &tcp_local_addr, udp_dst, e);
+                    log::info!("[UdpGw] Ending stream {} {} <> {} with send_udpgw_packet {}", sn, &tcp_local_addr, udp_dst, e);
                     break;
                 }
-                log::debug!("[UdpGw] {} -> {} send len {}", &tcp_local_addr, udp_dst, read_len);
+                log::debug!("[UdpGw] stream {} {} -> {} send len {}", sn, &tcp_local_addr, udp_dst, read_len);
                 stream.update_activity();
             }
             ret = UdpGwClient::recv_udpgw_packet(udp_mtu, udp_timeout, &mut reader) => {
                 match ret {
+                    Err(e) => {
+                        log::warn!("[UdpGw] Ending stream {} {} <> {} with recv_udpgw_packet {}", sn, &tcp_local_addr, udp_dst, e);
+                        stream.close();
+                        break;
+                    }
                     Ok(packet) => match packet {
                         //should not received keepalive
                         UdpGwResponse::KeepAlive => {
-                            log::error!("[UdpGw] Ending {} <> {} with recv keepalive", &tcp_local_addr, udp_dst);
+                            log::error!("[UdpGw] Ending stream {} {} <> {} with recv keepalive", sn, &tcp_local_addr, udp_dst);
                             stream.close();
                             break;
                         }
                         //server udp may be timeout,can continue to receive udp data?
                         UdpGwResponse::Error => {
-                            log::info!("[UdpGw] Ending {} <> {} with recv udp error",  &tcp_local_addr, udp_dst);
+                            log::info!("[UdpGw] Ending stream {} {} <> {} with recv udp error", sn, &tcp_local_addr, udp_dst);
                             stream.update_activity();
                             continue;
                         }
                         UdpGwResponse::TcpClose => {
-                            log::error!("[UdpGw] Ending {} <> {} with tcp closed", &tcp_local_addr, udp_dst);
+                            log::error!("[UdpGw] Ending stream {} {} <> {} with tcp closed", sn, &tcp_local_addr, udp_dst);
                             stream.close();
                             break;
                         }
                         UdpGwResponse::Data(data) => {
                             use socks5_impl::protocol::StreamOperation;
                             let len = data.len();
-                            log::debug!("[UdpGw] {} <- {} receive len {}", &tcp_local_addr, udp_dst, len);
+                            log::debug!("[UdpGw] stream {} {} <- {} receive len {}", sn, &tcp_local_addr, udp_dst, len);
                             if let Err(e) = udp_stack.write_all(&data.data).await {
-                                log::error!("[UdpGw] Ending {} <> {} with send_udp_packet {}", &tcp_local_addr, udp_dst, e);
+                                log::error!("[UdpGw] Ending stream {} {} <> {} with send_udp_packet {}", sn, &tcp_local_addr, udp_dst, e);
                                 break;
                             }
                             crate::traffic_status::traffic_status_update(0, len)?;
                         }
-                    },
-                    Err(e) => {
-                        log::warn!("[UdpGw] Ending {} <> {} with recv_udpgw_packet {}", &tcp_local_addr, udp_dst, e);
-                        break;
                     }
                 }
                 stream.update_activity();
@@ -588,7 +599,7 @@ async fn handle_udp_gateway_session(
     }
 
     if !stream.is_closed() {
-        udpgw_client.release_server_connection_full(stream, reader, writer).await;
+        udpgw_client.store_server_connection_full(stream, reader, writer).await;
     }
 
     Ok(())
