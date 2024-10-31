@@ -506,7 +506,7 @@ async fn handle_udp_gateway_session(
                 }
             }
             None => {
-                if udpgw_client.is_full() {
+                if !udpgw_client.is_in_heartbeat_progress() && udpgw_client.is_full().await {
                     return Err("max udpgw connection limit reached".into());
                 }
                 let mut tcp_server_stream = create_tcp_stream(&socket_queue, proxy_server_addr).await?;
@@ -543,13 +543,13 @@ async fn handle_udp_gateway_session(
                     }
                     Ok(n) => n,
                     Err(e) => {
-                        log::info!("[UdpGw] Ending stream {} {} <> {} with recv_udp_packet {}", sn, &tcp_local_addr, udp_dst, e);
+                        log::info!("[UdpGw] Ending stream {} {} <> {} with udp stack \"{}\"", sn, &tcp_local_addr, udp_dst, e);
                         break;
                     }
                 };
                 crate::traffic_status::traffic_status_update(read_len, 0)?;
-                let new_id = stream.new_packet_id();
-                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, &tmp_buf[0..read_len], udp_dst, new_id, &mut writer).await {
+                let sn = stream.serial_number();
+                if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, &tmp_buf[0..read_len], udp_dst, sn, &mut writer).await {
                     log::info!("[UdpGw] Ending stream {} {} <> {} with send_udpgw_packet {}", sn, &tcp_local_addr, udp_dst, e);
                     break;
                 }
@@ -584,7 +584,8 @@ async fn handle_udp_gateway_session(
                         UdpGwResponse::Data(data) => {
                             use socks5_impl::protocol::StreamOperation;
                             let len = data.len();
-                            log::debug!("[UdpGw] stream {} {} <- {} receive len {}", sn, &tcp_local_addr, udp_dst, len);
+                            let f = data.header.flags;
+                            log::debug!("[UdpGw] stream {sn} {} <- {} receive {f} len {len}", &tcp_local_addr, udp_dst);
                             if let Err(e) = udp_stack.write_all(&data.data).await {
                                 log::error!("[UdpGw] Ending stream {} {} <> {} with send_udp_packet {}", sn, &tcp_local_addr, udp_dst, e);
                                 break;

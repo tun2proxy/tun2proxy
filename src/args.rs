@@ -116,10 +116,10 @@ pub struct Args {
     #[arg(long, value_name = "IP:PORT")]
     pub udpgw_server: Option<SocketAddr>,
 
-    /// Max udpgw connections, default value is 100
+    /// Max udpgw connections, default value is 5
     #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "number", requires = "udpgw_server")]
-    pub udpgw_max_connections: Option<u16>,
+    pub udpgw_max_connections: Option<usize>,
 }
 
 fn validate_tun(p: &str) -> Result<String> {
@@ -201,7 +201,7 @@ impl Args {
     }
 
     #[cfg(feature = "udpgw")]
-    pub fn udpgw_max_connections(&mut self, udpgw_max_connections: u16) -> &mut Self {
+    pub fn udpgw_max_connections(&mut self, udpgw_max_connections: usize) -> &mut Self {
         self.udpgw_max_connections = Some(udpgw_max_connections);
         self
     }

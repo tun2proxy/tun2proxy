@@ -12,7 +12,7 @@ use tokio::{
 };
 
 pub(crate) const UDPGW_LENGTH_FIELD_SIZE: usize = std::mem::size_of::<u16>();
-pub(crate) const UDPGW_MAX_CONNECTIONS: u16 = 100;
+pub(crate) const UDPGW_MAX_CONNECTIONS: usize = 5;
 pub(crate) const UDPGW_KEEPALIVE_TIME: tokio::time::Duration = std::time::Duration::from_secs(10);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -34,7 +34,7 @@ impl std::fmt::Display for UdpFlag {
             0x02 => "DATA",
             n => return write!(f, "Unknown UdpFlag(0x{:02X})", n),
         };
-        write!(f, "UdpFlag({})", flag)
+        write!(f, "{}", flag)
     }
 }
 
@@ -51,8 +51,6 @@ impl std::ops::BitOr for UdpFlag {
         UdpFlag(self.0 | rhs.0)
     }
 }
-
-static TCP_COUNTER: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
 /// UDP Gateway Packet Format
 ///
@@ -250,8 +248,7 @@ pub struct UdpgwHeader {
 
 impl std::fmt::Display for UdpgwHeader {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let id = self.conn_id;
-        write!(f, "flags: {}, conn_id: {}", self.flags, id)
+        write!(f, "{} conn_id: {}", self.flags, self.conn_id)
     }
 }
 
@@ -329,23 +326,27 @@ pub(crate) enum UdpGwResponse {
     Data(Packet),
 }
 
-static SERIAL_NUMBER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
+impl std::fmt::Display for UdpGwResponse {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            UdpGwResponse::KeepAlive => write!(f, "KeepAlive"),
+            UdpGwResponse::Error => write!(f, "Error"),
+            UdpGwResponse::TcpClose => write!(f, "TcpClose"),
+            UdpGwResponse::Data(packet) => write!(f, "Data({})", packet),
+        }
+    }
+}
+
+static SERIAL_NUMBER: std::sync::atomic::AtomicU16 = std::sync::atomic::AtomicU16::new(1);
 
 #[derive(Debug)]
 pub(crate) struct UdpGwClientStream {
     local_addr: SocketAddr,
     writer: Option<OwnedWriteHalf>,
     reader: Option<OwnedReadHalf>,
-    conn_id: u16,
     closed: bool,
     last_activity: std::time::Instant,
-    serial_number: u64,
-}
-
-impl Drop for UdpGwClientStream {
-    fn drop(&mut self) {
-        TCP_COUNTER.fetch_sub(1, Relaxed);
-    }
+    serial_number: u16,
 }
 
 impl UdpGwClientStream {
@@ -381,20 +382,14 @@ impl UdpGwClientStream {
         self.closed
     }
 
-    pub fn serial_number(&self) -> u64 {
+    pub fn serial_number(&self) -> u16 {
         self.serial_number
-    }
-
-    pub fn new_packet_id(&mut self) -> u16 {
-        self.conn_id += 1;
-        self.conn_id
     }
 
     pub fn new(tcp_server_stream: TcpStream) -> Self {
         let default = "0.0.0.0:0".parse::<SocketAddr>().unwrap();
         let local_addr = tcp_server_stream.local_addr().unwrap_or(default);
         let (reader, writer) = tcp_server_stream.into_split();
-        TCP_COUNTER.fetch_add(1, Relaxed);
         let serial_number = SERIAL_NUMBER.fetch_add(1, Relaxed);
         UdpGwClientStream {
             local_addr,
@@ -402,7 +397,6 @@ impl UdpGwClientStream {
             writer: Some(writer),
             last_activity: std::time::Instant::now(),
             closed: false,
-            conn_id: 0,
             serial_number,
         }
     }
@@ -411,16 +405,17 @@ impl UdpGwClientStream {
 #[derive(Debug)]
 pub(crate) struct UdpGwClient {
     udp_mtu: u16,
-    max_connections: u16,
+    max_connections: usize,
     udp_timeout: u64,
     keepalive_time: Duration,
     udpgw_server: SocketAddr,
     server_connections: Mutex<VecDeque<UdpGwClientStream>>,
+    is_in_heartbeat: std::sync::atomic::AtomicBool,
 }
 
 impl UdpGwClient {
-    pub fn new(udp_mtu: u16, max_connections: u16, keepalive_time: Duration, udp_timeout: u64, udpgw_server: SocketAddr) -> Self {
-        let server_connections = Mutex::new(VecDeque::with_capacity(max_connections as usize));
+    pub fn new(udp_mtu: u16, max_connections: usize, keepalive_time: Duration, udp_timeout: u64, udpgw_server: SocketAddr) -> Self {
+        let server_connections = Mutex::new(VecDeque::with_capacity(max_connections));
         UdpGwClient {
             udp_mtu,
             max_connections,
@@ -428,6 +423,7 @@ impl UdpGwClient {
             udpgw_server,
             keepalive_time,
             server_connections,
+            is_in_heartbeat: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -439,8 +435,8 @@ impl UdpGwClient {
         self.udp_timeout
     }
 
-    pub(crate) fn is_full(&self) -> bool {
-        TCP_COUNTER.load(Relaxed) >= self.max_connections as u32
+    pub(crate) async fn is_full(&self) -> bool {
+        self.server_connections.lock().await.len() >= self.max_connections
     }
 
     pub(crate) async fn pop_server_connection_from_queue(&self) -> Option<UdpGwClientStream> {
@@ -448,13 +444,13 @@ impl UdpGwClient {
     }
 
     pub(crate) async fn store_server_connection(&self, stream: UdpGwClientStream) {
-        if self.server_connections.lock().await.len() < self.max_connections as usize {
+        if self.server_connections.lock().await.len() < self.max_connections {
             self.server_connections.lock().await.push_back(stream);
         }
     }
 
     pub(crate) async fn store_server_connection_full(&self, mut stream: UdpGwClientStream, reader: OwnedReadHalf, writer: OwnedWriteHalf) {
-        if self.server_connections.lock().await.len() < self.max_connections as usize {
+        if self.server_connections.lock().await.len() < self.max_connections {
             stream.set_reader(Some(reader));
             stream.set_writer(Some(writer));
             self.server_connections.lock().await.push_back(stream);
@@ -465,54 +461,59 @@ impl UdpGwClient {
         self.udpgw_server
     }
 
+    pub(crate) fn is_in_heartbeat_progress(&self) -> bool {
+        self.is_in_heartbeat.load(Relaxed)
+    }
+
     /// Heartbeat task asynchronous function to periodically check and maintain the active state of the server connection.
     pub(crate) async fn heartbeat_task(&self) -> std::io::Result<()> {
         loop {
+            self.is_in_heartbeat.store(false, Relaxed);
             sleep(self.keepalive_time).await;
-            let Some(mut stream) = self.pop_server_connection_from_queue().await else {
-                continue;
-            };
+            self.is_in_heartbeat.store(true, Relaxed);
+            let mut streams = Vec::new();
 
-            if stream.is_closed() {
-                // This stream will be dropped
-                continue;
-            }
-
-            if stream.last_activity.elapsed() < self.keepalive_time {
-                self.store_server_connection(stream).await;
-                continue;
-            }
-
-            let Some(mut stream_reader) = stream.get_reader() else {
-                continue;
-            };
-
-            let Some(mut stream_writer) = stream.get_writer() else {
-                continue;
-            };
-            let local_addr = stream_writer.local_addr()?;
-            let sn = stream.serial_number();
-            log::trace!("stream {} {:?} send keepalive", sn, local_addr);
-            let keepalive_packet: Vec<u8> = Packet::build_keepalive_packet(stream.new_packet_id()).into();
-            if let Err(e) = stream_writer.write_all(&keepalive_packet).await {
-                log::warn!("stream {} {:?} send keepalive failed: {}", sn, local_addr, e);
-                continue;
-            }
-            match UdpGwClient::recv_udpgw_packet(self.udp_mtu, 10, &mut stream_reader).await {
-                Ok(UdpGwResponse::KeepAlive) => {
-                    stream.update_activity();
-                    self.store_server_connection_full(stream, stream_reader, stream_writer).await;
-                    log::trace!("stream {} {:?} keepalive success", sn, local_addr);
+            while let Some(stream) = self.pop_server_connection_from_queue().await {
+                if !stream.is_closed() {
+                    streams.push(stream);
                 }
-                Ok(v) => log::warn!("stream {} {:?} keepalive unexpected response: {:?}", sn, local_addr, v),
-                Err(e) => log::warn!("stream {} {:?} keepalive no response, error \"{}\"", sn, local_addr, e),
+            }
+
+            for mut stream in streams {
+                if stream.last_activity.elapsed() < self.keepalive_time {
+                    self.store_server_connection(stream).await;
+                    continue;
+                }
+
+                let Some(mut stream_reader) = stream.get_reader() else {
+                    continue;
+                };
+
+                let Some(mut stream_writer) = stream.get_writer() else {
+                    continue;
+                };
+                let local_addr = stream_writer.local_addr()?;
+                let sn = stream.serial_number();
+                let keepalive_packet: Vec<u8> = Packet::build_keepalive_packet(sn).into();
+                if let Err(e) = stream_writer.write_all(&keepalive_packet).await {
+                    log::warn!("stream {} {:?} send keepalive failed: {}", sn, local_addr, e);
+                    continue;
+                }
+                match UdpGwClient::recv_udpgw_packet(self.udp_mtu, self.udp_timeout, &mut stream_reader).await {
+                    Ok(UdpGwResponse::KeepAlive) => {
+                        stream.update_activity();
+                        self.store_server_connection_full(stream, stream_reader, stream_writer).await;
+                        log::trace!("stream {sn} {:?} send keepalive and recieve it successfully", local_addr);
+                    }
+                    Ok(v) => log::debug!("stream {sn} {:?} keepalive unexpected response: {v}", local_addr),
+                    Err(e) => log::debug!("stream {sn} {:?} keepalive no response, error \"{e}\"", local_addr),
+                }
             }
         }
     }
 
     /// Parses the UDP response data.
-    pub(crate) fn parse_udp_response(udp_mtu: u16, data: &[u8]) -> Result<UdpGwResponse> {
-        let packet = Packet::try_from(data)?;
+    pub(crate) fn parse_udp_response(udp_mtu: u16, packet: Packet) -> Result<UdpGwResponse> {
         let flags = packet.header.flags;
         if flags & UdpFlag::ERR == UdpFlag::ERR {
             return Ok(UdpGwResponse::Error);
@@ -538,14 +539,13 @@ impl UdpGwClient {
     /// # Returns
     /// - `Result<UdpGwResponse>`: Returns a result type containing the parsed UDP gateway response, or an error if one occurs.
     pub(crate) async fn recv_udpgw_packet(udp_mtu: u16, udp_timeout: u64, stream: &mut OwnedReadHalf) -> Result<UdpGwResponse> {
-        let mut data = vec![0; udp_mtu.into()];
-        let data_len = tokio::time::timeout(tokio::time::Duration::from_secs(udp_timeout + 2), stream.read(&mut data))
-            .await
-            .map_err(std::io::Error::from)??;
-        if data_len == 0 {
-            return Ok(UdpGwResponse::TcpClose);
-        }
-        UdpGwClient::parse_udp_response(udp_mtu, &data[..data_len])
+        let packet = tokio::time::timeout(
+            tokio::time::Duration::from_secs(udp_timeout + 2),
+            Packet::retrieve_from_async_stream(stream),
+        )
+        .await
+        .map_err(std::io::Error::from)??;
+        UdpGwClient::parse_udp_response(udp_mtu, packet)
     }
 
     /// Sends a UDP gateway packet.
