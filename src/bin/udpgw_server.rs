@@ -60,7 +60,7 @@ impl UdpGwArgs {
     }
 }
 
-async fn send_error(tx: Sender<Packet>, conn_id: u16) {
+async fn send_error_response(tx: Sender<Packet>, conn_id: u16) {
     let error_packet = Packet::build_error_packet(conn_id);
     if let Err(e) = tx.send(error_packet).await {
         log::error!("send error response error {:?}", e);
@@ -97,12 +97,12 @@ async fn process_udp(client: SocketAddr, udp_mtu: u16, udp_timeout: u64, tx: Sen
     };
     // 1. send udp data to destination server
     socket.send_to(&packet.data, &dst_addr).await?;
-    packet.data.resize(udp_mtu as usize, 0);
     // 2. receive response from destination server
-    let (len, _addr) = tokio::time::timeout(tokio::time::Duration::from_secs(udp_timeout), socket.recv_from(&mut packet.data))
+    let mut buf = vec![0u8; udp_mtu as usize];
+    let (len, _addr) = tokio::time::timeout(tokio::time::Duration::from_secs(udp_timeout), socket.recv_from(&mut buf))
         .await
         .map_err(std::io::Error::from)??;
-    packet.data.truncate(len);
+    packet.data = buf[..len].to_vec();
     // 3. send response back to client
     use std::io::{Error, ErrorKind::BrokenPipe};
     tx.send(packet).await.map_err(|e| Error::new(BrokenPipe, e))?;
@@ -119,7 +119,7 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Packet>, mut client
         let packet = match res {
             Ok(Ok(packet)) => packet,
             Ok(Err(e)) => {
-                log::error!("client {} retrieve_from_async_stream \"{}\"", client.addr, e);
+                log::debug!("client {} retrieve_from_async_stream \"{}\"", client.addr, e);
                 break;
             }
             Err(e) => {
@@ -146,8 +146,8 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Packet>, mut client
         let tx = tx.clone();
         tokio::spawn(async move {
             if let Err(e) = process_udp(client.addr, udp_mtu, udp_timeout, tx.clone(), packet).await {
-                send_error(tx, conn_id).await;
-                log::error!("client {} process udp function {}", client.addr, e);
+                send_error_response(tx, conn_id).await;
+                log::debug!("client {} process udp function \"{e}\"", client.addr);
             }
         });
     }
@@ -162,32 +162,6 @@ async fn write_to_client(addr: SocketAddr, mut writer: WriteHalf<'_>, mut rx: Re
         let data: Vec<u8> = packet.into();
         let _r = writer.write(&data).await?;
     }
-}
-
-fn main() -> Result<(), BoxError> {
-    dotenvy::dotenv().ok();
-    let args = UdpGwArgs::parse_args();
-
-    let default = format!("{:?}", args.verbosity);
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
-
-    #[cfg(unix)]
-    if args.daemonize {
-        let stdout = std::fs::File::create("/tmp/udpgw.out")?;
-        let stderr = std::fs::File::create("/tmp/udpgw.err")?;
-        let daemonize = daemonize::Daemonize::new()
-            .working_directory("/tmp")
-            .umask(0o777)
-            .stdout(stdout)
-            .stderr(stderr)
-            .privileged_action(|| "Executed before drop privileges");
-        let _ = daemonize
-            .start()
-            .map_err(|e| format!("Failed to daemonize process, error:{:?}", e))?;
-    }
-
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-    rt.block_on(main_async(args))
 }
 
 async fn main_async(args: UdpGwArgs) -> Result<(), BoxError> {
@@ -237,4 +211,30 @@ pub async fn run(args: UdpGwArgs, shutdown_token: tokio_util::sync::Cancellation
         });
     }
     Ok::<(), Error>(())
+}
+
+fn main() -> Result<(), BoxError> {
+    dotenvy::dotenv().ok();
+    let args = UdpGwArgs::parse_args();
+
+    let default = format!("{:?}", args.verbosity);
+    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
+
+    #[cfg(unix)]
+    if args.daemonize {
+        let stdout = std::fs::File::create("/tmp/udpgw.out")?;
+        let stderr = std::fs::File::create("/tmp/udpgw.err")?;
+        let daemonize = daemonize::Daemonize::new()
+            .working_directory("/tmp")
+            .umask(0o777)
+            .stdout(stdout)
+            .stderr(stderr)
+            .privileged_action(|| "Executed before drop privileges");
+        let _ = daemonize
+            .start()
+            .map_err(|e| format!("Failed to daemonize process, error:{:?}", e))?;
+    }
+
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    rt.block_on(main_async(args))
 }
