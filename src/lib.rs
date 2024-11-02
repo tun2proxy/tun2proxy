@@ -506,9 +506,6 @@ async fn handle_udp_gateway_session(
                 }
             }
             None => {
-                if !udpgw_client.is_in_heartbeat_progress() && udpgw_client.is_full().await {
-                    return Err("max udpgw connection limit reached".into());
-                }
                 let mut tcp_server_stream = create_tcp_stream(&socket_queue, proxy_server_addr).await?;
                 if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
                     return Err(format!("udpgw connection error: {}", e).into());

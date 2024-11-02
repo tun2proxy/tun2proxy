@@ -13,7 +13,7 @@ use tokio::{
 
 pub(crate) const UDPGW_LENGTH_FIELD_SIZE: usize = std::mem::size_of::<u16>();
 pub(crate) const UDPGW_MAX_CONNECTIONS: usize = 5;
-pub(crate) const UDPGW_KEEPALIVE_TIME: tokio::time::Duration = std::time::Duration::from_secs(10);
+pub(crate) const UDPGW_KEEPALIVE_TIME: tokio::time::Duration = std::time::Duration::from_secs(30);
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub struct UdpFlag(pub u8);
@@ -410,7 +410,6 @@ pub(crate) struct UdpGwClient {
     keepalive_time: Duration,
     udpgw_server: SocketAddr,
     server_connections: Mutex<VecDeque<UdpGwClientStream>>,
-    is_in_heartbeat: std::sync::atomic::AtomicBool,
 }
 
 impl UdpGwClient {
@@ -423,7 +422,6 @@ impl UdpGwClient {
             udpgw_server,
             keepalive_time,
             server_connections,
-            is_in_heartbeat: std::sync::atomic::AtomicBool::new(false),
         }
     }
 
@@ -433,10 +431,6 @@ impl UdpGwClient {
 
     pub(crate) fn get_udp_timeout(&self) -> u64 {
         self.udp_timeout
-    }
-
-    pub(crate) async fn is_full(&self) -> bool {
-        self.server_connections.lock().await.len() >= self.max_connections
     }
 
     pub(crate) async fn pop_server_connection_from_queue(&self) -> Option<UdpGwClientStream> {
@@ -461,16 +455,10 @@ impl UdpGwClient {
         self.udpgw_server
     }
 
-    pub(crate) fn is_in_heartbeat_progress(&self) -> bool {
-        self.is_in_heartbeat.load(Relaxed)
-    }
-
     /// Heartbeat task asynchronous function to periodically check and maintain the active state of the server connection.
     pub(crate) async fn heartbeat_task(&self) -> std::io::Result<()> {
         loop {
-            self.is_in_heartbeat.store(false, Relaxed);
             sleep(self.keepalive_time).await;
-            self.is_in_heartbeat.store(true, Relaxed);
             let mut streams = Vec::new();
 
             while let Some(stream) = self.pop_server_connection_from_queue().await {
