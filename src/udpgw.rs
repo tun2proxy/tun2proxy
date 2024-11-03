@@ -467,6 +467,8 @@ impl UdpGwClient {
                 }
             }
 
+            let (mut tx, mut rx) = (0, 0);
+
             for mut stream in streams {
                 if stream.last_activity.elapsed() < self.keepalive_time {
                     self.store_server_connection(stream).await;
@@ -483,20 +485,26 @@ impl UdpGwClient {
                 let local_addr = stream_writer.local_addr()?;
                 let sn = stream.serial_number();
                 let keepalive_packet: Vec<u8> = Packet::build_keepalive_packet(sn).into();
+                tx += keepalive_packet.len();
                 if let Err(e) = stream_writer.write_all(&keepalive_packet).await {
                     log::warn!("stream {} {:?} send keepalive failed: {}", sn, local_addr, e);
                     continue;
                 }
                 match UdpGwClient::recv_udpgw_packet(self.udp_mtu, self.udp_timeout, &mut stream_reader).await {
-                    Ok(UdpGwResponse::KeepAlive) => {
+                    Ok((len, UdpGwResponse::KeepAlive)) => {
                         stream.update_activity();
                         self.store_server_connection_full(stream, stream_reader, stream_writer).await;
                         log::trace!("stream {sn} {:?} send keepalive and recieve it successfully", local_addr);
+                        rx += len;
                     }
-                    Ok(v) => log::debug!("stream {sn} {:?} keepalive unexpected response: {v}", local_addr),
+                    Ok((len, v)) => {
+                        log::debug!("stream {sn} {:?} keepalive unexpected response: {v}", local_addr);
+                        rx += len;
+                    }
                     Err(e) => log::debug!("stream {sn} {:?} keepalive no response, error \"{e}\"", local_addr),
                 }
             }
+            crate::traffic_status::traffic_status_update(tx, rx)?;
         }
     }
 
@@ -526,14 +534,14 @@ impl UdpGwClient {
     ///
     /// # Returns
     /// - `Result<UdpGwResponse>`: Returns a result type containing the parsed UDP gateway response, or an error if one occurs.
-    pub(crate) async fn recv_udpgw_packet(udp_mtu: u16, udp_timeout: u64, stream: &mut OwnedReadHalf) -> Result<UdpGwResponse> {
+    pub(crate) async fn recv_udpgw_packet(udp_mtu: u16, udp_timeout: u64, stream: &mut OwnedReadHalf) -> Result<(usize, UdpGwResponse)> {
         let packet = tokio::time::timeout(
             tokio::time::Duration::from_secs(udp_timeout + 2),
             Packet::retrieve_from_async_stream(stream),
         )
         .await
         .map_err(std::io::Error::from)??;
-        UdpGwClient::parse_udp_response(udp_mtu, packet)
+        Ok((packet.len(), UdpGwClient::parse_udp_response(udp_mtu, packet)?))
     }
 
     /// Sends a UDP gateway packet.

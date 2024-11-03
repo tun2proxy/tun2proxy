@@ -555,13 +555,16 @@ async fn handle_udp_gateway_session(
                 stream.update_activity();
             }
             ret = UdpGwClient::recv_udpgw_packet(udp_mtu, udp_timeout, &mut reader) => {
+                if let Ok((len, _)) = ret {
+                    crate::traffic_status::traffic_status_update(0, len)?;
+                }
                 match ret {
                     Err(e) => {
                         log::warn!("[UdpGw] Ending stream {} {} <> {} with recv_udpgw_packet {}", sn, &tcp_local_addr, udp_dst, e);
                         stream.close();
                         break;
                     }
-                    Ok(packet) => match packet {
+                    Ok((_, packet)) => match packet {
                         //should not received keepalive
                         UdpGwResponse::KeepAlive => {
                             log::error!("[UdpGw] Ending stream {} {} <> {} with recv keepalive", sn, &tcp_local_addr, udp_dst);
@@ -588,7 +591,6 @@ async fn handle_udp_gateway_session(
                                 log::error!("[UdpGw] Ending stream {} {} <> {} with send_udp_packet {}", sn, &tcp_local_addr, udp_dst, e);
                                 break;
                             }
-                            crate::traffic_status::traffic_status_update(0, len)?;
                         }
                     }
                 }

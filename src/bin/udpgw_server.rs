@@ -1,4 +1,4 @@
-use socks5_impl::protocol::{AddressType, AsyncStreamOperation};
+use socks5_impl::protocol::AsyncStreamOperation;
 use std::net::SocketAddr;
 use tokio::{
     io::AsyncWriteExt,
@@ -44,7 +44,7 @@ pub struct UdpGwArgs {
 
     /// Daemonize for unix family or run as Windows service
     #[cfg(unix)]
-    #[arg(long)]
+    #[arg(short, long)]
     pub daemonize: bool,
 
     /// Verbosity level
@@ -76,25 +76,22 @@ async fn send_keepalive_response(tx: Sender<Packet>, conn_id: u16) {
 
 /// Send data field of packet from client to destination server and receive response,
 /// then wrap response data to the packet's data field and send packet back to client.
-async fn process_udp(client: SocketAddr, udp_mtu: u16, udp_timeout: u64, tx: Sender<Packet>, mut packet: Packet) -> Result<()> {
+async fn process_udp(_client: SocketAddr, udp_mtu: u16, udp_timeout: u64, tx: Sender<Packet>, mut packet: Packet) -> Result<()> {
     let Some(dst_addr) = &packet.address else {
-        log::error!("client {} udp request address is None", client);
-        return Ok(());
+        return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "udp request address is None").into());
     };
-    let std_sock = if dst_addr.get_type() == AddressType::IPv6 {
-        std::net::UdpSocket::bind("[::]:0")?
-    } else {
-        std::net::UdpSocket::bind("0.0.0.0:0")?
+    use std::net::ToSocketAddrs;
+    let Some(dst_addr) = dst_addr.to_socket_addrs()?.next() else {
+        return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "to_socket_addrs").into());
+    };
+    let std_sock = match dst_addr {
+        std::net::SocketAddr::V6(_) => std::net::UdpSocket::bind("[::]:0")?,
+        std::net::SocketAddr::V4(_) => std::net::UdpSocket::bind("0.0.0.0:0")?,
     };
     std_sock.set_nonblocking(true)?;
     #[cfg(unix)]
     nix::sys::socket::setsockopt(&std_sock, nix::sys::socket::sockopt::ReuseAddr, &true)?;
     let socket = UdpSocket::from_std(std_sock)?;
-    use std::net::ToSocketAddrs;
-    let Some(dst_addr) = dst_addr.to_socket_addrs()?.next() else {
-        log::error!("client {} udp request address to_socket_addrs", client);
-        return Ok(());
-    };
     // 1. send udp data to destination server
     socket.send_to(&packet.data, &dst_addr).await?;
     // 2. receive response from destination server
