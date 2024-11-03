@@ -160,8 +160,9 @@ Options:
       --daemonize                          Daemonize for unix family or run as Windows service
       --exit-on-fatal-error                Exit immediately when fatal error occurs, useful for running as a service
       --max-sessions <number>              Maximum number of sessions to be handled concurrently [default: 200]
-      --udpgw-server <IP:PORT>             UDP gateway server address, similar to badvpn-udpgw
-      --udpgw-max-connections <number>     Max udpgw connections, default value is 5
+      --udpgw-server <IP:PORT>             UDP gateway server address, forwards UDP packets via specified TCP server
+      --udpgw-connections <number>         Max connections for the UDP gateway, default value is 5
+      --udpgw-keepalive <seconds>          Keepalive interval in seconds for the UDP gateway, default value is 30
   -h, --help                               Print help
   -V, --version                            Print version
 ```

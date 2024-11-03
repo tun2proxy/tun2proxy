@@ -240,14 +240,15 @@ where
     let mut ip_stack = ipstack::IpStack::new(ipstack_config, device);
 
     #[cfg(feature = "udpgw")]
-    let udpgw_client = args.udpgw_server.as_ref().map(|addr| {
-        log::info!("UDPGW enabled");
+    let udpgw_client = args.udpgw_server.map(|addr| {
+        log::info!("UDP Gateway enabled, server: {}", addr);
+        use std::time::Duration;
         let client = Arc::new(UdpGwClient::new(
             mtu,
-            args.udpgw_max_connections.unwrap_or(UDPGW_MAX_CONNECTIONS),
-            UDPGW_KEEPALIVE_TIME,
+            args.udpgw_connections.unwrap_or(UDPGW_MAX_CONNECTIONS),
+            args.udpgw_keepalive.map(Duration::from_secs).unwrap_or(UDPGW_KEEPALIVE_TIME),
             args.udp_timeout,
-            *addr,
+            addr,
         ));
         let client_keepalive = client.clone();
         tokio::spawn(async move {
