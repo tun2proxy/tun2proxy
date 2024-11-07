@@ -34,7 +34,7 @@ log = { version = "0.4", features = ["std"] }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 percent-encoding = "2"
 socks5-impl = { version = "0.5" }
-thiserror = "1"
+thiserror = "2"
 tokio = { version = "1", features = ["full"] }
 tokio-util = "0.7"
 tproxy-config = { version = "6", default-features = false }
