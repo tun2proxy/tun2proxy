@@ -218,7 +218,7 @@ impl StreamOperation for Packet {
 impl AsyncStreamOperation for Packet {
     async fn retrieve_from_async_stream<R>(r: &mut R) -> std::io::Result<Self>
     where
-        R: tokio::io::AsyncRead + Unpin + Send,
+        R: tokio::io::AsyncRead + Unpin + Send + ?Sized,
         Self: Sized,
     {
         let mut buf = [0; UDPGW_LENGTH_FIELD_SIZE];
@@ -277,7 +277,7 @@ impl StreamOperation for UdpgwHeader {
 impl AsyncStreamOperation for UdpgwHeader {
     async fn retrieve_from_async_stream<R>(r: &mut R) -> std::io::Result<Self>
     where
-        R: tokio::io::AsyncRead + Unpin + Send,
+        R: tokio::io::AsyncRead + Unpin + Send + ?Sized,
         Self: Sized,
     {
         let mut buf = [0; UdpgwHeader::static_len()];
