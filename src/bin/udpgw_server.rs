@@ -29,6 +29,7 @@ impl Client {
 }
 
 #[derive(Debug, Clone, clap::Parser)]
+#[command(author, version, about = "UDP Gateway Server for tun2proxy", long_about = None)]
 pub struct UdpGwArgs {
     /// UDP gateway listen address
     #[arg(short, long, value_name = "IP:PORT", default_value = "127.0.0.1:7300")]
