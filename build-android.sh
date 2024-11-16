@@ -108,7 +108,7 @@ function build_android() {
         cp $BASE/target/$target/${mode2}/lib${name}.a $android_libs/${target_dir}/lib${name}.a
     done
 
-    cbindgen -c $BASE/cbindgen.toml -l C --cpp-compat -o $android_libs/$name.h
+    cbindgen -c $BASE/cbindgen.toml -o $android_libs/$name.h
 }
 
 function main() {

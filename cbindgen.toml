@@ -1,3 +1,6 @@
+language = "C"
+cpp_compat = true
+
 [export]
 include = [
     "tun2proxy_with_fd_run",
@@ -10,6 +13,7 @@ include = [
 exclude = [
     "Java_com_github_shadowsocks_bg_Tun2proxy_run",
     "Java_com_github_shadowsocks_bg_Tun2proxy_stop",
+    "UdpFlag",
 ]
 
 [export.rename]
