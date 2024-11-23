@@ -1,8 +1,10 @@
+[![tun2proxy](https://socialify.git.ci/tun2proxy/tun2proxy/image?description=1&language=1&name=1&stargazers=1&theme=Light)](https://github.com/tun2proxy/tun2proxy)
+
 # tun2proxy
 A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and Windows.
 
 [![Crates.io](https://img.shields.io/crates/v/tun2proxy.svg)](https://crates.io/crates/tun2proxy)
-![tun2proxy](https://docs.rs/tun2proxy/badge.svg)
+[![tun2proxy](https://docs.rs/tun2proxy/badge.svg)](https://docs.rs/tun2proxy)
 [![Documentation](https://img.shields.io/badge/docs-release-brightgreen.svg?style=flat)](https://docs.rs/tun2proxy)
 [![Download](https://img.shields.io/crates/d/tun2proxy.svg)](https://crates.io/crates/tun2proxy)
 [![License](https://img.shields.io/crates/l/tun2proxy.svg?style=flat)](https://github.com/tun2proxy/tun2proxy/blob/master/LICENSE)
@@ -216,3 +218,10 @@ asked to open connections to IPv6 destinations. In such a case, you can disable 
 either through `sysctl -w net.ipv6.conf.all.disable_ipv6=1` and `sysctl -w net.ipv6.conf.default.disable_ipv6=1`
 or through `ip -6 route del default`, which causes the `libc` resolver (and other software) to not issue DNS AAAA
 requests for IPv6 addresses.
+
+## Contributors ✨
+Thanks goes to these wonderful people:
+
+<a href="https://github.com/tun2proxy/tun2proxy/graphs/contributors">
+  <img src="https://contrib.rocks/image?repo=tun2proxy/tun2proxy" />
+</a>
