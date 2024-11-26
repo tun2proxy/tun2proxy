@@ -200,7 +200,7 @@ docker run -it \
 ```
 ### Docker Compose
 
-The above docker command is written into a `docker-compose.yaml` file.
+Write a `docker-compose.yaml` file with the following content:
 
 ```yaml
 services:
@@ -222,7 +222,7 @@ services:
     command: apk add curl && curl ifconfig.icu && sleep 10
 ```
 
-run compose file
+Then run the compose file
 
 ```bash
 docker compose up -d tun2proxy
