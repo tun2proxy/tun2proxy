@@ -397,7 +397,7 @@ impl TryFrom<&str> for ArgProxy {
 
         let mut url_host = String::from(host);
         let e = format!("`{s}` does not contain a port");
-        let port = url.port().ok_or(Error::from(&e))?;
+        let port = url.port_or_known_default().ok_or(Error::from(&e))?;
         url_host.push(':');
         url_host.push_str(port.to_string().as_str());
 
