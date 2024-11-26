@@ -395,17 +395,11 @@ impl TryFrom<&str> for ArgProxy {
         let e = format!("`{s}` does not contain a host");
         let host = url.host_str().ok_or(Error::from(e))?;
 
-        let mut url_host = String::from(host);
         let e = format!("`{s}` does not contain a port");
         let port = url.port_or_known_default().ok_or(Error::from(&e))?;
-        url_host.push(':');
-        url_host.push_str(port.to_string().as_str());
 
-        let e = format!("`{host}` could not be resolved");
-        let mut addr_iter = url_host.to_socket_addrs().map_err(|_| Error::from(&e))?;
-
-        let e = format!("`{host}` does not resolve to a usable IP address");
-        let addr = addr_iter.next().ok_or(Error::from(&e))?;
+        let e2 = format!("`{host}` does not resolve to a usable IP address");
+        let addr = (host, port).to_socket_addrs()?.next().ok_or(Error::from(&e2))?;
 
         let credentials = if url.username() == "" && url.password().is_none() {
             None
