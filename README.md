@@ -172,7 +172,8 @@ Currently, tun2proxy supports HTTP, SOCKS4/SOCKS4a and SOCKS5. A proxy is suppli
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is
 supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogously to curl's `--proxy` argument.
 
-## Docker Support
+## Container Support
+### Docker
 Tun2proxy can serve as a proxy for other Docker containers. To make use of that feature, first build the image:
 
 ```bash
@@ -196,6 +197,36 @@ You can then provide the running container's network to another worker container
 docker run -it \
 	--network "container:tun2proxy" \
 	ubuntu:latest
+```
+### Docker Compose
+
+The above docker command is written into a `docker-compose.yaml` file.
+
+```yaml
+services:
+  tun2proxy:
+    volumes:
+      - /dev/net/tun:/dev/net/tun
+    sysctls:
+      - net.ipv6.conf.default.disable_ipv6=0
+    cap_add:
+      - NET_ADMIN
+    container_name: tun2proxy
+    image: ghcr.io/tun2proxy/tun2proxy:latest
+    command: --proxy proto://[username[:password]@]host:port
+  alpine:
+    stdin_open: true
+    tty: true
+    network_mode: container:tun2proxy
+    image: alpine:latest
+    command: apk add curl && curl ifconfig.icu && sleep 10
+```
+
+run compose file
+
+```bash
+docker compose up -d tun2proxy
+docker compose up alpine
 ```
 
 ## Configuration Tips
