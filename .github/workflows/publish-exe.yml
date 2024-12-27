@@ -15,6 +15,7 @@ jobs:
       attestations: write
 
     strategy:
+      fail-fast: false
       matrix:
         target:
           - x86_64-unknown-linux-gnu
@@ -77,6 +78,7 @@ jobs:
           fi
 
       - name: Build
+        if: ${{ !cancelled() }}
         shell: bash
         run: |
           if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
@@ -112,20 +114,26 @@ jobs:
           fi
 
       - name: Upload artifacts
+        if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v4
         with:
           name: bin-${{ matrix.target }}
           path: mypubdir4/*
 
       - name: Generate artifact attestation
+        if: ${{ !cancelled() }}
         uses: actions/attest-build-provenance@v1
         with:
           subject-path: mypubdir4/*
 
       - name: Publish
+        if: ${{ !cancelled() }}
         uses: softprops/action-gh-release@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: mypubdir4/*
 
+      - name: Abort on error
+        if: ${{ failure() }}
+        run: echo "Some of jobs failed" && false
