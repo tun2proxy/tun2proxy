@@ -27,11 +27,6 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
     dns_strategy: ArgDns,
     verbosity: ArgVerbosity,
 ) -> c_int {
-    log::set_max_level(verbosity.into());
-    if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
-        log::warn!("failed to set logger: {:?}", err);
-    }
-
     let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
     let proxy = ArgProxy::try_from(proxy_url).unwrap();
 
@@ -42,7 +37,7 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
         .dns(dns_strategy)
         .verbosity(verbosity);
 
-    crate::mobile_api::mobile_run(args, tun_mtu, packet_information)
+    crate::general_api::general_run_for_api(args, tun_mtu, packet_information)
 }
 
 /// # Safety
@@ -50,5 +45,5 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
 /// Shutdown the tun2proxy component.
 #[no_mangle]
 pub unsafe extern "C" fn tun2proxy_with_fd_stop() -> c_int {
-    crate::mobile_api::mobile_stop()
+    crate::general_api::tun2proxy_stop_internal()
 }

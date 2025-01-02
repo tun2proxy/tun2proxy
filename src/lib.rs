@@ -40,25 +40,17 @@ pub use {
 #[global_allocator]
 static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
-#[cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-pub use desktop_api::desktop_run_async;
-
-#[cfg(any(target_os = "ios", target_os = "android"))]
-pub use mobile_api::{desktop_run_async, mobile_run, mobile_stop};
-
-#[cfg(target_os = "macos")]
-pub use mobile_api::{mobile_run, mobile_stop};
+pub use general_api::general_run_async;
 
 mod android;
-mod apple;
 mod args;
-mod desktop_api;
 mod directions;
 mod dns;
 mod dump_logger;
 mod error;
+mod general_api;
 mod http;
-mod mobile_api;
+mod mobile;
 mod no_proxy;
 mod proxy_handler;
 mod session_info;

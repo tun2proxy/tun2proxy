@@ -1,11 +1,9 @@
-#![cfg(any(target_os = "windows", target_os = "macos", target_os = "linux"))]
-
 use crate::{
     args::{ArgDns, ArgProxy},
     ArgVerbosity, Args,
 };
 use std::os::raw::{c_char, c_int};
-use tun::{AbstractDevice, DEFAULT_MTU as MTU};
+use tun::DEFAULT_MTU as MTU;
 
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
@@ -41,7 +39,7 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
     #[cfg(target_os = "linux")]
     args.setup(_root_privilege);
 
-    desktop_run(args)
+    general_run_for_api(args, MTU, false)
 }
 
 /// # Safety
@@ -55,45 +53,48 @@ pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char) ->
         return -5;
     };
     let args = <Args as ::clap::Parser>::parse_from(cli_args.split_whitespace());
-    desktop_run(args)
+    general_run_for_api(args, MTU, false)
 }
 
-pub fn desktop_run(args: Args) -> c_int {
+pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -> c_int {
     log::set_max_level(args.verbosity.into());
     if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
-        log::warn!("set logger error: {}", err);
+        log::debug!("set logger error: {}", err);
     }
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
-    {
-        if let Ok(mut lock) = TUN_QUIT.lock() {
-            if lock.is_some() {
-                return -1;
-            }
-            *lock = Some(shutdown_token.clone());
-        } else {
-            return -2;
+    if let Ok(mut lock) = TUN_QUIT.lock() {
+        if lock.is_some() {
+            log::error!("tun2proxy already started");
+            return -1;
         }
+        *lock = Some(shutdown_token.clone());
+    } else {
+        log::error!("failed to lock tun2proxy quit token");
+        return -2;
     }
 
     let Ok(rt) = tokio::runtime::Builder::new_multi_thread().enable_all().build() else {
+        log::error!("failed to create tokio runtime with");
         return -3;
     };
-    let res = rt.block_on(async move {
-        if let Err(err) = desktop_run_async(args, MTU, false, shutdown_token).await {
+    match rt.block_on(async move {
+        if let Err(err) = general_run_async(args, tun_mtu, packet_information, shutdown_token).await {
             log::error!("main loop error: {}", err);
             return Err(err);
         }
         Ok(())
-    });
-    match res {
+    }) {
         Ok(_) => 0,
-        Err(_) => -4,
+        Err(e) => {
+            log::error!("failed to run tun2proxy with error: {:?}", e);
+            -4
+        }
     }
 }
 
 /// Run the tun2proxy component with some arguments.
-pub async fn desktop_run_async(
+pub async fn general_run_async(
     args: Args,
     tun_mtu: u16,
     _packet_information: bool,
@@ -153,7 +154,8 @@ pub async fn desktop_run_async(
     let device = tun::create_as_async(&tun_config)?;
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-    if let Ok(tun_name) = device.tun_name() {
+    if let Ok(tun_name) = tun::AbstractDevice::tun_name(&*device) {
+        // Above line is equivalent to: `use tun::AbstractDevice; if let Ok(tun_name) = device.tun_name() {`
         tproxy_args = tproxy_args.tun_name(&tun_name);
     }
 
@@ -205,6 +207,10 @@ pub async fn desktop_run_async(
 /// Shutdown the tun2proxy component.
 #[no_mangle]
 pub unsafe extern "C" fn tun2proxy_with_name_stop() -> c_int {
+    tun2proxy_stop_internal()
+}
+
+pub(crate) fn tun2proxy_stop_internal() -> c_int {
     if let Ok(mut lock) = TUN_QUIT.lock() {
         if let Some(shutdown_token) = lock.take() {
             shutdown_token.cancel();
