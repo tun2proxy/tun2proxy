@@ -54,10 +54,8 @@ pub struct UdpGwArgs {
 }
 
 impl UdpGwArgs {
-    #[allow(clippy::let_and_return)]
     pub fn parse_args() -> Self {
-        use clap::Parser;
-        Self::parse()
+        <Self as ::clap::Parser>::parse()
     }
 }
 

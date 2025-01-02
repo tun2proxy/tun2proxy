@@ -181,8 +181,7 @@ impl Default for Args {
 impl Args {
     #[allow(clippy::let_and_return)]
     pub fn parse_args() -> Self {
-        use clap::Parser;
-        let args = Self::parse();
+        let args = <Self as ::clap::Parser>::parse();
         #[cfg(target_os = "linux")]
         if !args.setup && args.tun.is_none() {
             eprintln!("Missing required argument, '--tun' must present when '--setup' is not used.");
