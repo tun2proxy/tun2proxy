@@ -5,7 +5,6 @@ use crate::{
     ArgVerbosity, Args,
 };
 use std::os::raw::{c_char, c_int};
-use tproxy_config::{TproxyArgs, TUN_GATEWAY, TUN_IPV4, TUN_NETMASK};
 use tun::{AbstractDevice, DEFAULT_MTU as MTU};
 
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
@@ -29,6 +28,42 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
     _root_privilege: bool,
     verbosity: ArgVerbosity,
 ) -> c_int {
+    let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
+    let proxy = ArgProxy::try_from(proxy_url).unwrap();
+    let tun = std::ffi::CStr::from_ptr(tun).to_str().unwrap().to_string();
+
+    let mut args = Args::default();
+    if let Ok(bypass) = std::ffi::CStr::from_ptr(bypass).to_str() {
+        args.bypass(bypass.parse().unwrap());
+    }
+    args.proxy(proxy).tun(tun).dns(dns_strategy).verbosity(verbosity);
+
+    #[cfg(target_os = "linux")]
+    args.setup(_root_privilege);
+
+    desktop_run(args)
+}
+
+/// # Safety
+/// Run the tun2proxy component with command line arguments
+/// Parameters:
+/// - cli_args: The command line arguments,
+///   e.g. `tun2proxy-bin --setup --proxy socks5://127.0.0.1:1080 --bypass 98.76.54.0/24 --dns over-tcp --verbosity trace`
+#[no_mangle]
+pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char) -> c_int {
+    let Ok(cli_args) = std::ffi::CStr::from_ptr(cli_args).to_str() else {
+        return -5;
+    };
+    let args = <Args as ::clap::Parser>::parse_from(cli_args.split_whitespace());
+    desktop_run(args)
+}
+
+pub fn desktop_run(args: Args) -> c_int {
+    log::set_max_level(args.verbosity.into());
+    if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
+        log::warn!("set logger error: {}", err);
+    }
+
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     {
         if let Ok(mut lock) = TUN_QUIT.lock() {
@@ -41,51 +76,38 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
         }
     }
 
-    log::set_max_level(verbosity.into());
-    if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
-        log::warn!("set logger error: {}", err);
-    }
-
-    let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
-    let proxy = ArgProxy::try_from(proxy_url).unwrap();
-    let tun = std::ffi::CStr::from_ptr(tun).to_str().unwrap().to_string();
-
-    let mut args = Args::default();
-    args.proxy(proxy).tun(tun).dns(dns_strategy).verbosity(verbosity);
-
-    #[cfg(target_os = "linux")]
-    args.setup(_root_privilege);
-
-    if let Ok(bypass) = std::ffi::CStr::from_ptr(bypass).to_str() {
-        args.bypass(bypass.parse().unwrap());
-    }
-
-    let main_loop = async move {
-        if let Err(err) = desktop_run_async(args, shutdown_token).await {
+    let Ok(rt) = tokio::runtime::Builder::new_multi_thread().enable_all().build() else {
+        return -3;
+    };
+    let res = rt.block_on(async move {
+        if let Err(err) = desktop_run_async(args, MTU, false, shutdown_token).await {
             log::error!("main loop error: {}", err);
             return Err(err);
         }
         Ok(())
-    };
-
-    let exit_code = match tokio::runtime::Builder::new_multi_thread().enable_all().build() {
-        Err(_e) => -3,
-        Ok(rt) => match rt.block_on(main_loop) {
-            Ok(_) => 0,
-            Err(_e) => -4,
-        },
-    };
-
-    exit_code
+    });
+    match res {
+        Ok(_) => 0,
+        Err(_) => -4,
+    }
 }
 
 /// Run the tun2proxy component with some arguments.
-pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::CancellationToken) -> std::io::Result<()> {
-    let bypass_ips = args.bypass.clone();
-
+pub async fn desktop_run_async(
+    args: Args,
+    tun_mtu: u16,
+    _packet_information: bool,
+    shutdown_token: tokio_util::sync::CancellationToken,
+) -> std::io::Result<()> {
     let mut tun_config = tun::Configuration::default();
-    tun_config.address(TUN_IPV4).netmask(TUN_NETMASK).mtu(MTU).up();
-    tun_config.destination(TUN_GATEWAY);
+
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    {
+        use tproxy_config::{TUN_GATEWAY, TUN_IPV4, TUN_NETMASK};
+        tun_config.address(TUN_IPV4).netmask(TUN_NETMASK).mtu(tun_mtu).up();
+        tun_config.destination(TUN_GATEWAY);
+    }
+
     #[cfg(unix)]
     if let Some(fd) = args.tun_fd {
         tun_config.raw_fd(fd);
@@ -112,11 +134,17 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
         cfg.device_guid(12324323423423434234_u128);
     });
 
+    #[cfg(any(target_os = "ios", target_os = "macos"))]
+    tun_config.platform_config(|cfg| {
+        cfg.packet_information(_packet_information);
+    });
+
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     #[allow(unused_variables)]
-    let mut tproxy_args = TproxyArgs::new()
+    let mut tproxy_args = tproxy_config::TproxyArgs::new()
         .tun_dns(args.dns_addr)
         .proxy_addr(args.proxy.addr)
-        .bypass_ips(&bypass_ips)
+        .bypass_ips(&args.bypass)
         .ipv6_default_route(args.ipv6_enabled);
 
     #[allow(unused_mut, unused_assignments, unused_variables)]
@@ -124,12 +152,14 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
 
     let device = tun::create_as_async(&tun_config)?;
 
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     if let Ok(tun_name) = device.tun_name() {
         tproxy_args = tproxy_args.tun_name(&tun_name);
     }
 
     // TproxyState implements the Drop trait to restore network configuration,
     // so we need to assign it to a variable, even if it is not used.
+    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     let mut _restore: Option<tproxy_config::TproxyState> = None;
 
     #[cfg(target_os = "linux")]
@@ -166,10 +196,8 @@ pub async fn desktop_run_async(args: Args, shutdown_token: tokio_util::sync::Can
         }
     }
 
-    let join_handle = tokio::spawn(crate::run(device, MTU, args, shutdown_token));
-    join_handle.await.map_err(std::io::Error::from)??;
-
-    Ok::<(), std::io::Error>(())
+    let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));
+    Ok(join_handle.await.map_err(std::io::Error::from)??)
 }
 
 /// # Safety

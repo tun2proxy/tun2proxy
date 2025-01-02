@@ -1,3 +1,4 @@
+use tun::DEFAULT_MTU as MTU;
 use tun2proxy::{Args, BoxError};
 
 fn main() -> Result<(), BoxError> {
@@ -49,7 +50,7 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
             }
             unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
 
-            if let Err(err) = tun2proxy::desktop_run_async(args, shutdown_token).await {
+            if let Err(err) = tun2proxy::desktop_run_async(args, MTU, false, shutdown_token).await {
                 log::error!("main loop error: {}", err);
             }
         }

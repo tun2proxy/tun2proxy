@@ -78,7 +78,7 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
             }
             unsafe { crate::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
 
-            if let Err(err) = crate::desktop_run_async(args, shutdown_token).await {
+            if let Err(err) = crate::desktop_run_async(args, tun::DEFAULT_MTU, false, shutdown_token).await {
                 log::error!("main loop error: {}", err);
             }
             Ok::<(), crate::Error>(())
