@@ -47,6 +47,52 @@ jobs:
       if: ${{ failure() }}
       run: echo "Some of jobs failed" && false
 
+  build_n_test_android:
+    strategy:
+      fail-fast: false
+    runs-on: ubuntu-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install cargo ndk and rust compiler for android target
+      if: ${{ !cancelled() }}
+      run: |
+        cargo install --locked cargo-ndk
+        rustup target add x86_64-linux-android
+    - name: clippy
+      if: ${{ !cancelled() }}
+      run: cargo ndk -t x86_64 clippy --all-features -- -D warnings
+    - name: Build
+      if: ${{ !cancelled() }}
+      run: |
+        cargo ndk -t x86_64 rustc --verbose --all-features --lib --crate-type=cdylib
+    - name: Abort on error
+      if: ${{ failure() }}
+      run: echo "Android build job failed" && false
+
+  build_n_test_ios:
+    strategy:
+      fail-fast: false
+    runs-on: macos-latest
+
+    steps:
+    - uses: actions/checkout@v4
+    - name: Install cargo lipo and rust compiler for ios target
+      if: ${{ !cancelled() }}
+      run: |
+        cargo install --locked cargo-lipo
+        rustup target add x86_64-apple-ios aarch64-apple-ios
+    - name: clippy
+      if: ${{ !cancelled() }}
+      run: cargo clippy --target x86_64-apple-ios --all-features -- -D warnings
+    - name: Build
+      if: ${{ !cancelled() }}
+      run: |
+        cargo lipo --verbose --all-features
+    - name: Abort on error
+      if: ${{ failure() }}
+      run: echo "iOS build job failed" && false
+
   semver:
     name: Check semver
     strategy:
