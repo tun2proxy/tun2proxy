@@ -252,7 +252,7 @@ impl HttpConnection {
                 }
 
                 // The HTTP/1.1 expected to be keep alive waiting for the next frame so, we must
-                // compute the lenght of the response in order to detect the next frame (response)
+                // compute the length of the response in order to detect the next frame (response)
                 // [RFC-9112](https://datatracker.ietf.org/doc/html/rfc9112#body.content-length)
 
                 // Transfer-Encoding isn't supported yet
