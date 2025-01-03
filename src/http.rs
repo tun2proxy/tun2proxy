@@ -4,7 +4,6 @@ use crate::{
     proxy_handler::{ProxyHandler, ProxyHandlerManager},
     session_info::{IpProtocol, SessionInfo},
 };
-use base64::Engine;
 use httparse::Response;
 use socks5_impl::protocol::UserKey;
 use std::{
@@ -141,8 +140,7 @@ impl HttpConnection {
                     .extend(format!("{}: {}\r\n", PROXY_AUTHORIZATION, response.to_header_string()).as_bytes());
             }
             AuthenticationScheme::Basic => {
-                let cred = format!("{}:{}", credentials.username, credentials.password);
-                let auth_b64 = base64::engine::general_purpose::STANDARD.encode(cred);
+                let auth_b64 = base64easy::encode(credentials.to_string(), base64easy::EngineKind::Standard);
                 self.server_outbuf
                     .extend(format!("{}: Basic {}\r\n", PROXY_AUTHORIZATION, auth_b64).as_bytes());
             }

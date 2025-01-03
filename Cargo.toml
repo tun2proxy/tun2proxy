@@ -28,7 +28,7 @@ udpgw = []
 
 [dependencies]
 async-trait = "0.1"
-base64 = { version = "0.22" }
+base64easy = "0.1"
 chrono = "0.4"
 clap = { version = "4", features = ["derive", "wrap_help", "color"] }
 ctrlc2 = { version = "3", features = ["tokio", "termination"] }
