@@ -2,8 +2,7 @@ use crate::{
     args::{ArgDns, ArgProxy},
     ArgVerbosity, Args,
 };
-use std::os::raw::{c_char, c_int};
-use tun::DEFAULT_MTU as MTU;
+use std::os::raw::{c_char, c_int, c_ushort};
 
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
@@ -39,7 +38,42 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
     #[cfg(target_os = "linux")]
     args.setup(_root_privilege);
 
-    general_run_for_api(args, MTU, false)
+    general_run_for_api(args, tun::DEFAULT_MTU, false)
+}
+
+/// # Safety
+///
+/// Run the tun2proxy component with some arguments.
+/// Parameters:
+/// - proxy_url: the proxy url, e.g. "socks5://127.0.0.1:1080"
+/// - tun_fd: the tun file descriptor, it will be owned by tun2proxy
+/// - close_fd_on_drop: whether close the tun_fd on drop
+/// - packet_information: indicates whether exists packet information in packet from TUN device
+/// - tun_mtu: the tun mtu
+/// - dns_strategy: the dns strategy, see ArgDns enum
+/// - verbosity: the verbosity level, see ArgVerbosity enum
+#[cfg(unix)]
+#[no_mangle]
+pub unsafe extern "C" fn tun2proxy_with_fd_run(
+    proxy_url: *const c_char,
+    tun_fd: c_int,
+    close_fd_on_drop: bool,
+    packet_information: bool,
+    tun_mtu: c_ushort,
+    dns_strategy: ArgDns,
+    verbosity: ArgVerbosity,
+) -> c_int {
+    let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
+    let proxy = ArgProxy::try_from(proxy_url).unwrap();
+
+    let mut args = Args::default();
+    args.proxy(proxy)
+        .tun_fd(Some(tun_fd))
+        .close_fd_on_drop(close_fd_on_drop)
+        .dns(dns_strategy)
+        .verbosity(verbosity);
+
+    general_run_for_api(args, tun_mtu, packet_information)
 }
 
 /// # Safety
@@ -47,13 +81,15 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
 /// Parameters:
 /// - cli_args: The command line arguments,
 ///   e.g. `tun2proxy-bin --setup --proxy socks5://127.0.0.1:1080 --bypass 98.76.54.0/24 --dns over-tcp --verbosity trace`
+/// - tun_mtu: The MTU of the TUN device, e.g. 1500
+/// - packet_information: Whether exists packet information in packet from TUN device
 #[no_mangle]
-pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char) -> c_int {
+pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tun_mtu: c_ushort, packet_information: bool) -> c_int {
     let Ok(cli_args) = std::ffi::CStr::from_ptr(cli_args).to_str() else {
         return -5;
     };
     let args = <Args as ::clap::Parser>::parse_from(cli_args.split_whitespace());
-    general_run_for_api(args, MTU, false)
+    general_run_for_api(args, tun_mtu, packet_information)
 }
 
 pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -> c_int {
@@ -206,7 +242,7 @@ pub async fn general_run_async(
 ///
 /// Shutdown the tun2proxy component.
 #[no_mangle]
-pub unsafe extern "C" fn tun2proxy_with_name_stop() -> c_int {
+pub unsafe extern "C" fn tun2proxy_stop() -> c_int {
     tun2proxy_stop_internal()
 }
 

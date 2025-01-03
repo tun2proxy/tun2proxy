@@ -50,7 +50,6 @@ mod dump_logger;
 mod error;
 mod general_api;
 mod http;
-mod mobile;
 mod no_proxy;
 mod proxy_handler;
 mod session_info;
