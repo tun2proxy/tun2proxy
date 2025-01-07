@@ -86,6 +86,7 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
 #[no_mangle]
 pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tun_mtu: c_ushort, packet_information: bool) -> c_int {
     let Ok(cli_args) = std::ffi::CStr::from_ptr(cli_args).to_str() else {
+        log::error!("Failed to convert CLI arguments to string");
         return -5;
     };
     let Some(args) = shlex::split(cli_args) else {
