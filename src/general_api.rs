@@ -3,7 +3,7 @@ use crate::{
     ArgVerbosity, Args,
 };
 use std::os::raw::{c_char, c_int, c_ushort};
-
+use shell_words::split;
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
 /// # Safety
@@ -88,7 +88,7 @@ pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tu
     let Ok(cli_args) = std::ffi::CStr::from_ptr(cli_args).to_str() else {
         return -5;
     };
-    let args = <Args as ::clap::Parser>::parse_from(cli_args.split_whitespace());
+    let args = <Args as ::clap::Parser>::parse_from(split(cli_args).expect("failed to split cli args"));
     general_run_for_api(args, tun_mtu, packet_information)
 }
 
