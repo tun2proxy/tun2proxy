@@ -2,8 +2,8 @@ use crate::{
     args::{ArgDns, ArgProxy},
     ArgVerbosity, Args,
 };
-use std::os::raw::{c_char, c_int, c_ushort};
 use shell_words::split;
+use std::os::raw::{c_char, c_int, c_ushort};
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
 /// # Safety
