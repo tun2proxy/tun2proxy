@@ -88,7 +88,11 @@ pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tu
     let Ok(cli_args) = std::ffi::CStr::from_ptr(cli_args).to_str() else {
         return -5;
     };
-    let args = <Args as ::clap::Parser>::parse_from(cli_args.split_whitespace());
+    let Some(args) = shlex::split(cli_args) else {
+        log::error!("Failed to split CLI arguments");
+        return -6;
+    };
+    let args = <Args as ::clap::Parser>::parse_from(args);
     general_run_for_api(args, tun_mtu, packet_information)
 }
 
