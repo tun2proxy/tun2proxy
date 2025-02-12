@@ -34,7 +34,7 @@ jobs:
 
         include:
           - target: x86_64-unknown-linux-gnu
-            host_os: ubuntu-latest
+            host_os: ubuntu-20.04
           - target: x86_64-unknown-linux-musl
             host_os: ubuntu-latest
           - target: i686-unknown-linux-musl
@@ -73,7 +73,7 @@ jobs:
             rustup target add ${{ matrix.target }}
           fi
           cargo install cbindgen
-          if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
+          if [[ "${{ contains(matrix.host_os, 'ubuntu') }}" == "true" && "${{ matrix.host_os }}" != "ubuntu-20.04" ]]; then
             sudo .github/workflows/install-cross.sh
           fi
 
@@ -81,7 +81,7 @@ jobs:
         if: ${{ !cancelled() }}
         shell: bash
         run: |
-          if [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
+          if [[ "${{ contains(matrix.host_os, 'ubuntu') }}" == "true" && "${{ matrix.host_os }}" != "ubuntu-20.04" ]]; then
             cross build --all-features --release --target ${{ matrix.target }}
           else
             if [[ "${{ matrix.target }}" == "x86_64-win7-windows-msvc" || "${{ matrix.target }}" == "i686-win7-windows-msvc" ]]; then
@@ -105,7 +105,7 @@ jobs:
               ./build-apple.sh
               zip -r mypubdir4/tun2proxy-apple-xcframework.zip ./tun2proxy.xcframework/
             fi
-          elif [[ "${{ matrix.host_os }}" == "ubuntu-latest" ]]; then
+          elif [[ "${{ contains(matrix.host_os, 'ubuntu') }}" == "true" ]]; then
             zip -j mypubdir4/tun2proxy-${{ matrix.target }}.zip target/${{ matrix.target }}/release/tun2proxy-bin target/${{ matrix.target }}/release/udpgw-server README.md target/tun2proxy.h target/${{ matrix.target }}/release/libtun2proxy.so
             if [[ "${{ matrix.target }}" == "x86_64-unknown-linux-gnu" ]]; then
               ./build-android.sh
