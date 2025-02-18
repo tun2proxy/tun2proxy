@@ -375,7 +375,7 @@ where
             }
             IpStackStream::UnknownTransport(u) => {
                 let len = u.payload().len();
-                log::info!("#0 unhandled transport - Ip Protocol 0x{:02X}, length {}", u.ip_protocol(), len);
+                log::info!("#0 unhandled transport - Ip Protocol {:?}, length {}", u.ip_protocol(), len);
                 continue;
             }
             IpStackStream::UnknownNetwork(pkt) => {
