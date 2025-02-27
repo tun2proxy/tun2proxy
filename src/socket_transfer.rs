@@ -1,10 +1,10 @@
 #![cfg(target_os = "linux")]
 
-use crate::{error, SocketDomain, SocketProtocol};
+use crate::{SocketDomain, SocketProtocol, error};
 use nix::{
     errno::Errno,
     fcntl::{self, FdFlag},
-    sys::socket::{cmsg_space, getsockopt, recvmsg, sendmsg, sockopt, ControlMessage, ControlMessageOwned, MsgFlags, SockType},
+    sys::socket::{ControlMessage, ControlMessageOwned, MsgFlags, SockType, cmsg_space, getsockopt, recvmsg, sendmsg, sockopt},
 };
 use serde::{Deserialize, Serialize};
 use std::{

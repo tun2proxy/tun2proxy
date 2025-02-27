@@ -1,5 +1,5 @@
 use crate::error::Result;
-use hashlink::{linked_hash_map::RawEntryMut, LruCache};
+use hashlink::{LruCache, linked_hash_map::RawEntryMut};
 use std::{
     collections::HashMap,
     convert::TryInto,

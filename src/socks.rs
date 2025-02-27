@@ -4,7 +4,7 @@ use crate::{
     proxy_handler::{ProxyHandler, ProxyHandlerManager},
     session_info::SessionInfo,
 };
-use socks5_impl::protocol::{self, handshake, password_method, Address, AuthMethod, StreamOperation, UserKey, Version};
+use socks5_impl::protocol::{self, Address, AuthMethod, StreamOperation, UserKey, Version, handshake, password_method};
 use std::{collections::VecDeque, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 

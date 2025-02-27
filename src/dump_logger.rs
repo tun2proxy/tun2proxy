@@ -9,7 +9,7 @@ pub(crate) static DUMP_CALLBACK: Mutex<Option<DumpCallback>> = Mutex::new(None);
 /// # Safety
 ///
 /// set dump log info callback.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tun2proxy_set_log_callback(
     callback: Option<unsafe extern "C" fn(ArgVerbosity, *const c_char, *mut c_void)>,
     ctx: *mut c_void,
@@ -23,7 +23,7 @@ pub struct DumpCallback(Option<unsafe extern "C" fn(ArgVerbosity, *const c_char,
 impl DumpCallback {
     unsafe fn call(self, dump_level: ArgVerbosity, info: *const c_char) {
         if let Some(cb) = self.0 {
-            cb(dump_level, info, self.1);
+            unsafe { cb(dump_level, info, self.1) };
         }
     }
 }

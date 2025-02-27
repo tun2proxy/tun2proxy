@@ -77,6 +77,7 @@ jobs:
 
     steps:
     - uses: actions/checkout@v4
+    - uses: dtolnay/rust-toolchain@stable
     - name: Install cargo lipo and rust compiler for ios target
       if: ${{ !cancelled() }}
       run: |

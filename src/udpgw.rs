@@ -4,11 +4,11 @@ use std::{collections::VecDeque, hash::Hash, net::SocketAddr, sync::atomic::Orde
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
     net::{
-        tcp::{OwnedReadHalf, OwnedWriteHalf},
         TcpStream,
+        tcp::{OwnedReadHalf, OwnedWriteHalf},
     },
     sync::Mutex,
-    time::{sleep, Duration},
+    time::{Duration, sleep},
 };
 
 pub(crate) const UDPGW_LENGTH_FIELD_SIZE: usize = std::mem::size_of::<u16>();

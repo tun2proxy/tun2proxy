@@ -3,14 +3,14 @@ use std::net::SocketAddr;
 use tokio::{
     io::AsyncWriteExt,
     net::{
-        tcp::{ReadHalf, WriteHalf},
         UdpSocket,
+        tcp::{ReadHalf, WriteHalf},
     },
     sync::mpsc::{Receiver, Sender},
 };
 use tun2proxy::{
-    udpgw::{Packet, UdpFlag},
     ArgVerbosity, BoxError, Error, Result,
+    udpgw::{Packet, UdpFlag},
 };
 
 pub(crate) const CLIENT_DISCONNECT_TIMEOUT: tokio::time::Duration = std::time::Duration::from_secs(60);

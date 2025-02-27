@@ -7,7 +7,7 @@ use crate::{
 use httparse::Response;
 use socks5_impl::protocol::UserKey;
 use std::{
-    collections::{hash_map::RandomState, HashMap, VecDeque},
+    collections::{HashMap, VecDeque, hash_map::RandomState},
     iter::FromIterator,
     net::SocketAddr,
     str,

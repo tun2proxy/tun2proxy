@@ -73,7 +73,7 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
         rt.block_on(async {
             unsafe extern "C" fn traffic_cb(status: *const crate::TrafficStatus, _: *mut std::ffi::c_void) {
-                let status = &*status;
+                let status = unsafe { &*status };
                 log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
             }
             unsafe { crate::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };

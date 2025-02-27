@@ -1,6 +1,6 @@
 use crate::{
-    args::{ArgDns, ArgProxy},
     ArgVerbosity, Args,
+    args::{ArgDns, ArgProxy},
 };
 use std::os::raw::{c_char, c_int, c_ushort};
 
@@ -16,7 +16,7 @@ static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> =
 /// - dns_strategy: the dns strategy, see ArgDns enum
 /// - root_privilege: whether to run with root privilege
 /// - verbosity: the verbosity level, see ArgVerbosity enum
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tun2proxy_with_name_run(
     proxy_url: *const c_char,
     tun: *const c_char,
@@ -25,12 +25,12 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
     _root_privilege: bool,
     verbosity: ArgVerbosity,
 ) -> c_int {
-    let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
+    let proxy_url = unsafe { std::ffi::CStr::from_ptr(proxy_url) }.to_str().unwrap();
     let proxy = ArgProxy::try_from(proxy_url).unwrap();
-    let tun = std::ffi::CStr::from_ptr(tun).to_str().unwrap().to_string();
+    let tun = unsafe { std::ffi::CStr::from_ptr(tun) }.to_str().unwrap().to_string();
 
     let mut args = Args::default();
-    if let Ok(bypass) = std::ffi::CStr::from_ptr(bypass).to_str() {
+    if let Ok(bypass) = unsafe { std::ffi::CStr::from_ptr(bypass) }.to_str() {
         args.bypass(bypass.parse().unwrap());
     }
     args.proxy(proxy).tun(tun).dns(dns_strategy).verbosity(verbosity);
@@ -53,7 +53,7 @@ pub unsafe extern "C" fn tun2proxy_with_name_run(
 /// - dns_strategy: the dns strategy, see ArgDns enum
 /// - verbosity: the verbosity level, see ArgVerbosity enum
 #[cfg(unix)]
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tun2proxy_with_fd_run(
     proxy_url: *const c_char,
     tun_fd: c_int,
@@ -63,7 +63,7 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
     dns_strategy: ArgDns,
     verbosity: ArgVerbosity,
 ) -> c_int {
-    let proxy_url = std::ffi::CStr::from_ptr(proxy_url).to_str().unwrap();
+    let proxy_url = unsafe { std::ffi::CStr::from_ptr(proxy_url) }.to_str().unwrap();
     let proxy = ArgProxy::try_from(proxy_url).unwrap();
 
     let mut args = Args::default();
@@ -83,9 +83,9 @@ pub unsafe extern "C" fn tun2proxy_with_fd_run(
 ///   e.g. `tun2proxy-bin --setup --proxy socks5://127.0.0.1:1080 --bypass 98.76.54.0/24 --dns over-tcp --verbosity trace`
 /// - tun_mtu: The MTU of the TUN device, e.g. 1500
 /// - packet_information: Whether exists packet information in packet from TUN device
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tun_mtu: c_ushort, packet_information: bool) -> c_int {
-    let Ok(cli_args) = std::ffi::CStr::from_ptr(cli_args).to_str() else {
+    let Ok(cli_args) = unsafe { std::ffi::CStr::from_ptr(cli_args) }.to_str() else {
         log::error!("Failed to convert CLI arguments to string");
         return -5;
     };
@@ -246,7 +246,7 @@ pub async fn general_run_async(
 /// # Safety
 ///
 /// Shutdown the tun2proxy component.
-#[no_mangle]
+#[unsafe(no_mangle)]
 pub unsafe extern "C" fn tun2proxy_stop() -> c_int {
     tun2proxy_stop_internal()
 }

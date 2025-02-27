@@ -1,14 +1,14 @@
 [package]
 name = "tun2proxy"
 version = "0.7.4"
-edition = "2021"
+edition = "2024"
 license = "MIT"
 repository = "https://github.com/tun2proxy/tun2proxy"
 homepage = "https://github.com/tun2proxy/tun2proxy"
 authors = ["B. Blechschmidt", "ssrlive"]
 description = "Tunnel interface to proxy"
 readme = "README.md"
-rust-version = "1.80"
+rust-version = "1.85"
 
 [lib]
 crate-type = ["staticlib", "cdylib", "lib"]

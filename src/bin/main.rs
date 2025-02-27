@@ -44,7 +44,7 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
             }
 
             unsafe extern "C" fn traffic_cb(status: *const tun2proxy::TrafficStatus, _: *mut std::ffi::c_void) {
-                let status = &*status;
+                let status = unsafe { &*status };
                 log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
             }
             unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
@@ -79,7 +79,7 @@ async fn namespace_proxy_main(
     _args: Args,
     _shutdown_token: tokio_util::sync::CancellationToken,
 ) -> Result<std::process::ExitStatus, tun2proxy::Error> {
-    use nix::fcntl::{open, OFlag};
+    use nix::fcntl::{OFlag, open};
     use nix::sys::stat::Mode;
     use std::os::fd::AsRawFd;
 
