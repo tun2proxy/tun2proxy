@@ -69,7 +69,10 @@ use std::sync::atomic::Ordering::Relaxed;
 
 #[allow(unused)]
 #[derive(Hash, Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(target_os = "linux", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    target_os = "linux",
+    derive(bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)
+)]
 pub enum SocketProtocol {
     Tcp,
     Udp,
@@ -77,7 +80,10 @@ pub enum SocketProtocol {
 
 #[allow(unused)]
 #[derive(Hash, Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(target_os = "linux", derive(serde::Serialize, serde::Deserialize))]
+#[cfg_attr(
+    target_os = "linux",
+    derive(bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)
+)]
 pub enum SocketDomain {
     IpV4,
     IpV6,

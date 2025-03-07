@@ -43,10 +43,6 @@ pub enum Error {
 
     #[error("std::num::ParseIntError {0:?}")]
     IntParseError(#[from] std::num::ParseIntError),
-
-    #[cfg(target_os = "linux")]
-    #[error("bincode::Error {0:?}")]
-    BincodeError(#[from] bincode::Error),
 }
 
 impl From<&str> for Error {

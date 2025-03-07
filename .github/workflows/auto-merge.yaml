@@ -15,6 +15,6 @@ jobs:
       - name: Auto approve pull request, then squash and merge
         uses: ahmadnassri/action-dependabot-auto-merge@v2
         with:
-          target: minor
+          # target: minor
           # here `PAT_REPO_ADMIN` is a user's passkey provided by github.
           github-token: ${{ secrets.PAT_REPO_ADMIN }}
