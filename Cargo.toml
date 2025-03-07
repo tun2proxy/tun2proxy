@@ -63,7 +63,7 @@ serde = { version = "1", features = ["derive"] }
 bincode = "1"
 
 [target.'cfg(target_os="android")'.dependencies]
-android_logger = "0.14"
+android_logger = "0.15"
 jni = { version = "0.21", default-features = false }
 
 [target.'cfg(unix)'.dependencies]
