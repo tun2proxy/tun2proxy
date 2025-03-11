@@ -56,6 +56,7 @@ unicase = "2"
 url = "2"
 
 [build-dependencies]
+chrono = "0.4"
 serde_json = "1"
 
 [target.'cfg(target_os="linux")'.dependencies]
@@ -77,5 +78,5 @@ nix = { version = "0.29", default-features = false, features = [
 [target.'cfg(target_os = "windows")'.dependencies]
 windows-service = "0.8"
 
-[profile.release]
-strip = "symbols"
+# [profile.release]
+# strip = "symbols"

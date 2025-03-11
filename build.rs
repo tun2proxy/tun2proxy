@@ -1,4 +1,13 @@
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    if let Ok(git_hash) = get_git_hash() {
+        // Set the environment variables
+        println!("cargo:rustc-env=GIT_HASH={}", git_hash.trim());
+    }
+
+    // Get the build time
+    let build_time = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    println!("cargo:rustc-env=BUILD_TIME={}", build_time);
+
     #[cfg(target_os = "windows")]
     if let Ok(cargo_target_dir) = get_cargo_target_dir() {
         let mut f = std::fs::File::create(cargo_target_dir.join("build.log"))?;
@@ -84,4 +93,11 @@ fn get_crate_dir(crate_name: &str) -> Result<std::path::PathBuf, Box<dyn std::er
         }
     }
     Ok(crate_dir.ok_or("crate_dir")?)
+}
+
+fn get_git_hash() -> std::io::Result<String> {
+    use std::process::Command;
+    let git_hash = Command::new("git").args(["rev-parse", "--short", "HEAD"]).output()?.stdout;
+    let git_hash = String::from_utf8(git_hash).map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    Ok(git_hash)
 }
