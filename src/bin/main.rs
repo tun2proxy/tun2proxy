@@ -1,4 +1,4 @@
-use tun2proxy::{Args, BoxError};
+use tun2proxy::{ArgVerbosity, Args, BoxError};
 
 fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
@@ -28,7 +28,11 @@ fn main() -> Result<(), BoxError> {
 }
 
 async fn main_async(args: Args) -> Result<(), BoxError> {
-    let default = format!("{:?},hickory_proto=warn", args.verbosity);
+    let ipstack = match args.verbosity {
+        ArgVerbosity::Trace => ArgVerbosity::Debug,
+        _ => args.verbosity,
+    };
+    let default = format!("{:?},hickory_proto=warn,ipstack={:?}", args.verbosity, ipstack);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
