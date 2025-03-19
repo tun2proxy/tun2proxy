@@ -1,21 +1,16 @@
 use hickory_proto::{
     op::{Message, MessageType, ResponseCode},
-    rr::{Name, RData, Record, record_type::RecordType},
+    rr::{
+        Name, RData, Record,
+        rdata::{A, AAAA},
+    },
 };
 use std::{net::IpAddr, str::FromStr};
 
 pub fn build_dns_response(mut request: Message, domain: &str, ip: IpAddr, ttl: u32) -> Result<Message, String> {
     let record = match ip {
-        IpAddr::V4(ip) => {
-            let mut record = Record::with(Name::from_str(domain)?, RecordType::A, ttl);
-            record.set_data(Some(RData::A(ip.into())));
-            record
-        }
-        IpAddr::V6(ip) => {
-            let mut record = Record::with(Name::from_str(domain)?, RecordType::AAAA, ttl);
-            record.set_data(Some(RData::AAAA(ip.into())));
-            record
-        }
+        IpAddr::V4(ip) => Record::from_rdata(Name::from_str(domain)?, ttl, RData::A(A(ip))),
+        IpAddr::V6(ip) => Record::from_rdata(Name::from_str(domain)?, ttl, RData::AAAA(AAAA(ip))),
     };
 
     // We must indicate that this message is a response. Otherwise, implementations may not
@@ -27,9 +22,7 @@ pub fn build_dns_response(mut request: Message, domain: &str, ip: IpAddr, ttl: u
 }
 
 pub fn remove_ipv6_entries(message: &mut Message) {
-    message
-        .answers_mut()
-        .retain(|answer| !matches!(answer.data(), Some(RData::AAAA(_))));
+    message.answers_mut().retain(|answer| !matches!(answer.data(), RData::AAAA(_)));
 }
 
 pub fn extract_ipaddr_from_dns_message(message: &Message) -> Result<IpAddr, String> {
@@ -38,7 +31,7 @@ pub fn extract_ipaddr_from_dns_message(message: &Message) -> Result<IpAddr, Stri
     }
     let mut cname = None;
     for answer in message.answers() {
-        match answer.data().ok_or("DNS response not contains answer data")? {
+        match answer.data() {
             RData::A(addr) => {
                 return Ok(IpAddr::V4((*addr).into()));
             }
