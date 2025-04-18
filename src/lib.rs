@@ -64,7 +64,7 @@ pub mod win_svc;
 
 const DNS_PORT: u16 = 53;
 
-static TASK_COUNT: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+static TASK_COUNT: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 use std::sync::atomic::Ordering::Relaxed;
 
 #[allow(unused)]
@@ -154,7 +154,9 @@ async fn create_udp_stream(socket_queue: &Option<Arc<SocketQueue>>, peer: Socket
 /// * `mtu` - The MTU of the network device
 /// * `args` - The arguments to use
 /// * `shutdown_token` - The token to exit the server
-pub async fn run<D>(device: D, mtu: u16, args: Args, shutdown_token: CancellationToken) -> crate::Result<()>
+/// # Returns
+/// * The number of sessions while exiting
+pub async fn run<D>(device: D, mtu: u16, args: Args, shutdown_token: CancellationToken) -> crate::Result<usize>
 where
     D: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
@@ -265,10 +267,10 @@ where
                 ip_stack_stream?
             }
         };
-        let max_sessions = args.max_sessions as u64;
+        let max_sessions = args.max_sessions;
         match ip_stack_stream {
             IpStackStream::Tcp(tcp) => {
-                if TASK_COUNT.load(Relaxed) > max_sessions {
+                if TASK_COUNT.load(Relaxed) >= max_sessions {
                     if args.exit_on_fatal_error {
                         log::info!("Too many sessions that over {max_sessions}, exiting...");
                         break;
@@ -276,7 +278,7 @@ where
                     log::warn!("Too many sessions that over {max_sessions}, dropping new session");
                     continue;
                 }
-                log::trace!("Session count {}", TASK_COUNT.fetch_add(1, Relaxed) + 1);
+                log::trace!("Session count {}", TASK_COUNT.fetch_add(1, Relaxed).saturating_add(1));
                 let info = SessionInfo::new(tcp.local_addr(), tcp.peer_addr(), IpProtocol::Tcp);
                 let domain_name = if let Some(virtual_dns) = &virtual_dns {
                     let mut virtual_dns = virtual_dns.lock().await;
@@ -291,11 +293,11 @@ where
                     if let Err(err) = handle_tcp_session(tcp, proxy_handler, socket_queue).await {
                         log::error!("{} error \"{}\"", info, err);
                     }
-                    log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
+                    log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed).saturating_sub(1));
                 });
             }
             IpStackStream::Udp(udp) => {
-                if TASK_COUNT.load(Relaxed) > max_sessions {
+                if TASK_COUNT.load(Relaxed) >= max_sessions {
                     if args.exit_on_fatal_error {
                         log::info!("Too many sessions that over {max_sessions}, exiting...");
                         break;
@@ -303,7 +305,7 @@ where
                     log::warn!("Too many sessions that over {max_sessions}, dropping new session");
                     continue;
                 }
-                log::trace!("Session count {}", TASK_COUNT.fetch_add(1, Relaxed) + 1);
+                log::trace!("Session count {}", TASK_COUNT.fetch_add(1, Relaxed).saturating_add(1));
                 let mut info = SessionInfo::new(udp.local_addr(), udp.peer_addr(), IpProtocol::Udp);
                 if info.dst.port() == DNS_PORT {
                     if is_private_ip(info.dst.ip()) {
@@ -317,7 +319,7 @@ where
                             if let Err(err) = handle_dns_over_tcp_session(udp, proxy_handler, socket_queue, ipv6_enabled).await {
                                 log::error!("{} error \"{}\"", info, err);
                             }
-                            log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
+                            log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed).saturating_sub(1));
                         });
                         continue;
                     }
@@ -328,7 +330,7 @@ where
                                     log::error!("{} error \"{}\"", info, err);
                                 }
                             }
-                            log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
+                            log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed).saturating_sub(1));
                         });
                         continue;
                     }
@@ -359,7 +361,7 @@ where
                         if let Err(e) = handle_udp_gateway_session(udp, udpgw, &dst_addr, proxy_handler, queue, ipv6_enabled).await {
                             log::info!("Ending {} with \"{}\"", info, e);
                         }
-                        log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
+                        log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed).saturating_sub(1));
                     });
                     continue;
                 }
@@ -371,7 +373,7 @@ where
                             if let Err(err) = handle_udp_associate_session(udp, ty, proxy_handler, socket_queue, ipv6_enabled).await {
                                 log::info!("Ending {} with \"{}\"", info, err);
                             }
-                            log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed) - 1);
+                            log::trace!("Session count {}", TASK_COUNT.fetch_sub(1, Relaxed).saturating_sub(1));
                         });
                     }
                     Err(e) => {
@@ -390,7 +392,7 @@ where
             }
         }
     }
-    Ok(())
+    Ok(TASK_COUNT.load(Relaxed))
 }
 
 async fn handle_virtual_dns_session(mut udp: IpStackUdpStream, dns: Arc<Mutex<VirtualDns>>) -> crate::Result<()> {

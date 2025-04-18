@@ -37,6 +37,7 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let main_loop_handle = tokio::spawn({
+        let args = args.clone();
         let shutdown_token = shutdown_token.clone();
         async move {
             #[cfg(target_os = "linux")]
@@ -44,7 +45,7 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
                 if let Err(err) = namespace_proxy_main(args, shutdown_token).await {
                     log::error!("namespace proxy error: {}", err);
                 }
-                return;
+                return Ok(0);
             }
 
             unsafe extern "C" fn traffic_cb(status: *const tun2proxy::TrafficStatus, _: *mut std::ffi::c_void) {
@@ -53,9 +54,11 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
             }
             unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
 
-            if let Err(err) = tun2proxy::general_run_async(args, tun::DEFAULT_MTU, cfg!(target_os = "macos"), shutdown_token).await {
-                log::error!("main loop error: {}", err);
+            let ret = tun2proxy::general_run_async(args, tun::DEFAULT_MTU, cfg!(target_os = "macos"), shutdown_token).await;
+            if let Err(err) = &ret {
+                log::error!("main loop error: {err}");
             }
+            ret
         }
     });
 
@@ -68,11 +71,17 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
     })
     .await;
 
-    main_loop_handle.await?;
+    let tasks = main_loop_handle.await??;
 
     if ctrlc_fired.load(std::sync::atomic::Ordering::SeqCst) {
         log::info!("Ctrl-C fired, waiting the handler to finish...");
         ctrlc_handel.await.map_err(|err| err.to_string())?;
+    }
+
+    if args.exit_on_fatal_error && tasks >= args.max_sessions {
+        // Because `main_async` function perhaps stuck in `await` state, so we need to exit the process forcefully
+        log::info!("Internal fatal error, max sessions reached ({tasks}/{})", args.max_sessions);
+        std::process::exit(-1);
     }
 
     Ok(())

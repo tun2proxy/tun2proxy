@@ -78,8 +78,16 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
             }
             unsafe { crate::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
 
-            if let Err(err) = crate::general_run_async(args, tun::DEFAULT_MTU, false, shutdown_token).await {
-                log::error!("main loop error: {}", err);
+            let ret = crate::general_run_async(args.clone(), tun::DEFAULT_MTU, false, shutdown_token).await;
+            match &ret {
+                Ok(sessions) => {
+                    if args.exit_on_fatal_error && *sessions >= args.max_sessions {
+                        log::error!("Forced exit due to max sessions reached ({sessions}/{})", args.max_sessions);
+                        std::process::exit(-1);
+                    }
+                    log::debug!("tun2proxy exited normally, current sessions: {sessions}");
+                }
+                Err(err) => log::error!("main loop error: {err}"),
             }
             Ok::<(), crate::Error>(())
         })?;

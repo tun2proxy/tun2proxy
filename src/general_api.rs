@@ -120,11 +120,18 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
         return -3;
     };
     match rt.block_on(async move {
-        if let Err(err) = general_run_async(args, tun_mtu, packet_information, shutdown_token).await {
-            log::error!("main loop error: {}", err);
-            return Err(err);
+        let ret = general_run_async(args.clone(), tun_mtu, packet_information, shutdown_token).await;
+        match &ret {
+            Ok(sessions) => {
+                if args.exit_on_fatal_error && *sessions >= args.max_sessions {
+                    log::error!("Forced exit due to max sessions reached ({sessions}/{})", args.max_sessions);
+                    std::process::exit(-1);
+                }
+                log::debug!("tun2proxy exited normally, current sessions: {sessions}");
+            }
+            Err(err) => log::error!("main loop error: {err}"),
         }
-        Ok(())
+        ret
     }) {
         Ok(_) => 0,
         Err(e) => {
@@ -140,7 +147,7 @@ pub async fn general_run_async(
     tun_mtu: u16,
     _packet_information: bool,
     shutdown_token: tokio_util::sync::CancellationToken,
-) -> std::io::Result<()> {
+) -> std::io::Result<usize> {
     let mut tun_config = tun::Configuration::default();
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
