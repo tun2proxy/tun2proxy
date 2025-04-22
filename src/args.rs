@@ -8,8 +8,19 @@ use std::ffi::OsString;
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 
+#[macro_export]
+macro_rules! version_info {
+    () => {
+        concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " ", env!("BUILD_TIME"), ")")
+    };
+}
+
+fn about_info() -> &'static str {
+    concat!("Tunnel interface to proxy.\nVersion: ", version_info!())
+}
+
 #[derive(Debug, Clone, clap::Parser)]
-#[command(author, version = version_info(), about = "Tunnel interface to proxy.", long_about = None)]
+#[command(author, version = version_info!(), about = about_info(), long_about = None)]
 pub struct Args {
     /// Proxy URL in the form proto://[username[:password]@]host:port,
     /// where proto is one of socks4, socks5, http.
@@ -125,10 +136,6 @@ pub struct Args {
     #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "seconds", requires = "udpgw_server")]
     pub udpgw_keepalive: Option<u64>,
-}
-
-fn version_info() -> &'static str {
-    concat!(env!("CARGO_PKG_VERSION"), " (", env!("GIT_HASH"), " ", env!("BUILD_TIME"), ")")
 }
 
 fn validate_tun(p: &str) -> Result<String> {

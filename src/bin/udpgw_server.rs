@@ -28,8 +28,12 @@ impl Client {
     }
 }
 
+fn about_info() -> &'static str {
+    concat!("UDP Gateway Server for tun2proxy\nVersion: ", tun2proxy::version_info!())
+}
+
 #[derive(Debug, Clone, clap::Parser)]
-#[command(author, version, about = "UDP Gateway Server for tun2proxy", long_about = None)]
+#[command(author, version = tun2proxy::version_info!(), about = about_info(), long_about = None)]
 pub struct UdpGwArgs {
     /// UDP gateway listen address
     #[arg(short, long, value_name = "IP:PORT", default_value = "127.0.0.1:7300")]
@@ -193,7 +197,7 @@ async fn write_to_client(addr: SocketAddr, mut writer: WriteHalf<'_>, mut rx: Re
 }
 
 async fn main_async(args: UdpGwArgs) -> Result<(), BoxError> {
-    log::info!("{} {} starting...", module_path!(), env!("CARGO_PKG_VERSION"));
+    log::info!("{} {} starting...", module_path!(), tun2proxy::version_info!());
     log::info!("UDP Gateway Server running at {}", args.listen_addr);
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();

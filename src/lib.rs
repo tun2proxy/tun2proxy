@@ -157,7 +157,7 @@ pub async fn run<D>(device: D, mtu: u16, args: Args, shutdown_token: Cancellatio
 where
     D: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
-    log::info!("{} {} starting...", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    log::info!("{} {} starting...", env!("CARGO_PKG_NAME"), version_info!());
     log::info!("Proxy {} server: {}", args.proxy.proxy_type, args.proxy.addr);
 
     let server_addr = args.proxy.addr;
