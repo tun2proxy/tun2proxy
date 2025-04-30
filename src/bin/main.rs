@@ -102,7 +102,7 @@ async fn namespace_proxy_main(
 
     let child = tokio::process::Command::new("unshare")
         .args("--user --map-current-user --net --mount --keep-caps --kill-child --fork".split(' '))
-        .arg(format!("/proc/self/fd/{}", fd))
+        .arg(format!("/proc/self/fd/{}", fd.as_raw_fd()))
         .arg("--socket-transfer-fd")
         .arg(remote_fd.as_raw_fd().to_string())
         .args(std::env::args().skip(1))

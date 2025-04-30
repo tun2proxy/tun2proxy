@@ -30,17 +30,17 @@ enum Response {
 
 /// Reconstruct socket from raw `fd`
 pub fn reconstruct_socket(fd: RawFd) -> Result<OwnedFd> {
-    // Check if `fd` is valid
-    let fd_flags = fcntl::fcntl(fd, fcntl::F_GETFD)?;
-
     // `fd` is confirmed to be valid so it should be closed
     let socket = unsafe { OwnedFd::from_raw_fd(fd) };
+
+    // Check if `fd` is valid
+    let fd_flags = fcntl::fcntl(socket.as_fd(), fcntl::F_GETFD)?;
 
     // Insert CLOEXEC flag to the `fd` to prevent further propagation across `execve(2)` calls
     let mut fd_flags = FdFlag::from_bits(fd_flags).ok_or(ErrorKind::Unsupported)?;
     if !fd_flags.contains(FdFlag::FD_CLOEXEC) {
         fd_flags.insert(FdFlag::FD_CLOEXEC);
-        fcntl::fcntl(fd, fcntl::F_SETFD(fd_flags))?;
+        fcntl::fcntl(socket.as_fd(), fcntl::F_SETFD(fd_flags))?;
     }
 
     Ok(socket)
@@ -70,12 +70,12 @@ pub async fn create_transfer_socket_pair() -> std::io::Result<(UnixDatagram, Own
     let remote_fd: OwnedFd = remote.into_std().unwrap().into();
 
     // Get `remote_fd` flags
-    let fd_flags = fcntl::fcntl(remote_fd.as_raw_fd(), fcntl::F_GETFD)?;
+    let fd_flags = fcntl::fcntl(remote_fd.as_fd(), fcntl::F_GETFD)?;
 
     // Remove CLOEXEC flag from the `remote_fd` to allow propagating across `execve(2)`
     let mut fd_flags = FdFlag::from_bits(fd_flags).ok_or(ErrorKind::Unsupported)?;
     fd_flags.remove(FdFlag::FD_CLOEXEC);
-    fcntl::fcntl(remote_fd.as_raw_fd(), fcntl::F_SETFD(fd_flags))?;
+    fcntl::fcntl(remote_fd.as_fd(), fcntl::F_SETFD(fd_flags))?;
 
     Ok((local, remote_fd))
 }
