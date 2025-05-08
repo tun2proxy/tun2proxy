@@ -1,6 +1,6 @@
 [package]
 name = "tun2proxy"
-version = "0.7.8"
+version = "0.7.9"
 edition = "2024"
 license = "MIT"
 repository = "https://github.com/tun2proxy/tun2proxy"
@@ -38,7 +38,7 @@ env_logger = "0.11"
 hashlink = "0.10"
 hickory-proto = "0.25"
 httparse = "1"
-ipstack = { version = "0.3", git = "https://github.com/ssrlive/ipstack.git", rev = "53c648e" }
+ipstack = { version = "0.4" }
 log = { version = "0.4", features = ["std"] }
 mimalloc = { version = "0.1", default-features = false, optional = true }
 percent-encoding = "2"

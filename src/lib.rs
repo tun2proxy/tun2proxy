@@ -7,7 +7,7 @@ use crate::{
     session_info::{IpProtocol, SessionInfo},
     virtual_dns::VirtualDns,
 };
-use ipstack::stream::{IpStackStream, IpStackTcpStream, IpStackUdpStream};
+use ipstack::{IpStackStream, IpStackTcpStream, IpStackUdpStream};
 use proxy_handler::{ProxyHandler, ProxyHandlerManager};
 use socks::SocksProxyManager;
 pub use socks5_impl::protocol::UserKey;
