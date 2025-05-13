@@ -177,7 +177,7 @@ supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogousl
 Tun2proxy can serve as a proxy for other Docker containers. To make use of that feature, first build the image:
 
 ```bash
-docker build -t tun2proxy .
+docker build -t tun2proxy-bin .
 ```
 
 Next, start a container from the tun2proxy image:
