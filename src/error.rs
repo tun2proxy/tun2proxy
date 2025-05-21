@@ -23,7 +23,7 @@ pub enum Error {
     TryFromSlice(#[from] std::array::TryFromSliceError),
 
     #[error("IpStackError {0:?}")]
-    IpStack(#[from] ipstack::IpStackError),
+    IpStack(#[from] Box<ipstack::IpStackError>),
 
     #[error("DnsProtoError {0:?}")]
     DnsProto(#[from] hickory_proto::ProtoError),
@@ -43,6 +43,12 @@ pub enum Error {
 
     #[error("std::num::ParseIntError {0:?}")]
     IntParseError(#[from] std::num::ParseIntError),
+}
+
+impl From<ipstack::IpStackError> for Error {
+    fn from(err: ipstack::IpStackError) -> Self {
+        Self::IpStack(Box::new(err))
+    }
 }
 
 impl From<&str> for Error {
@@ -67,7 +73,7 @@ impl From<Error> for std::io::Error {
     fn from(err: Error) -> Self {
         match err {
             Error::Io(err) => err,
-            _ => std::io::Error::new(std::io::ErrorKind::Other, err),
+            _ => std::io::Error::other(err),
         }
     }
 }
