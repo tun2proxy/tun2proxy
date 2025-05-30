@@ -196,9 +196,6 @@ pub async fn general_run_async(
         .bypass_ips(&args.bypass)
         .ipv6_default_route(args.ipv6_enabled);
 
-    #[allow(unused_mut, unused_assignments, unused_variables)]
-    let mut setup = true;
-
     let device = tun::create_as_async(&tun_config)?;
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -212,13 +209,8 @@ pub async fn general_run_async(
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     let mut _restore: Option<tproxy_config::TproxyState> = None;
 
-    #[cfg(target_os = "linux")]
-    {
-        setup = args.setup;
-    }
-
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-    if setup {
+    if args.setup {
         _restore = Some(tproxy_config::tproxy_setup(&tproxy_args)?);
     }
 

@@ -76,8 +76,9 @@ pub struct Args {
     pub ipv6_enabled: bool,
 
     /// Routing and system setup, which decides whether to setup the routing and system configuration.
-    /// This option is only available on Linux and requires root-like privileges. See `capabilities(7)`.
-    #[arg(short, long, default_value = if cfg!(target_os = "linux") { "false" } else { "true" })]
+    /// This option requires root-like privileges on every platform.
+    /// It is very important on Linux, see `capabilities(7)`.
+    #[arg(short, long)]
     pub setup: bool,
 
     /// DNS handling strategy
