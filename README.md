@@ -149,8 +149,8 @@ Options:
       --unshare-pidfile <UNSHARE_PIDFILE>  Create a pidfile of `unshare` process when using `--unshare`
   -6, --ipv6-enabled                       IPv6 enabled
   -s, --setup                              Routing and system setup, which decides whether to setup the routing and system
-                                           configuration. This option is only available on Linux and requires root-like privileges.
-                                           See `capabilities(7)`
+                                           configuration. This option requires root-like privileges on every platform.
+                                           It is very important on Linux, see `capabilities(7)`
   -d, --dns <strategy>                     DNS handling strategy [default: direct] [possible values: virtual, over-tcp, direct]
       --dns-addr <IP>                      DNS resolver address [default: 8.8.8.8]
       --virtual-dns-pool <CIDR>            IP address pool to be used by virtual DNS in CIDR notation [default: 198.18.0.0/15]
