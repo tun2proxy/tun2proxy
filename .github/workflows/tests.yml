@@ -19,7 +19,9 @@ jobs:
       - name: Populate .env
         env:
           DOTENV: ${{ secrets.DOTENV }}
-        run: echo "$DOTENV" > .env
+        run: |
+          echo "$DOTENV" > tests/.env
+          ln -s tests/.env
 
       - name: Set up Python
         uses: actions/setup-python@v2
@@ -36,7 +38,7 @@ jobs:
       
       - name: Build project
         run: cargo build --release
-      
+
       - name: Run tests
         run: |
           source venv/bin/activate
