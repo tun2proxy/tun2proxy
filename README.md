@@ -212,7 +212,7 @@ services:
     cap_add:
       - NET_ADMIN
     container_name: tun2proxy
-    image: ghcr.io/tun2proxy/tun2proxy:latest
+    image: ghcr.io/tun2proxy/tun2proxy:latest-ubuntu
     command: --proxy proto://[username[:password]@]host:port
   alpine:
     stdin_open: true
