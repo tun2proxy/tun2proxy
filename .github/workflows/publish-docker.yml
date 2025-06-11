@@ -67,5 +67,5 @@ jobs:
           context: .
           file: Dockerfile.alpine
           push: true
-          tags: ${{ steps.meta.outputs.tags }}-apline
+          tags: ${{ steps.meta.outputs.tags }}-alpine
           labels: ${{ steps.meta.outputs.labels }}
