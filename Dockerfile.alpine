@@ -1,0 +1,18 @@
+####################################################################################################
+## Builder
+####################################################################################################
+FROM rust:latest AS builder
+WORKDIR /worker
+COPY ./ .
+RUN rustup target add x86_64-unknown-linux-musl 
+RUN cargo build --release --target x86_64-unknown-linux-musl
+
+####################################################################################################
+## Final image
+####################################################################################################
+FROM alpine:latest
+RUN apk add --no-cache iproute2
+
+COPY --from=builder /worker/target/x86_64-unknown-linux-musl/release/tun2proxy-bin /usr/bin/tun2proxy-bin
+
+ENTRYPOINT ["/usr/bin/tun2proxy-bin", "--setup"]
