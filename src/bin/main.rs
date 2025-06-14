@@ -64,18 +64,18 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
 
     let ctrlc_fired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
     let ctrlc_fired_clone = ctrlc_fired.clone();
-    let ctrlc_handel = ctrlc2::set_async_handler(async move {
+    let ctrlc_handel = ctrlc2::AsyncCtrlC::new(move || {
         log::info!("Ctrl-C received, exiting...");
         ctrlc_fired_clone.store(true, std::sync::atomic::Ordering::SeqCst);
         shutdown_token.cancel();
-    })
-    .await;
+        true
+    })?;
 
     let tasks = main_loop_handle.await??;
 
     if ctrlc_fired.load(std::sync::atomic::Ordering::SeqCst) {
         log::info!("Ctrl-C fired, waiting the handler to finish...");
-        ctrlc_handel.await.map_err(|err| err.to_string())?;
+        ctrlc_handel.await?;
     }
 
     if args.exit_on_fatal_error && tasks >= args.max_sessions {
