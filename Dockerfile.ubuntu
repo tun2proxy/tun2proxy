@@ -5,15 +5,14 @@ FROM rust:latest AS builder
 
 WORKDIR /worker
 COPY ./ .
-RUN cargo build --release
+RUN rustup target add x86_64-unknown-linux-musl
+RUN cargo build --release --target=x86_64-unknown-linux-musl
 
 
 ####################################################################################################
 ## Final image
 ####################################################################################################
-FROM ubuntu:latest
-
-RUN apt update && apt install -y iproute2 && apt clean all
+FROM scratch
 
 COPY --from=builder /worker/target/release/tun2proxy-bin /usr/bin/tun2proxy-bin
 

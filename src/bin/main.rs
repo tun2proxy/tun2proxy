@@ -1,3 +1,5 @@
+use std::time::Duration;
+
 use tun2proxy::{ArgVerbosity, Args, BoxError};
 
 fn main() -> Result<(), BoxError> {
