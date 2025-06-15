@@ -207,11 +207,11 @@ pub async fn general_run_async(
     // TproxyState implements the Drop trait to restore network configuration,
     // so we need to assign it to a variable, even if it is not used.
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
-    let mut _restore: Option<tproxy_config::TproxyState> = None;
+    let mut restore: Option<tproxy_config::TproxyState> = None;
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     if args.setup {
-        _restore = Some(tproxy_config::tproxy_setup(&tproxy_args)?);
+        restore = Some(tproxy_config::tproxy_setup(&tproxy_args).await?);
     }
 
     #[cfg(target_os = "linux")]
@@ -238,8 +238,16 @@ pub async fn general_run_async(
         }
     }
 
-    let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token));
-    Ok(join_handle.await.map_err(std::io::Error::from)??)
+    let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token.clone()));
+
+    match join_handle.await? {
+        Ok(sessions) => {
+            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            tproxy_config::tproxy_remove(restore).await?;
+            Ok(sessions)
+        }
+        Err(err) => Err(std::io::Error::from(err)),
+    }
 }
 
 /// # Safety
