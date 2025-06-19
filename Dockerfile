@@ -21,8 +21,9 @@ FROM rust:latest AS musl-builder
 
     WORKDIR /worker
     COPY ./ .
-    RUN rustup target add x86_64-unknown-linux-musl 
-    RUN cargo build --release --target x86_64-unknown-linux-musl
+    RUN ARCH=$(rustc -vV | sed -nE 's/host:\s*([^-]+).*/\1/p') \
+        && rustup target add "$ARCH-unknown-linux-musl" \
+        && cargo build --release --target "$ARCH-unknown-linux-musl"
 
     RUN mkdir /.etc \
         && touch /.etc/resolv.conf \
@@ -35,7 +36,7 @@ FROM rust:latest AS musl-builder
 ####################################################################################################
 FROM alpine:latest AS tun2proxy-alpine
 
-    COPY --from=musl-builder /worker/target/x86_64-unknown-linux-musl/release/tun2proxy-bin /usr/bin/tun2proxy-bin
+    COPY --from=musl-builder /worker/target/*/release/tun2proxy-bin /usr/bin/tun2proxy-bin
 
     ENTRYPOINT ["/usr/bin/tun2proxy-bin", "--setup"]
 
@@ -55,6 +56,6 @@ FROM scratch AS tun2proxy-scratch
 
     COPY --from=musl-builder ./tmp /tmp
     COPY --from=musl-builder ./etc /etc
-    COPY --from=musl-builder /worker/target/x86_64-unknown-linux-musl/release/tun2proxy-bin /usr/bin/tun2proxy-bin
+    COPY --from=musl-builder /worker/target/*/release/tun2proxy-bin /usr/bin/tun2proxy-bin
 
     ENTRYPOINT ["/usr/bin/tun2proxy-bin", "--setup"]
