@@ -29,7 +29,7 @@ cargo build --release
 ```
 
 ### Building Framework for Apple Devices
-To build an XCFramework for macOS and iOS, run the following: 
+To build an XCFramework for macOS and iOS, run the following:
 ```
 ./build-apple.sh
 ```
@@ -221,7 +221,7 @@ services:
     cap_add:
       - NET_ADMIN
     container_name: tun2proxy
-    image: ghcr.io/tun2proxy/tun2proxy:latest-ubuntu
+    image: ghcr.io/tun2proxy/tun2proxy-ubuntu:latest
     command: --proxy proto://[username[:password]@]host:port
   alpine:
     stdin_open: true
