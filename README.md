@@ -177,7 +177,16 @@ supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogousl
 Tun2proxy can serve as a proxy for other Docker containers. To make use of that feature, first build the image:
 
 ```bash
-docker build -t tun2proxy .
+docker buildx build -t tun2proxy .
+```
+
+This will build an image containing a statically linked `tun2proxy` binary (based on `musl`) without OS.
+
+Alternatively, you can build images based on Ubuntu or Alpine as follows:
+
+```bash
+docker buildx build -t tun2proxy --target tun2proxy-ubuntu .
+docker buildx build -t tun2proxy --target tun2proxy-alpine .
 ```
 
 Next, start a container from the tun2proxy image:
@@ -188,7 +197,7 @@ docker run -d \
 	--sysctl net.ipv6.conf.default.disable_ipv6=0 \
 	--cap-add NET_ADMIN \
 	--name tun2proxy \
-	tun2proxy-bin --proxy proto://[username[:password]@]host:port
+	tun2proxy --proxy proto://[username[:password]@]host:port
 ```
 
 You can then provide the running container's network to another worker container by sharing the network namespace (like kubernetes sidecar):
@@ -200,7 +209,7 @@ docker run -it \
 ```
 ### Docker Compose
 
-Write a `docker-compose.yaml` file with the following content:
+Create a `docker-compose.yaml` file with the following content:
 
 ```yaml
 services:
