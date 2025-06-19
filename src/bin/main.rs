@@ -27,13 +27,20 @@ fn main() -> Result<(), BoxError> {
     rt.block_on(main_async(args))
 }
 
-async fn main_async(args: Args) -> Result<(), BoxError> {
-    let ipstack = match args.verbosity {
+fn setup_logging(args: &Args) {
+    let avoid_trace = match args.verbosity {
         ArgVerbosity::Trace => ArgVerbosity::Debug,
         _ => args.verbosity,
     };
-    let default = format!("{:?},hickory_proto=warn,ipstack={:?}", args.verbosity, ipstack);
+    let default = format!(
+        "{:?},hickory_proto=warn,ipstack={:?},netlink_proto={:?},netlink_sys={:?}",
+        args.verbosity, avoid_trace, avoid_trace, avoid_trace
+    );
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
+}
+
+async fn main_async(args: Args) -> Result<(), BoxError> {
+    setup_logging(&args);
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
     let main_loop_handle = tokio::spawn({
