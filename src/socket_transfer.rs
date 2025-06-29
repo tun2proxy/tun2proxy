@@ -157,8 +157,7 @@ where
 
         let mut buf = [0_u8; REQUEST_BUFFER_SIZE];
         let mut iov = [IoSliceMut::new(&mut buf[..])];
-        let mut cmsg = Vec::with_capacity(cmsg_space::<RawFd>() * number as usize);
-
+        let mut cmsg = vec![0; cmsg_space::<RawFd>() * number as usize];
         let msg = recvmsg::<()>(socket.as_fd().as_raw_fd(), &mut iov, Some(&mut cmsg), MsgFlags::empty());
 
         let msg = match msg {
