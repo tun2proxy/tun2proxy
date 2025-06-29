@@ -32,9 +32,9 @@ impl std::fmt::Display for UdpFlag {
             0x01 => "KEEPALIVE",
             0x20 => "ERR",
             0x02 => "DATA",
-            n => return write!(f, "Unknown UdpFlag(0x{:02X})", n),
+            n => return write!(f, "Unknown UdpFlag(0x{n:02X})"),
         };
-        write!(f, "{}", flag)
+        write!(f, "{flag}")
     }
 }
 
@@ -332,7 +332,7 @@ impl std::fmt::Display for UdpGwResponse {
             UdpGwResponse::KeepAlive => write!(f, "KeepAlive"),
             UdpGwResponse::Error => write!(f, "Error"),
             UdpGwResponse::TcpClose => write!(f, "TcpClose"),
-            UdpGwResponse::Data(packet) => write!(f, "Data({})", packet),
+            UdpGwResponse::Data(packet) => write!(f, "Data({packet})"),
         }
     }
 }
@@ -487,21 +487,21 @@ impl UdpGwClient {
                 let keepalive_packet: Vec<u8> = Packet::build_keepalive_packet(sn).into();
                 tx += keepalive_packet.len();
                 if let Err(e) = stream_writer.write_all(&keepalive_packet).await {
-                    log::warn!("stream {} {:?} send keepalive failed: {}", sn, local_addr, e);
+                    log::warn!("stream {sn} {local_addr:?} send keepalive failed: {e}");
                     continue;
                 }
                 match UdpGwClient::recv_udpgw_packet(self.udp_mtu, self.udp_timeout, &mut stream_reader).await {
                     Ok((len, UdpGwResponse::KeepAlive)) => {
                         stream.update_activity();
                         self.store_server_connection_full(stream, stream_reader, stream_writer).await;
-                        log::trace!("stream {sn} {:?} send keepalive and recieve it successfully", local_addr);
+                        log::trace!("stream {sn} {local_addr:?} send keepalive and recieve it successfully");
                         rx += len;
                     }
                     Ok((len, v)) => {
-                        log::debug!("stream {sn} {:?} keepalive unexpected response: {v}", local_addr);
+                        log::debug!("stream {sn} {local_addr:?} keepalive unexpected response: {v}");
                         rx += len;
                     }
-                    Err(e) => log::debug!("stream {sn} {:?} keepalive no response, error \"{e}\"", local_addr),
+                    Err(e) => log::debug!("stream {sn} {local_addr:?} keepalive no response, error \"{e}\""),
                 }
             }
             crate::traffic_status::traffic_status_update(tx, rx)?;

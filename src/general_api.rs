@@ -100,7 +100,7 @@ pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tu
 pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -> c_int {
     log::set_max_level(args.verbosity.into());
     if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
-        log::debug!("set logger error: {}", err);
+        log::debug!("set logger error: {err}");
     }
 
     let shutdown_token = tokio_util::sync::CancellationToken::new();
@@ -135,7 +135,7 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
     }) {
         Ok(_) => 0,
         Err(e) => {
-            log::error!("failed to run tun2proxy with error: {:?}", e);
+            log::error!("failed to run tun2proxy with error: {e:?}");
             -4
         }
     }

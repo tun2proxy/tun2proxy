@@ -51,7 +51,7 @@ static TIME_STAMP: LazyLock<Mutex<std::time::Instant>> = LazyLock::new(|| Mutex:
 pub(crate) fn traffic_status_update(delta_tx: usize, delta_rx: usize) -> Result<()> {
     {
         let is_none_or_error = TRAFFIC_STATUS_CALLBACK.lock().map(|guard| guard.is_none()).unwrap_or_else(|e| {
-            log::error!("Failed to acquire lock: {}", e);
+            log::error!("Failed to acquire lock: {e}");
             true
         });
         if is_none_or_error {

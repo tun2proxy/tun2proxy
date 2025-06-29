@@ -16,7 +16,7 @@ fn my_service_main(arguments: Vec<std::ffi::OsString>) {
     // `service_dispatcher::start` from `main`.
 
     if let Err(_e) = run_service(arguments) {
-        log::error!("Error: {:?}", _e);
+        log::error!("Error: {_e:?}");
     }
 }
 

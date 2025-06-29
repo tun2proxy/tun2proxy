@@ -6,7 +6,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     // Get the build time
     let build_time = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
-    println!("cargo:rustc-env=BUILD_TIME={}", build_time);
+    println!("cargo:rustc-env=BUILD_TIME={build_time}");
 
     #[cfg(target_os = "windows")]
     if let Ok(cargo_target_dir) = get_cargo_target_dir() {
@@ -28,7 +28,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
         // Copy to the target directory
         if let Err(e) = std::fs::copy(src_path, &dst_path) {
-            f.write_all(format!("Failed to copy 'wintun.dll': {}\r\n", e).as_bytes())?;
+            f.write_all(format!("Failed to copy 'wintun.dll': {e}\r\n").as_bytes())?;
         } else {
             f.write_all(format!("Copied 'wintun.dll' to '{}'\r\n", dst_path.display()).as_bytes())?;
 

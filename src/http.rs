@@ -142,7 +142,7 @@ impl HttpConnection {
             AuthenticationScheme::Basic => {
                 let auth_b64 = base64easy::encode(credentials.to_string(), base64easy::EngineKind::Standard);
                 self.server_outbuf
-                    .extend(format!("{}: Basic {}\r\n", PROXY_AUTHORIZATION, auth_b64).as_bytes());
+                    .extend(format!("{PROXY_AUTHORIZATION}: Basic {auth_b64}\r\n").as_bytes());
             }
             AuthenticationScheme::None => {}
         }

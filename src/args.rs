@@ -379,7 +379,7 @@ impl Default for ArgProxy {
 impl std::fmt::Display for ArgProxy {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         let auth = match &self.credentials {
-            Some(creds) => format!("{}", creds),
+            Some(creds) => format!("{creds}"),
             None => "".to_owned(),
         };
         if auth.is_empty() {

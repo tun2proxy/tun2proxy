@@ -66,14 +66,14 @@ impl UdpGwArgs {
 async fn send_error_response(tx: Sender<Packet>, conn_id: u16) {
     let error_packet = Packet::build_error_packet(conn_id);
     if let Err(e) = tx.send(error_packet).await {
-        log::error!("send error response error {:?}", e);
+        log::error!("send error response error {e:?}");
     }
 }
 
 async fn send_keepalive_response(tx: Sender<Packet>, conn_id: u16) {
     let keepalive_packet = Packet::build_keepalive_packet(conn_id);
     if let Err(e) = tx.send(keepalive_packet).await {
-        log::error!("send keepalive response error {:?}", e);
+        log::error!("send keepalive response error {e:?}");
     }
 }
 
@@ -150,12 +150,12 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Packet>, mut client
         let packet = match res {
             Ok(Ok(packet)) => packet,
             Ok(Err(e)) => {
-                log::debug!("client {} retrieve_from_async_stream \"{}\"", masked_addr, e);
+                log::debug!("client {masked_addr} retrieve_from_async_stream \"{e}\"");
                 break;
             }
             Err(e) => {
                 if client.last_activity.elapsed() >= CLIENT_DISCONNECT_TIMEOUT {
-                    log::debug!("client {} last_activity elapsed \"{e}\"", masked_addr);
+                    log::debug!("client {masked_addr} last_activity elapsed \"{e}\"");
                     break;
                 }
                 continue;
@@ -166,19 +166,19 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Packet>, mut client
         let flags = packet.header.flags;
         let conn_id = packet.header.conn_id;
         if flags & UdpFlag::KEEPALIVE == UdpFlag::KEEPALIVE {
-            log::trace!("client {} send keepalive", masked_addr);
+            log::trace!("client {masked_addr} send keepalive");
             // 2. if keepalive packet, do nothing, send keepalive response to client
             send_keepalive_response(tx.clone(), conn_id).await;
             continue;
         }
-        log::trace!("client {} received udp data {}", masked_addr, packet);
+        log::trace!("client {masked_addr} received udp data {packet}");
 
         // 3. process client udpgw packet in a new task
         let tx = tx.clone();
         tokio::spawn(async move {
             if let Err(e) = process_udp(udp_mtu, udp_timeout, tx.clone(), packet).await {
                 send_error_response(tx, conn_id).await;
-                log::debug!("client {} process udp function \"{e}\"", masked_addr);
+                log::debug!("client {masked_addr} process udp function \"{e}\"");
             }
         });
     }
@@ -190,7 +190,7 @@ async fn write_to_client(addr: SocketAddr, mut writer: WriteHalf<'_>, mut rx: Re
     loop {
         use std::io::{Error, ErrorKind::BrokenPipe};
         let packet = rx.recv().await.ok_or(Error::new(BrokenPipe, "recv error"))?;
-        log::trace!("send response to client {} with {}", masked_addr, packet);
+        log::trace!("send response to client {masked_addr} with {packet}");
         let data: Vec<u8> = packet.into();
         let _r = writer.write(&data).await?;
     }
@@ -231,7 +231,7 @@ pub async fn run(args: UdpGwArgs, shutdown_token: tokio_util::sync::Cancellation
         };
         let client = Client::new(addr);
         let masked_addr = mask_socket_addr(addr);
-        log::info!("client {} connected", masked_addr);
+        log::info!("client {masked_addr} connected");
         let params = args.clone();
         tokio::spawn(async move {
             let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(100);
@@ -240,7 +240,7 @@ pub async fn run(args: UdpGwArgs, shutdown_token: tokio_util::sync::Cancellation
                 v = process_client_udp_req(&params, tx, client, tcp_read_stream) => v,
                 v = write_to_client(addr, tcp_write_stream, rx) => v,
             };
-            log::info!("client {} disconnected with {:?}", masked_addr, res);
+            log::info!("client {masked_addr} disconnected with {res:?}");
         });
     }
     Ok::<(), Error>(())
@@ -263,9 +263,7 @@ fn main() -> Result<(), BoxError> {
             .stdout(stdout)
             .stderr(stderr)
             .privileged_action(|| "Executed before drop privileges");
-        let _ = daemonize
-            .start()
-            .map_err(|e| format!("Failed to daemonize process, error:{:?}", e))?;
+        let _ = daemonize.start().map_err(|e| format!("Failed to daemonize process, error:{e:?}"))?;
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;

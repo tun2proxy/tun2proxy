@@ -50,7 +50,7 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
             #[cfg(target_os = "linux")]
             if args.unshare && args.socket_transfer_fd.is_none() {
                 if let Err(err) = namespace_proxy_main(args, shutdown_token).await {
-                    log::error!("namespace proxy error: {}", err);
+                    log::error!("namespace proxy error: {err}");
                 }
                 return Ok(0);
             }
@@ -133,13 +133,10 @@ async fn namespace_proxy_main(
     log::info!("Use `tun2proxy-bin --unshare --setup [...] -- openvpn --config [...]`");
     log::info!("");
     log::info!("To run a new process in the created namespace (e.g. a flatpak app)");
-    log::info!(
-        "Use `nsenter --preserve-credentials --user --net --mount  --target {} /bin/sh`",
-        unshare_pid
-    );
+    log::info!("Use `nsenter --preserve-credentials --user --net --mount  --target {unshare_pid} /bin/sh`");
     log::info!("");
     if let Some(pidfile) = _args.unshare_pidfile.as_ref() {
-        log::info!("Writing unshare pid to {}", pidfile);
+        log::info!("Writing unshare pid to {pidfile}");
         std::fs::write(pidfile, unshare_pid.to_string()).ok();
     }
     tokio::spawn(async move { tun2proxy::socket_transfer::process_socket_requests(&socket).await });

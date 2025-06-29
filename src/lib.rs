@@ -237,7 +237,7 @@ where
 
     #[cfg(feature = "udpgw")]
     let udpgw_client = args.udpgw_server.map(|addr| {
-        log::info!("UDP Gateway enabled, server: {}", addr);
+        log::info!("UDP Gateway enabled, server: {addr}");
         use std::time::Duration;
         let client = Arc::new(UdpGwClient::new(
             mtu,
@@ -292,7 +292,7 @@ where
                 let socket_queue = socket_queue.clone();
                 tokio::spawn(async move {
                     if let Err(err) = handle_tcp_session(tcp, proxy_handler, socket_queue).await {
-                        log::error!("{} error \"{}\"", info, err);
+                        log::error!("{info} error \"{err}\"");
                     }
                     log::trace!("Session count {}", task_count.fetch_sub(1, Relaxed).saturating_sub(1));
                 });
@@ -318,7 +318,7 @@ where
                         let socket_queue = socket_queue.clone();
                         tokio::spawn(async move {
                             if let Err(err) = handle_dns_over_tcp_session(udp, proxy_handler, socket_queue, ipv6_enabled).await {
-                                log::error!("{} error \"{}\"", info, err);
+                                log::error!("{info} error \"{err}\"");
                             }
                             log::trace!("Session count {}", task_count.fetch_sub(1, Relaxed).saturating_sub(1));
                         });
@@ -328,7 +328,7 @@ where
                         tokio::spawn(async move {
                             if let Some(virtual_dns) = virtual_dns {
                                 if let Err(err) = handle_virtual_dns_session(udp, virtual_dns).await {
-                                    log::error!("{} error \"{}\"", info, err);
+                                    log::error!("{info} error \"{err}\"");
                                 }
                             }
                             log::trace!("Session count {}", task_count.fetch_sub(1, Relaxed).saturating_sub(1));
@@ -360,7 +360,7 @@ where
                             None => dst.into(),
                         };
                         if let Err(e) = handle_udp_gateway_session(udp, udpgw, &dst_addr, proxy_handler, queue, ipv6_enabled).await {
-                            log::info!("Ending {} with \"{}\"", info, e);
+                            log::info!("Ending {info} with \"{e}\"");
                         }
                         log::trace!("Session count {}", task_count.fetch_sub(1, Relaxed).saturating_sub(1));
                     });
@@ -372,13 +372,13 @@ where
                         tokio::spawn(async move {
                             let ty = args.proxy.proxy_type;
                             if let Err(err) = handle_udp_associate_session(udp, ty, proxy_handler, socket_queue, ipv6_enabled).await {
-                                log::info!("Ending {} with \"{}\"", info, err);
+                                log::info!("Ending {info} with \"{err}\"");
                             }
                             log::trace!("Session count {}", task_count.fetch_sub(1, Relaxed).saturating_sub(1));
                         });
                     }
                     Err(e) => {
-                        log::error!("Failed to create UDP connection: {}", e);
+                        log::error!("Failed to create UDP connection: {e}");
                     }
                 }
             }
@@ -402,7 +402,7 @@ async fn handle_virtual_dns_session(mut udp: IpStackUdpStream, dns: Arc<Mutex<Vi
         let len = match udp.read(&mut buf).await {
             Err(e) => {
                 // indicate UDP read fails not an error.
-                log::debug!("Virtual DNS session error: {}", e);
+                log::debug!("Virtual DNS session error: {e}");
                 break;
             }
             Ok(len) => len,
@@ -412,7 +412,7 @@ async fn handle_virtual_dns_session(mut udp: IpStackUdpStream, dns: Arc<Mutex<Vi
         }
         let (msg, qname, ip) = dns.lock().await.generate_query(&buf[..len])?;
         udp.write_all(&msg).await?;
-        log::debug!("Virtual DNS query: {} -> {}", qname, ip);
+        log::debug!("Virtual DNS query: {qname} -> {ip}");
     }
     Ok(())
 }
@@ -431,7 +431,7 @@ where
                 total += n as u64;
                 let (tx, rx) = if is_tx { (n, 0) } else { (0, n) };
                 if let Err(e) = crate::traffic_status::traffic_status_update(tx, rx) {
-                    log::debug!("Record traffic status error: {}", e);
+                    log::debug!("Record traffic status error: {e}");
                 }
                 writer.write_all(&buf[..n]).await?;
             }
@@ -453,7 +453,7 @@ async fn handle_tcp_session(
 
     let mut server = create_tcp_stream(&socket_queue, server_addr).await?;
 
-    log::info!("Beginning {}", session_info);
+    log::info!("Beginning {session_info}");
 
     if let Err(e) = handle_proxy_session(&mut server, proxy_handler).await {
         tcp_stack.shutdown().await?;
@@ -467,19 +467,19 @@ async fn handle_tcp_session(
         async move {
             let r = copy_and_record_traffic(&mut t_rx, &mut s_tx, true).await;
             if let Err(err) = s_tx.shutdown().await {
-                log::trace!("{} s_tx shutdown error {}", session_info, err);
+                log::trace!("{session_info} s_tx shutdown error {err}");
             }
             r
         },
         async move {
             let r = copy_and_record_traffic(&mut s_rx, &mut t_tx, false).await;
             if let Err(err) = t_tx.shutdown().await {
-                log::trace!("{} t_tx shutdown error {}", session_info, err);
+                log::trace!("{session_info} t_tx shutdown error {err}");
             }
             r
         },
     );
-    log::info!("Ending {} with {:?}", session_info, res);
+    log::info!("Ending {session_info} with {res:?}");
 
     Ok(())
 }
@@ -509,7 +509,7 @@ async fn handle_udp_gateway_session(
             None => {
                 let mut tcp_server_stream = create_tcp_stream(&socket_queue, proxy_server_addr).await?;
                 if let Err(e) = handle_proxy_session(&mut tcp_server_stream, proxy_handler).await {
-                    return Err(format!("udpgw connection error: {}", e).into());
+                    return Err(format!("udpgw connection error: {e}").into());
                 }
                 break UdpGwClientStream::new(tcp_server_stream);
             }
@@ -625,7 +625,7 @@ async fn handle_udp_associate_session(
         )
     };
 
-    log::info!("Beginning {}", session_info);
+    log::info!("Beginning {session_info}");
 
     // `_server` is meaningful here, it must be alive all the time
     // to ensure that UDP transmission will not be interrupted accidentally.
@@ -702,7 +702,7 @@ async fn handle_udp_associate_session(
         }
     }
 
-    log::info!("Ending {}", session_info);
+    log::info!("Ending {session_info}");
 
     Ok(())
 }
@@ -721,7 +721,7 @@ async fn handle_dns_over_tcp_session(
 
     let mut server = create_tcp_stream(&socket_queue, server_addr).await?;
 
-    log::info!("Beginning {}", session_info);
+    log::info!("Beginning {session_info}");
 
     let _ = handle_proxy_session(&mut server, proxy_handler).await?;
 
@@ -774,7 +774,7 @@ async fn handle_dns_over_tcp_session(
 
                     let name = dns::extract_domain_from_dns_message(&message)?;
                     let ip = dns::extract_ipaddr_from_dns_message(&message);
-                    log::trace!("DNS over TCP query result: {} -> {:?}", name, ip);
+                    log::trace!("DNS over TCP query result: {name} -> {ip:?}");
 
                     if !ipv6_enabled {
                         dns::remove_ipv6_entries(&mut message);
@@ -794,7 +794,7 @@ async fn handle_dns_over_tcp_session(
         }
     }
 
-    log::info!("Ending {}", session_info);
+    log::info!("Ending {session_info}");
 
     Ok(())
 }
