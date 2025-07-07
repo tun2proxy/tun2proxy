@@ -367,7 +367,7 @@ impl ProxyHandler for HttpConnection {
         buffer.drain(0..size);
     }
 
-    fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent {
+    fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent<'_> {
         let buffer = if dir == OutgoingDirection::ToServer {
             &mut self.server_outbuf
         } else {

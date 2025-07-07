@@ -297,7 +297,7 @@ impl ProxyHandler for SocksProxyImpl {
         buffer.drain(0..size);
     }
 
-    fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent {
+    fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent<'_> {
         let buffer = match dir {
             OutgoingDirection::ToServer => &mut self.server_outbuf,
             OutgoingDirection::ToClient => &mut self.client_outbuf,

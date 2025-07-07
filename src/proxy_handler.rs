@@ -12,7 +12,7 @@ pub(crate) trait ProxyHandler: Send + Sync {
     fn get_domain_name(&self) -> Option<String>;
     async fn push_data(&mut self, event: IncomingDataEvent<'_>) -> std::io::Result<()>;
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize);
-    fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent;
+    fn peek_data(&mut self, dir: OutgoingDirection) -> OutgoingDataEvent<'_>;
     fn connection_established(&self) -> bool;
     #[allow(dead_code)]
     fn data_len(&self, dir: OutgoingDirection) -> usize;
