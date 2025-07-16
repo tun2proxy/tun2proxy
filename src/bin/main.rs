@@ -82,7 +82,11 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
 
     if ctrlc_fired.load(std::sync::atomic::Ordering::SeqCst) {
         log::info!("Ctrl-C fired, waiting the handler to finish...");
-        ctrlc_handel.await?;
+        match tokio::time::timeout(std::time::Duration::from_secs(1), ctrlc_handel).await {
+            Ok(Ok(())) => log::info!("Ctrl-C handler finished"),
+            Ok(Err(e)) => log::warn!("Ctrl-C handler error: {e}"),
+            Err(_) => log::warn!("Ctrl-C handler timeout, continuing..."),
+        }
     }
 
     if args.exit_on_fatal_error && tasks >= args.max_sessions {
