@@ -34,7 +34,7 @@ FROM rust:latest AS musl-builder
 ####################################################################################################
 ## Alpine image
 ####################################################################################################
-FROM alpine:latest AS tun2proxy-alpine
+FROM alpine:3.22 AS tun2proxy-alpine
 
     COPY --from=musl-builder /worker/target/*/release/tun2proxy-bin /usr/bin/tun2proxy-bin
 
