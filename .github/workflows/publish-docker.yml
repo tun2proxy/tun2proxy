@@ -28,13 +28,13 @@ jobs:
       - name: Build Docker image
         run: |
           docker build . --file Dockerfile \
-            --tag imzami/socks5:latest \
-            --tag ghcr.io/zamibd/socks5:latest
+            --tag imzami/tun2proxy:latest \
+            --tag ghcr.io/zamibd/tun2proxy:latest
 
       # ✅ Step 5: Push image to Docker Hub
       - name: Push to Docker Hub
-        run: docker push imzami/socks5:latest
+        run: docker push imzami/tun2proxy:latest
 
       # ✅ Step 6: Push image to GitHub Container Registry (GHCR)
       - name: Push to GHCR
-        run: docker push ghcr.io/zamibd/socks5:latest
+        run: docker push ghcr.io/zamibd/tun2proxy:latest
