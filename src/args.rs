@@ -19,7 +19,7 @@ fn about_info() -> &'static str {
     concat!("Tunnel interface to proxy.\nVersion: ", version_info!())
 }
 
-#[derive(Debug, Clone, clap::Parser)]
+#[derive(Debug, Clone, clap::Parser, serde::Serialize, serde::Deserialize)]
 #[command(author, version = version_info!(), about = about_info(), long_about = None)]
 pub struct Args {
     /// Proxy URL in the form proto://[username[:password]@]host:port,
@@ -33,17 +33,20 @@ pub struct Args {
     /// If this option is not provided, the OS will generate a random one.
     #[arg(short, long, value_name = "name", value_parser = validate_tun)]
     #[cfg_attr(unix, arg(conflicts_with = "tun_fd"))]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tun: Option<String>,
 
     /// File descriptor of the tun interface
     #[cfg(unix)]
     #[arg(long, value_name = "fd", conflicts_with = "tun")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub tun_fd: Option<i32>,
 
     /// Set whether to close the received raw file descriptor on drop or not.
     /// This setting is dependent on [tun_fd].
     #[cfg(unix)]
     #[arg(long, value_name = "true or false", conflicts_with = "tun", requires = "tun_fd")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub close_fd_on_drop: Option<bool>,
 
     /// Create a tun interface in a newly created unprivileged namespace
@@ -55,6 +58,7 @@ pub struct Args {
     /// Create a pidfile of `unshare` process when using `--unshare`.
     #[cfg(target_os = "linux")]
     #[arg(long)]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub unshare_pidfile: Option<String>,
 
     /// File descriptor for UNIX datagram socket meant to transfer
@@ -62,6 +66,7 @@ pub struct Args {
     /// See `unshare(1)`, `namespaces(7)`, `sendmsg(2)`, `unix(7)`.
     #[cfg(target_os = "linux")]
     #[arg(long, value_name = "fd", hide(true))]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub socket_transfer_fd: Option<i32>,
 
     /// Specify a command to run with root-like capabilities in the new namespace
@@ -126,16 +131,19 @@ pub struct Args {
     /// UDP gateway server address, forwards UDP packets via specified TCP server
     #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "IP:PORT")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub udpgw_server: Option<SocketAddr>,
 
     /// Max connections for the UDP gateway, default value is 5
     #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "number", requires = "udpgw_server")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub udpgw_connections: Option<usize>,
 
     /// Keepalive interval in seconds for the UDP gateway, default value is 30
     #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "seconds", requires = "udpgw_server")]
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub udpgw_keepalive: Option<u64>,
 }
 
@@ -268,7 +276,7 @@ impl Args {
 }
 
 #[repr(C)]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
 pub enum ArgVerbosity {
     Off = 0,
     Error,
@@ -338,7 +346,7 @@ impl std::fmt::Display for ArgVerbosity {
 /// - OverTcp: Use TCP to send DNS queries to the DNS server
 /// - Direct: Do not handle DNS by relying on DNS server bypassing
 #[repr(C)]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum)]
+#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
 pub enum ArgDns {
     Virtual = 0,
     OverTcp,
@@ -359,10 +367,11 @@ impl TryFrom<jni::sys::jint> for ArgDns {
     }
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
 pub struct ArgProxy {
     pub proxy_type: ProxyType,
     pub addr: SocketAddr,
+    #[serde(skip_serializing_if = "Option::is_none")]
     pub credentials: Option<UserKey>,
 }
 
@@ -432,7 +441,7 @@ impl TryFrom<&str> for ArgProxy {
 }
 
 #[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default)]
+#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default, serde::Serialize, serde::Deserialize)]
 pub enum ProxyType {
     Http = 0,
     Socks4,

@@ -7,6 +7,7 @@ use crate::{
     session_info::{IpProtocol, SessionInfo},
     virtual_dns::VirtualDns,
 };
+pub use clap::ValueEnum;
 use ipstack::{IpStackStream, IpStackTcpStream, IpStackUdpStream};
 use proxy_handler::{ProxyHandler, ProxyHandlerManager};
 use socks::SocksProxyManager;
@@ -26,6 +27,7 @@ use tokio::{
 };
 pub use tokio_util::sync::CancellationToken;
 use tproxy_config::is_private_ip;
+pub use tun::DEFAULT_MTU;
 use udp_stream::UdpStream;
 #[cfg(feature = "udpgw")]
 use udpgw::{UDPGW_KEEPALIVE_TIME, UDPGW_MAX_CONNECTIONS, UdpGwClientStream, UdpGwResponse};
