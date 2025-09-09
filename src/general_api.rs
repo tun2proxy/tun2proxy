@@ -4,8 +4,6 @@ use crate::{
 };
 use std::os::raw::{c_char, c_int, c_ushort};
 
-static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
-
 /// # Safety
 ///
 /// Run the tun2proxy component with some arguments.
@@ -97,6 +95,18 @@ pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tu
     general_run_for_api(args, tun_mtu, packet_information)
 }
 
+static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
+
+pub(crate) fn tun2proxy_stop_internal() -> c_int {
+    if let Ok(mut lock) = TUN_QUIT.lock() {
+        if let Some(shutdown_token) = lock.take() {
+            shutdown_token.cancel();
+            return 0;
+        }
+    }
+    -1
+}
+
 pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -> c_int {
     log::set_max_level(args.verbosity.into());
     if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
@@ -119,26 +129,34 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
         log::error!("failed to create tokio runtime with");
         return -3;
     };
-    match rt.block_on(async move {
-        let ret = general_run_async(args.clone(), tun_mtu, packet_information, shutdown_token).await;
-        match &ret {
-            Ok(sessions) => {
-                if args.exit_on_fatal_error && *sessions >= args.max_sessions {
-                    log::error!("Forced exit due to max sessions reached ({sessions}/{})", args.max_sessions);
-                    std::process::exit(-1);
-                }
-                log::debug!("tun2proxy exited normally, current sessions: {sessions}");
-            }
-            Err(err) => log::error!("main loop error: {err}"),
-        }
+    let args_clone = args.clone();
+    let res = rt.block_on(async move {
+        let ret = general_run_async(args_clone, tun_mtu, packet_information, shutdown_token).await;
+        let _h = tokio::spawn(async move {
+            // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
+            tokio::time::sleep(std::time::Duration::from_secs(crate::FORCE_EXIT_TIMEOUT)).await;
+            log::info!("Forcing exit now.");
+            std::process::exit(-1);
+        });
         ret
-    }) {
-        Ok(_) => 0,
+    });
+
+    let res = match res {
+        Ok(sessions) => {
+            log::debug!("tun2proxy exited normally, current session count: {sessions}");
+            0
+        }
         Err(e) => {
             log::error!("failed to run tun2proxy with error: {e:?}");
             -4
         }
+    };
+
+    if let Ok(mut lock) = TUN_QUIT.lock() {
+        lock.take();
     }
+
+    res
 }
 
 /// Run the tun2proxy component with some arguments.
@@ -238,12 +256,18 @@ pub async fn general_run_async(
         }
     }
 
-    let join_handle = tokio::spawn(crate::run(device, tun_mtu, args, shutdown_token.clone()));
+    let join_handle = tokio::spawn(crate::run(device, tun_mtu, args.clone(), shutdown_token.clone()));
 
     match join_handle.await? {
         Ok(sessions) => {
             #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
             tproxy_config::tproxy_remove(restore).await?;
+
+            let max_sessions = args.max_sessions;
+            if args.exit_on_fatal_error && sessions >= max_sessions {
+                let info = format!("Forced exit due to max sessions reached ({sessions}/{max_sessions})");
+                return Err(std::io::Error::other(info));
+            }
             Ok(sessions)
         }
         Err(err) => Err(std::io::Error::from(err)),
@@ -256,14 +280,4 @@ pub async fn general_run_async(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tun2proxy_stop() -> c_int {
     tun2proxy_stop_internal()
-}
-
-pub(crate) fn tun2proxy_stop_internal() -> c_int {
-    if let Ok(mut lock) = TUN_QUIT.lock() {
-        if let Some(shutdown_token) = lock.take() {
-            shutdown_token.cancel();
-            return 0;
-        }
-    }
-    -1
 }

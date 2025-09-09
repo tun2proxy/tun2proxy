@@ -80,15 +80,16 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
 
             let ret = crate::general_run_async(args.clone(), tun::DEFAULT_MTU, false, shutdown_token).await;
             match &ret {
-                Ok(sessions) => {
-                    if args.exit_on_fatal_error && *sessions >= args.max_sessions {
-                        log::error!("Forced exit due to max sessions reached ({sessions}/{})", args.max_sessions);
-                        std::process::exit(-1);
-                    }
-                    log::debug!("tun2proxy exited normally, current sessions: {sessions}");
-                }
-                Err(err) => log::error!("main loop error: {err}"),
+                Ok(sessions) => log::debug!("tun2proxy exited normally, current session count: {sessions}"),
+                Err(e) => log::error!("failed to run tun2proxy with error: {e:?}"),
             }
+            let _h = tokio::spawn(async move {
+                // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
+                tokio::time::sleep(std::time::Duration::from_secs(crate::FORCE_EXIT_TIMEOUT)).await;
+                log::info!("Forcing exit now.");
+                std::process::exit(-1);
+            });
+
             Ok::<(), crate::Error>(())
         })?;
     }

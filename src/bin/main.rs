@@ -24,7 +24,16 @@ fn main() -> Result<(), BoxError> {
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-    rt.block_on(main_async(args))
+    rt.block_on(async move {
+        let res = main_async(args).await;
+        let _h = tokio::spawn(async move {
+            // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
+            tokio::time::sleep(std::time::Duration::from_secs(tun2proxy::FORCE_EXIT_TIMEOUT)).await;
+            log::info!("Forcing exit now.");
+            std::process::exit(-1);
+        });
+        res
+    })
 }
 
 fn setup_logging(args: &Args) {
@@ -78,7 +87,7 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
         true
     })?;
 
-    let tasks = main_loop_handle.await??;
+    let _tasks = main_loop_handle.await??;
 
     if ctrlc_fired.load(std::sync::atomic::Ordering::SeqCst) {
         log::info!("Ctrl-C fired, waiting the handler to finish...");
@@ -87,12 +96,6 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
             Ok(Err(e)) => log::warn!("Ctrl-C handler error: {e}"),
             Err(_) => log::warn!("Ctrl-C handler timeout, continuing..."),
         }
-    }
-
-    if args.exit_on_fatal_error && tasks >= args.max_sessions {
-        // Because `main_async` function perhaps stuck in `await` state, so we need to exit the process forcefully
-        log::info!("Internal fatal error, max sessions reached ({tasks}/{})", args.max_sessions);
-        std::process::exit(-1);
     }
 
     Ok(())
