@@ -77,12 +77,18 @@ function build_android() {
                 target_dir=armeabi-v7a
                 ;;
             'x86_64-linux-android')
+                export RUSTFLAGS="-C link-arg=-Wl,-z,common-page-size=16384 -C link-arg=-Wl,-z,max-page-size=16384 $RUSTFLAGS --cfg ANDROID_PAGE_SIZE_16K"
+                export CFLAGS="-D__PAGE_SIZE=16384 -DANDROID_PAGE_SIZE=16384 $CFLAGS"
+                export CPPFLAGS="-D__PAGE_SIZE=16384 -DANDROID_PAGE_SIZE=16384 $CPPFLAGS"
                 export CC_x86_64_linux_android="$android_tools/${target}${ANDROID_API_VERSION}-clang"
                 export AR_x86_64_linux_android="$android_tools/llvm-ar"
                 export CARGO_TARGET_X86_64_LINUX_ANDROID_LINKER="$android_tools/${target}${ANDROID_API_VERSION}-clang"
                 target_dir=x86_64
                 ;;
             'aarch64-linux-android')
+                export RUSTFLAGS="-C link-arg=-Wl,-z,common-page-size=16384 -C link-arg=-Wl,-z,max-page-size=16384 $RUSTFLAGS --cfg ANDROID_PAGE_SIZE_16K"
+                export CFLAGS="-D__PAGE_SIZE=16384 -DANDROID_PAGE_SIZE=16384 $CFLAGS"
+                export CPPFLAGS="-D__PAGE_SIZE=16384 -DANDROID_PAGE_SIZE=16384 $CPPFLAGS"
                 export CC_aarch64_linux_android="$android_tools/${target}${ANDROID_API_VERSION}-clang"
                 export AR_aarch64_linux_android="$android_tools/llvm-ar"
                 export CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$android_tools/${target}${ANDROID_API_VERSION}-clang"
