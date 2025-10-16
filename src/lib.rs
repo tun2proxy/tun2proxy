@@ -234,7 +234,9 @@ where
 
     let mut ipstack_config = ipstack::IpStackConfig::default();
     ipstack_config.mtu(mtu);
-    ipstack_config.tcp_timeout(std::time::Duration::from_secs(args.tcp_timeout));
+    let mut tcp_cfg = ipstack::TcpConfig::default();
+    tcp_cfg.timeout = std::time::Duration::from_secs(args.tcp_timeout);
+    ipstack_config.with_tcp_config(tcp_cfg);
     ipstack_config.udp_timeout(std::time::Duration::from_secs(args.udp_timeout));
 
     let mut ip_stack = ipstack::IpStack::new(ipstack_config, device);
