@@ -35,7 +35,7 @@ ctrlc2 = { version = "3.6.5", features = ["async", "termination"] }
 digest_auth = "0.3"
 dotenvy = "0.15"
 env_logger = "0.11"
-hashlink = "0.10"
+hashlink = "0.11"
 hickory-proto = "0.25"
 httparse = "1"
 ipstack = { version = "0.5" }
