@@ -26,12 +26,18 @@ fn main() -> Result<(), BoxError> {
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     rt.block_on(async move {
         let res = main_async(args).await;
+        // Start a timer to force exit after FORCE_EXIT_TIMEOUT second
         let _h = tokio::spawn(async move {
+            log::info!("Starting {}-seconds exit timer", tun2proxy::FORCE_EXIT_TIMEOUT);
             // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
             tokio::time::sleep(std::time::Duration::from_secs(tun2proxy::FORCE_EXIT_TIMEOUT)).await;
             log::info!("Forcing exit now.");
             std::process::exit(-1);
         });
+
+        log::info!("Runtime.block_on exiting...");
+        tokio::time::sleep(std::time::Duration::from_micros(100)).await;
+
         res
     })
 }

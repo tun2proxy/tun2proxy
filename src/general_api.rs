@@ -138,6 +138,7 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
             log::info!("Forcing exit now.");
             std::process::exit(-1);
         });
+        tokio::time::sleep(std::time::Duration::from_micros(100)).await;
         ret
     });
 
