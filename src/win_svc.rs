@@ -89,6 +89,7 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
                 log::info!("Forcing exit now.");
                 std::process::exit(-1);
             });
+            tokio::time::sleep(std::time::Duration::from_micros(100)).await;
 
             Ok::<(), crate::Error>(())
         })?;
