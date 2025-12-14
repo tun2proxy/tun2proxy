@@ -44,7 +44,7 @@ static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
 pub use general_api::general_run_async;
 
-pub const FORCE_EXIT_TIMEOUT: u64 = 2; // seconds
+pub const FORCE_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);
 
 mod android;
 mod args;

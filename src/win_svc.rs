@@ -83,9 +83,10 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
                 Ok(sessions) => log::debug!("tun2proxy exited normally, current session count: {sessions}"),
                 Err(e) => log::error!("failed to run tun2proxy with error: {e:?}"),
             }
-            let _h = tokio::spawn(async move {
+            // Spawn a std thread so the timer survives runtime shutdown and reliably exits.
+            let _h = std::thread::spawn(move || {
                 // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
-                tokio::time::sleep(std::time::Duration::from_secs(crate::FORCE_EXIT_TIMEOUT)).await;
+                std::thread::sleep(crate::FORCE_EXIT_TIMEOUT);
                 log::info!("Forcing exit now.");
                 std::process::exit(-1);
             });

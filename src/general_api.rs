@@ -132,9 +132,11 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
     let args_clone = args.clone();
     let res = rt.block_on(async move {
         let ret = general_run_async(args_clone, tun_mtu, packet_information, shutdown_token).await;
-        let _h = tokio::spawn(async move {
+        // Spawn a std thread to force exit after timeout so it isn't cancelled
+        // when the tokio runtime is dropped.
+        let _h = std::thread::spawn(move || {
             // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
-            tokio::time::sleep(std::time::Duration::from_secs(crate::FORCE_EXIT_TIMEOUT)).await;
+            std::thread::sleep(crate::FORCE_EXIT_TIMEOUT);
             log::info!("Forcing exit now.");
             std::process::exit(-1);
         });
