@@ -61,7 +61,7 @@ android_logger = "0.15"
 jni = { version = "0.21", default-features = false }
 
 [target.'cfg(target_os="linux")'.dependencies]
-bincode = "2"
+bincode = "3"
 
 [target.'cfg(target_os="windows")'.dependencies]
 windows-service = "0.8"
