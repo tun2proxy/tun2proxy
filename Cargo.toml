@@ -68,7 +68,7 @@ windows-service = "0.8"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.5"
-nix = { version = "0.30", default-features = false, features = [
+nix = { version = "0.31", default-features = false, features = [
     "fs",
     "socket",
     "uio",
