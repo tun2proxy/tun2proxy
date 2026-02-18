@@ -58,7 +58,7 @@ url = "2"
 
 [target.'cfg(target_os="android")'.dependencies]
 android_logger = "0.15"
-jni = { version = "0.21", default-features = false }
+jni = { version = "0.22", default-features = false }
 
 [target.'cfg(target_os="linux")'.dependencies]
 bincode = "2"
