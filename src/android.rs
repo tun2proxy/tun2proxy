@@ -6,7 +6,7 @@ use crate::{
     error::{Error, Result},
 };
 use jni::{
-    JNIEnv,
+    Env, EnvUnowned,
     objects::{JClass, JString},
     sys::{jboolean, jchar, jint},
 };
@@ -23,9 +23,9 @@ use jni::{
 /// - verbosity: the verbosity level, see ArgVerbosity enum
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
-    mut env: JNIEnv,
-    _clazz: JClass,
-    proxy_url: JString,
+    mut env: EnvUnowned<'_>,
+    _clazz: JClass<'_>,
+    proxy_url: JString<'_>,
     tun_fd: jint,
     close_fd_on_drop: jboolean,
     tun_mtu: jchar,
@@ -42,27 +42,30 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
             .with_max_level(log::LevelFilter::Trace)
             .with_filter(filter),
     );
-    let proxy_url = get_java_string(&mut env, &proxy_url).unwrap();
-    let proxy = ArgProxy::try_from(proxy_url.as_str()).unwrap();
-    let close_fd_on_drop = close_fd_on_drop != 0;
+    env.with_env(|env: &mut Env| -> Result<jint> {
+        let proxy_url = get_java_string(env, &proxy_url).unwrap();
+        let proxy = ArgProxy::try_from(proxy_url.as_str()).unwrap();
 
-    let mut args = Args::default();
-    args.proxy(proxy)
-        .tun_fd(Some(tun_fd))
-        .close_fd_on_drop(close_fd_on_drop)
-        .dns(dns)
-        .verbosity(verbosity);
-    crate::general_api::general_run_for_api(args, tun_mtu, false)
+        let mut args = Args::default();
+        args.proxy(proxy)
+            .tun_fd(Some(tun_fd))
+            .close_fd_on_drop(close_fd_on_drop)
+            .dns(dns)
+            .verbosity(verbosity);
+        let v = crate::general_api::general_run_for_api(args, tun_mtu, false);
+        Ok::<jint, Error>(v)
+    })
+    .resolve::<jni::errors::LogErrorAndDefault>()
 }
 
 /// # Safety
 ///
 /// Shutdown tun2proxy
 #[unsafe(no_mangle)]
-pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_stop(_env: JNIEnv, _: JClass) -> jint {
+pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_stop(_env: EnvUnowned<'_>, _: JClass<'_>) -> jint {
     crate::general_api::tun2proxy_stop_internal()
 }
 
-fn get_java_string(env: &mut JNIEnv, string: &JString) -> Result<String, Error> {
-    Ok(env.get_string(string)?.into())
+fn get_java_string(env: &Env, string: &JString) -> Result<String, Error> {
+    string.try_to_string(env).map_err(|e| e.into())
 }

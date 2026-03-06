@@ -45,7 +45,8 @@ percent-encoding = "2"
 serde = { version = "1", features = ["derive"] }
 shlex = "1.3.0"
 socks5-impl = { version = "0.8", default-features = false, features = [
-    "tokio", "serde"
+    "tokio",
+    "serde",
 ] }
 thiserror = "2"
 tokio = { version = "1", features = ["full"] }
@@ -58,7 +59,7 @@ url = "2"
 
 [target.'cfg(target_os="android")'.dependencies]
 android_logger = "0.15"
-jni = { version = "0.21", default-features = false }
+jni = { version = "0.22.3", default-features = false }
 
 [target.'cfg(target_os="linux")'.dependencies]
 bincode = "2"
@@ -68,7 +69,7 @@ windows-service = "0.8"
 
 [target.'cfg(unix)'.dependencies]
 daemonize = "0.5"
-nix = { version = "0.30", default-features = false, features = [
+nix = { version = "0.31", default-features = false, features = [
     "fs",
     "socket",
     "uio",
