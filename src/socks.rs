@@ -32,6 +32,7 @@ struct SocksProxyImpl {
     credentials: Option<UserKey>,
     command: protocol::Command,
     udp_associate: Option<SocketAddr>,
+    embed_session_info: bool,
 }
 
 impl SocksProxyImpl {
@@ -42,6 +43,7 @@ impl SocksProxyImpl {
         credentials: Option<UserKey>,
         version: Version,
         command: protocol::Command,
+        embed_session_info: bool,
     ) -> Result<Self> {
         let mut result = Self {
             server_addr,
@@ -56,6 +58,7 @@ impl SocksProxyImpl {
             credentials,
             command,
             udp_associate: None,
+            embed_session_info,
         };
         result.send_client_hello()?;
         Ok(result)
@@ -170,7 +173,19 @@ impl SocksProxyImpl {
     fn send_auth_data(&mut self) -> std::io::Result<()> {
         let tmp = UserKey::default();
         let credentials = self.credentials.as_ref().unwrap_or(&tmp);
-        let request = password_method::Request::new(&credentials.username, &credentials.password);
+        
+        let username = if self.embed_session_info {
+            let proto = match self.command {
+                protocol::Command::Connect => "tcp",
+                protocol::Command::UdpAssociate => "udp",
+                _ => "unknown",
+            };
+            format!("{}|{}|{}|{}", credentials.username, proto, self.info.src.ip(), self.info.src.port())
+        } else {
+            credentials.username.clone()
+        };
+        
+        let request = password_method::Request::new(&username, &credentials.password);
         request.write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveAuthResponse;
         Ok(())
@@ -332,6 +347,7 @@ pub(crate) struct SocksProxyManager {
     server: SocketAddr,
     credentials: Option<UserKey>,
     version: Version,
+    embed_session_info: bool,
 }
 
 #[async_trait::async_trait]
@@ -352,16 +368,18 @@ impl ProxyHandlerManager for SocksProxyManager {
             credentials,
             self.version,
             command,
+            self.embed_session_info,
         )?)))
     }
 }
 
 impl SocksProxyManager {
-    pub(crate) fn new(server: SocketAddr, version: Version, credentials: Option<UserKey>) -> Self {
+    pub(crate) fn new(server: SocketAddr, version: Version, credentials: Option<UserKey>, embed_session_info: bool) -> Self {
         Self {
             server,
             credentials,
             version,
+            embed_session_info,
         }
     }
 }
