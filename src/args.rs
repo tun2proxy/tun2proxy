@@ -20,7 +20,6 @@ fn about_info() -> &'static str {
 }
 
 #[derive(Debug, Clone, clap::Parser, serde::Serialize, serde::Deserialize)]
-#[non_exhaustive]
 #[command(author, version = version_info!(), about = about_info(), long_about = None)]
 pub struct Args {
     /// Proxy URL in the form proto://[username[:password]@]host:port,
@@ -129,12 +128,6 @@ pub struct Args {
     #[arg(long, value_name = "number", default_value = "200")]
     pub max_sessions: usize,
 
-    /// Embed session info (protocol, src_ip, src_port) in SOCKS5 username field.
-    /// Format: "original_username|protocol|src_ip|src_port"
-    /// Useful for per-app routing on Android via getConnectionOwnerUid().
-    #[arg(long)]
-    pub embed_session_info: bool,
-
     /// UDP gateway server address, forwards UDP packets via specified TCP server
     #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "IP:PORT")]
@@ -195,7 +188,6 @@ impl Default for Args {
             daemonize: false,
             exit_on_fatal_error: false,
             max_sessions: 200,
-            embed_session_info: false,
             #[cfg(feature = "udpgw")]
             udpgw_server: None,
             #[cfg(feature = "udpgw")]
@@ -279,11 +271,6 @@ impl Args {
 
     pub fn setup(&mut self, setup: bool) -> &mut Self {
         self.setup = setup;
-        self
-    }
-
-    pub fn embed_session_info(&mut self, embed_session_info: bool) -> &mut Self {
-        self.embed_session_info = embed_session_info;
         self
     }
 }

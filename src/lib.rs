@@ -225,10 +225,9 @@ where
     let socket_queue = None;
 
     use socks5_impl::protocol::Version::{V4, V5};
-    let embed_session_info = args.embed_session_info;
     let mgr: Arc<dyn ProxyHandlerManager> = match args.proxy.proxy_type {
-        ProxyType::Socks5 => Arc::new(SocksProxyManager::new(server_addr, V5, key, embed_session_info)),
-        ProxyType::Socks4 => Arc::new(SocksProxyManager::new(server_addr, V4, key, embed_session_info)),
+        ProxyType::Socks5 => Arc::new(SocksProxyManager::new(server_addr, V5, key)),
+        ProxyType::Socks4 => Arc::new(SocksProxyManager::new(server_addr, V4, key)),
         ProxyType::Http => Arc::new(HttpManager::new(server_addr, key)),
         ProxyType::None => Arc::new(NoProxyManager::new()),
     };
