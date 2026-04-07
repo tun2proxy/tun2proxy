@@ -21,6 +21,28 @@ A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and 
 - SOCKS5 UDP support
 - Native support for proxying DNS over TCP
 - UdpGW (UDP gateway) support for UDP over TCP, see the [wiki](https://github.com/tun2proxy/tun2proxy/wiki/UDP-gateway-feature) for more information
+- Session info embedding for per-app routing on Android (see below)
+
+## Session Info for Per-App Routing (Android)
+
+To enable per-app traffic routing on Android 10+, you can embed session information (protocol, source IP, source port) in the SOCKS5 username field. This allows your proxy server to call `getConnectionOwnerUid()` to identify which app initiated the connection.
+
+To enable this feature, append `+info` to your username:
+
+```bash
+# Without session info (normal mode)
+tun2proxy --proxy "socks5://user:pass@127.0.0.1:1080"
+
+# With session info
+tun2proxy --proxy "socks5://user+info:pass@127.0.0.1:1080"
+```
+
+The proxy server will receive the username in the format:
+```
+original_username|protocol|src_ip|src_port
+```
+
+For example, `user+info` becomes `user|tcp|10.0.0.5|54321`.
 
 ## Build
 Clone the repository and `cd` into the project folder. Then run the following:
