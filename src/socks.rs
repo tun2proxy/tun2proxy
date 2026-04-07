@@ -173,7 +173,6 @@ impl SocksProxyImpl {
     fn send_auth_data(&mut self) -> std::io::Result<()> {
         let tmp = UserKey::default();
         let credentials = self.credentials.as_ref().unwrap_or(&tmp);
-        
         let username = if self.embed_session_info {
             let proto = match self.command {
                 protocol::Command::Connect => "tcp",
@@ -184,7 +183,6 @@ impl SocksProxyImpl {
         } else {
             credentials.username.clone()
         };
-        
         let request = password_method::Request::new(&username, &credentials.password);
         request.write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveAuthResponse;

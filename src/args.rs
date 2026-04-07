@@ -20,6 +20,7 @@ fn about_info() -> &'static str {
 }
 
 #[derive(Debug, Clone, clap::Parser, serde::Serialize, serde::Deserialize)]
+#[non_exhaustive]
 #[command(author, version = version_info!(), about = about_info(), long_about = None)]
 pub struct Args {
     /// Proxy URL in the form proto://[username[:password]@]host:port,
