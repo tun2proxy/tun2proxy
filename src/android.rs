@@ -103,7 +103,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_runWithSession
             .close_fd_on_drop(close_fd_on_drop)
             .dns(dns)
             .verbosity(verbosity)
-            .embed_session_info(embed_session_info != 0);
+            .embed_session_info(embed_session_info != jboolean::from(false));
         let v = crate::general_api::general_run_for_api(args, tun_mtu, false);
         Ok::<jint, Error>(v)
     })
