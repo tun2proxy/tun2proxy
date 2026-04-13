@@ -170,7 +170,21 @@ impl SocksProxyImpl {
     fn send_auth_data(&mut self) -> std::io::Result<()> {
         let tmp = UserKey::default();
         let credentials = self.credentials.as_ref().unwrap_or(&tmp);
-        let request = password_method::Request::new(&credentials.username, &credentials.password);
+
+        const SESSION_INFO_MARKER: &str = "+info";
+        let username = if credentials.username.ends_with(SESSION_INFO_MARKER) {
+            let base_username = &credentials.username[..credentials.username.len() - SESSION_INFO_MARKER.len()];
+            let proto = match self.command {
+                protocol::Command::Connect => "tcp",
+                protocol::Command::UdpAssociate => "udp",
+                _ => "unknown",
+            };
+            format!("{}|{}|{}|{}", base_username, proto, self.info.src.ip(), self.info.src.port())
+        } else {
+            credentials.username.clone()
+        };
+
+        let request = password_method::Request::new(&username, &credentials.password);
         request.write_to_stream(&mut self.server_outbuf)?;
         self.state = SocksState::ReceiveAuthResponse;
         Ok(())
