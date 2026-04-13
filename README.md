@@ -42,8 +42,15 @@ The proxy server will receive the username in the format:
 original_username|protocol|src_ip|src_port
 ```
 
+`|` is a literal field delimiter in this format. The client does not escape `|` characters in
+`original_username`, so when using `+info`, the original username must not contain `|` (including
+a `|` introduced via percent-encoding in the proxy URL), otherwise the value becomes ambiguous for
+server-side parsers.
+
 For example, `user+info` becomes `user|tcp|10.0.0.5|54321`.
 
+Servers should parse this as exactly four `|`-separated fields and reject usernames that do not
+meet that requirement.
 ## Build
 Clone the repository and `cd` into the project folder. Then run the following:
 ```
