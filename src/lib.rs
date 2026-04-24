@@ -38,10 +38,6 @@ pub use {
     traffic_status::{TrafficStatus, tun2proxy_set_traffic_status_callback},
 };
 
-#[cfg(feature = "mimalloc")]
-#[global_allocator]
-static ALLOC: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 pub use general_api::general_run_async;
 
 pub const FORCE_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(2);

@@ -5,7 +5,7 @@ rustup target add aarch64-apple-ios
 cargo install cbindgen
 
 echo "Building target aarch64-apple-ios..."
-cargo build --target aarch64-apple-ios --features mimalloc
+cargo build --target aarch64-apple-ios
 
 echo "Generating includes..."
 mkdir -p target/include/

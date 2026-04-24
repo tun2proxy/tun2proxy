@@ -13,7 +13,7 @@ echo "cargo build --release --target aarch64-apple-darwin"
 cargo build --release --target aarch64-apple-darwin
 
 echo "cargo build --release --target aarch64-apple-ios"
-cargo build --release --target aarch64-apple-ios --features mimalloc
+cargo build --release --target aarch64-apple-ios
 
 echo "cargo build --release --target x86_64-apple-ios"
 cargo build --release --target x86_64-apple-ios
