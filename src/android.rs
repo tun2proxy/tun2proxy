@@ -21,6 +21,9 @@ use jni::{
 /// - tun_mtu: the tun mtu
 /// - dns_strategy: the dns strategy, see ArgDns enum
 /// - verbosity: the verbosity level, see ArgVerbosity enum
+/// - udpgw_server: optional udpgw server address (e.g. "198.18.0.1:7300"),
+///   empty string to disable. When set, UDP packets are forwarded via the
+///   udpgw protocol through a TCP connection to this address.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     mut env: EnvUnowned<'_>,
@@ -31,6 +34,7 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
     tun_mtu: jchar,
     verbosity: jint,
     dns_strategy: jint,
+    udpgw_server: JString<'_>,
 ) -> jint {
     let dns = dns_strategy.try_into().unwrap();
     let verbosity = verbosity.try_into().unwrap();
@@ -52,6 +56,18 @@ pub unsafe extern "C" fn Java_com_github_shadowsocks_bg_Tun2proxy_run(
             .close_fd_on_drop(close_fd_on_drop)
             .dns(dns)
             .verbosity(verbosity);
+
+        #[cfg(feature = "udpgw")]
+        {
+            let udpgw_str = get_java_string(env, &udpgw_server).unwrap_or_default();
+            if !udpgw_str.is_empty() {
+                if let Ok(addr) = udpgw_str.parse::<std::net::SocketAddr>() {
+                    args.udpgw_server(addr);
+                    log::info!("udpgw_server={}", addr);
+                }
+            }
+        }
+
         let v = crate::general_api::general_run_for_api(args, tun_mtu, false);
         Ok::<jint, Error>(v)
     })
