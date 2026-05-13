@@ -239,7 +239,7 @@ impl HttpConnection {
                 // We accept anything that does not match the `Digest` scheme as
                 // "auth method is not supported" and surface a clean error.
                 if !is_digest_scheme(auth_data) {
-                    return Err("Bad credentials".into());
+                    return Err("Proxy authentication method is not supported; only Digest is supported".into());
                 }
 
                 // Analize challenge params
