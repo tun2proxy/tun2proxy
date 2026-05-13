@@ -77,7 +77,8 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
             }
             unsafe { tun2proxy::tun2proxy_set_traffic_status_callback(1, Some(traffic_cb), std::ptr::null_mut()) };
 
-            let ret = tun2proxy::general_run_async(args, tun::DEFAULT_MTU, cfg!(target_os = "macos"), shutdown_token).await;
+            let mtu = args.mtu;
+            let ret = tun2proxy::general_run_async(args, mtu, cfg!(target_os = "macos"), shutdown_token).await;
             if let Err(err) = &ret {
                 log::error!("main loop error: {err}");
             }
