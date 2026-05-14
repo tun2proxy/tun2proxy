@@ -59,6 +59,27 @@ static CONNECTION: &str = "Connection";
 static TRANSFER_ENCODING: &str = "Transfer-Encoding";
 static CONTENT_LENGTH: &str = "Content-Length";
 
+/// Build the `Basic <b64>` header value for HTTP CONNECT proxy authentication.
+///
+/// RFC 7617 specifies that `user-id ":" password` is base64-encoded
+/// verbatim. `UserKey::Display` percent-encodes its fields for SOCKS5-URL
+/// interpolation, which would mangle any credentials containing characters
+/// like `-`, `_`, or `.` (very common with proxies that pack session info
+/// into the user-id) and cause the proxy to reject the request with `407`.
+fn basic_auth_header_value(credentials: &UserKey) -> String {
+    let raw = format!("{}:{}", credentials.username, credentials.password);
+    let b64 = base64easy::encode(raw, base64easy::EngineKind::Standard);
+    format!("Basic {b64}")
+}
+
+/// Classify the value of a `Proxy-Authenticate` response header as Digest or
+/// not. Uses a bounded slice (`slice::get`) so values shorter than 6 bytes
+/// (for example `Basic` without a `realm=`, or `NTLM`) return `false` instead
+/// of panicking on an out-of-bounds index.
+fn is_digest_scheme(auth_data: &[u8]) -> bool {
+    auth_data.get(..6).is_some_and(|p| p.eq_ignore_ascii_case(b"digest"))
+}
+
 impl HttpConnection {
     async fn new(
         server_addr: SocketAddr,
@@ -140,9 +161,8 @@ impl HttpConnection {
                     .extend(format!("{}: {}\r\n", PROXY_AUTHORIZATION, response.to_header_string()).as_bytes());
             }
             AuthenticationScheme::Basic => {
-                let auth_b64 = base64easy::encode(credentials.to_string(), base64easy::EngineKind::Standard);
                 self.server_outbuf
-                    .extend(format!("{PROXY_AUTHORIZATION}: Basic {auth_b64}\r\n").as_bytes());
+                    .extend(format!("{PROXY_AUTHORIZATION}: {}\r\n", basic_auth_header_value(credentials)).as_bytes());
             }
             AuthenticationScheme::None => {}
         }
@@ -213,13 +233,13 @@ impl HttpConnection {
                     HashMap::from_iter(headers.map(|x| (UniCase::new(x.name), x.value)));
 
                 let Some(auth_data) = headers_map.get(&UniCase::new(PROXY_AUTHENTICATE)) else {
-                    return Err("Proxy requires auth but doesn't send it datails".into());
+                    return Err("Proxy requires auth but didn't send authentication details".into());
                 };
 
-                if !auth_data[..6].eq_ignore_ascii_case(b"digest") {
-                    // Fail to auth and the scheme isn't in the
-                    // supported auth method schemes
-                    return Err("Bad credentials".into());
+                // We accept anything that does not match the `Digest` scheme as
+                // "auth method is not supported" and surface a clean error.
+                if !is_digest_scheme(auth_data) {
+                    return Err("Proxy authentication method is not supported; only Digest is supported".into());
                 }
 
                 // Analize challenge params
@@ -429,5 +449,56 @@ impl HttpManager {
             credentials,
             digest_state: Arc::new(Mutex::new(None)),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for the Basic-auth encoding fix.
+    ///
+    /// Drives the exact same `basic_auth_header_value` helper that
+    /// `send_auth_data` uses in production, so the test fails on a real
+    /// regression rather than just locally re-doing the encoding. Reverting
+    /// the helper to `credentials.to_string()` breaks both call sites.
+    ///
+    /// Background: `UserKey::Display` percent-encodes with the SOCKS5-URL
+    /// charset (`NON_ALPHANUMERIC`), which turns `-` into `%2D` and `_` into
+    /// `%5F`. That is correct for SOCKS5-URL interpolation, but RFC 7617
+    /// demands the `user-id ":" password` pair be base64-encoded verbatim
+    /// for HTTP Basic. Anything else and the proxy rejects with `407`.
+    #[test]
+    fn basic_auth_header_value_uses_raw_user_pass_not_percent_encoded() {
+        // Chosen so both `-` and `_` (the two NON_ALPHANUMERIC cases that
+        // previously got mangled) appear in user-id and password.
+        let creds = UserKey::new("alice-foo", "p_word");
+        let header = basic_auth_header_value(&creds);
+
+        let prefix = "Basic ";
+        assert!(header.starts_with(prefix), "{header:?} missing `Basic ` prefix");
+        let b64 = &header[prefix.len()..];
+        let decoded = base64easy::decode(b64, base64easy::EngineKind::Standard).unwrap();
+        assert_eq!(decoded, b"alice-foo:p_word");
+
+        // And it must NOT match what `UserKey::Display` would have produced.
+        let regressed = base64easy::encode(creds.to_string(), base64easy::EngineKind::Standard);
+        assert_ne!(b64, regressed, "basic-auth still using percent-encoded credentials");
+    }
+
+    /// Regression test for the `auth_data[..6]` panic. Drives the same
+    /// `is_digest_scheme` helper that the 407 handler in `state_change`
+    /// uses, so reverting either call site breaks the test.
+    ///
+    /// Some proxies answer the unauthenticated CONNECT with `Proxy-
+    /// Authenticate: Basic` (5 bytes, no realm), which used to panic in
+    /// the 407 handler because of an unchecked `auth_data[..6]` slice.
+    #[test]
+    fn is_digest_scheme_short_values_do_not_panic() {
+        for value in [b"Basic".as_slice(), b"NTLM", b"x", b""] {
+            assert!(!is_digest_scheme(value), "value {value:?} mis-classified as digest");
+        }
+        // Sanity: an actual digest header is still recognized.
+        assert!(is_digest_scheme(b"Digest realm=\"x\", nonce=\"y\""));
     }
 }
