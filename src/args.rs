@@ -104,6 +104,14 @@ pub struct Args {
     #[arg(short, long, value_name = "IP/CIDR")]
     pub bypass: Vec<IpCidr>,
 
+    /// MTU of the TUN device. Userspace TCP stack uses (MTU - 40) as the
+    /// effective MSS for synthesized segments going to the kernel side, so
+    /// lower this when the kernel forwards the traffic onwards through a
+    /// link with a smaller MTU (e.g. a WireGuard tunnel at 1420) to avoid
+    /// having the bigger segments silently dropped.
+    #[arg(long, value_name = "bytes", default_value_t = tun::DEFAULT_MTU)]
+    pub mtu: u16,
+
     /// TCP timeout in seconds
     #[arg(long, value_name = "seconds", default_value = "600")]
     pub tcp_timeout: u64,
@@ -181,6 +189,7 @@ impl Default for Args {
             dns: ArgDns::default(),
             dns_addr: "8.8.8.8".parse().unwrap(),
             bypass: vec![],
+            mtu: tun::DEFAULT_MTU,
             tcp_timeout: 600,
             udp_timeout: 10,
             verbosity: ArgVerbosity::Info,
