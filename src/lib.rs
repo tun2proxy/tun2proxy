@@ -1,3 +1,6 @@
+#[cfg(target_os = "linux")]
+extern crate bincode_next as bincode;
+
 #[cfg(feature = "udpgw")]
 use crate::udpgw::UdpGwClient;
 use crate::{
