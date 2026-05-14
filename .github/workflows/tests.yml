@@ -1,7 +1,8 @@
 on:
-  pull_request_review:
-    types: [submitted]
   push:
+    branches:
+      - '**'
+    tags-ignore: ['*']
   workflow_dispatch:
   pull_request_target:
     types: [labeled]
@@ -12,7 +13,7 @@ jobs:
   proxy_tests:
     name: Proxy Tests
     runs-on: ubuntu-latest
-    if: (github.event_name != 'pull_request' || contains(github.event.pull_request.labels.*.name, 'safe to test')) && github.actor != 'dependabot[bot]' && github.actor != 'github-actions[bot]'
+    if: github.actor != 'dependabot[bot]' && github.actor != 'github-actions[bot]' && (github.event_name == 'push' || github.event_name == 'workflow_dispatch' || (github.event_name == 'pull_request_target' && !github.event.pull_request.head.repo.fork && contains(github.event.pull_request.labels.*.name, 'safe to test')))
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
