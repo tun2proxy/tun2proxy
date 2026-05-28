@@ -155,7 +155,11 @@ impl HttpConnection {
                 );
 
                 let mut state = self.digest_state.lock().await;
-                let response = state.as_mut().unwrap().respond(&context).unwrap();
+                let response = state
+                    .as_mut()
+                    .ok_or("Digest auth state is missing")?
+                    .respond(&context)
+                    .map_err(|e| format!("Digest auth response failed: {e}"))?;
 
                 self.server_outbuf
                     .extend(format!("{}: {}\r\n", PROXY_AUTHORIZATION, response.to_header_string()).as_bytes());
@@ -207,9 +211,12 @@ impl HttpConnection {
                     // TODO: Optimize in order to detect 200
                     return Ok(());
                 }
-                let len = status.unwrap();
-                let status_code = res.code.unwrap();
-                let version = res.version.unwrap();
+                let len = match status {
+                    httparse::Status::Complete(len) => len,
+                    httparse::Status::Partial => return Ok(()),
+                };
+                let status_code = res.code.ok_or("Malformed HTTP proxy response: missing status code")?;
+                let version = res.version.ok_or("Malformed HTTP proxy response: missing HTTP version")?;
 
                 if status_code == 200 {
                     // Connection successful
@@ -224,7 +231,7 @@ impl HttpConnection {
                     let e = format!(
                         "Expected success status code. Server replied with {} [Reason: {}].",
                         status_code,
-                        res.reason.unwrap()
+                        res.reason.ok_or("Malformed HTTP proxy response: missing reason phrase")?
                     );
                     return Err(e.into());
                 }
@@ -275,7 +282,7 @@ impl HttpConnection {
 
                 // Transfer-Encoding isn't supported yet
                 if headers_map.contains_key(&UniCase::new(TRANSFER_ENCODING)) {
-                    unimplemented!("Header Transfer-Encoding not supported");
+                    return Err("Header Transfer-Encoding not supported".into());
                 }
 
                 let content_length = match headers_map.get(&UniCase::new(CONTENT_LENGTH)) {
@@ -287,7 +294,10 @@ impl HttpConnection {
                             Ok(x) => x,
                             Err(_) => {
                                 let mut it = value.split(',').map(|x| x.parse::<usize>());
-                                let f = it.next().unwrap()?;
+                                let Some(first) = it.next() else {
+                                    return Err("Malformed response".into());
+                                };
+                                let f = first?;
                                 for k in it {
                                     if k? != f {
                                         return Err("Malformed response".into());
