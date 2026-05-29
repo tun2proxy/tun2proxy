@@ -1,4 +1,5 @@
-[![tun2proxy](https://socialify.git.ci/tun2proxy/tun2proxy/image?description=1&language=1&name=1&stargazers=1&theme=Light)](https://github.com/tun2proxy/tun2proxy)
+[![tun2proxy](https://socialify.git.ci/tun2proxy/tun2proxy/image?logo=https%3A%2F%2Favatars.githubusercontent.com%2Fu%2F166490253%3Fs%3D400%26u%3D85d62eec8975a6e9ffa92c7414a5460abd0661ef%26v%3D4&description=1&name=1&forks=1&stargazers=1&theme=Light
+)](https://github.com/tun2proxy/tun2proxy)
 
 # tun2proxy
 A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and Windows.
