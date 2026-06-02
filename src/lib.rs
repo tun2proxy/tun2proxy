@@ -139,7 +139,15 @@ async fn create_tcp_stream(socket_queue: &Option<Arc<SocketQueue>>, peer: Socket
 
 async fn create_udp_stream(socket_queue: &Option<Arc<SocketQueue>>, peer: SocketAddr) -> std::io::Result<UdpStream> {
     match &socket_queue {
-        None => UdpStream::connect(peer).await,
+        None => {
+            let bind_addr = match peer {
+                SocketAddr::V4(_) => SocketAddr::from(([0, 0, 0, 0], 0)),
+                SocketAddr::V6(_) => SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 0)),
+            };
+            let socket = UdpSocket::bind(bind_addr).await?;
+            socket.connect(peer).await?;
+            UdpStream::from_tokio(socket, peer).await
+        }
         Some(queue) => {
             let socket = queue.recv_udp(peer.ip().into()).await?;
             socket.connect(peer).await?;

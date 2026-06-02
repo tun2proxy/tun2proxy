@@ -25,11 +25,10 @@ FROM rust:latest AS musl-builder
         && rustup target add "$ARCH-unknown-linux-musl" \
         && cargo build --release --target "$ARCH-unknown-linux-musl"
 
-    RUN mkdir /.etc \
-        && touch /.etc/resolv.conf \
-        && mkdir /.tmp \
-        && chmod 777 /.tmp \
-        && chmod +t /.tmp
+    RUN mkdir -p etc tmp \
+        && touch etc/resolv.conf \
+        && chmod 777 tmp \
+        && chmod +t tmp
 
 ####################################################################################################
 ## Alpine image
