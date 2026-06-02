@@ -141,8 +141,8 @@ async fn create_udp_stream(socket_queue: &Option<Arc<SocketQueue>>, peer: Socket
     match &socket_queue {
         None => {
             let bind_addr = match peer {
-                SocketAddr::V4(_) => SocketAddr::from(([0, 0, 0, 0], 0)),
-                SocketAddr::V6(_) => SocketAddr::from(([0, 0, 0, 0, 0, 0, 0, 0], 0)),
+                SocketAddr::V4(_) => SocketAddr::from((std::net::Ipv4Addr::UNSPECIFIED, 0)),
+                SocketAddr::V6(_) => SocketAddr::from((std::net::Ipv6Addr::UNSPECIFIED, 0)),
             };
             let socket = UdpSocket::bind(bind_addr).await?;
             socket.connect(peer).await?;
