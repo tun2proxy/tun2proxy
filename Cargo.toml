@@ -29,7 +29,7 @@ udpgw = []
 [dependencies]
 async-trait = "0.1.89"
 base64easy = "0.1.7"
-chrono = "0.4.44"
+chrono = "0.4.45"
 clap = { version = "4.6.1", features = ["derive", "wrap_help", "color"] }
 ctrlc2 = { version = "4.0.0", features = ["async", "termination"] }
 digest_auth = "0.3.1"
@@ -39,7 +39,7 @@ hashlink = "0.12.0"
 hickory-proto = "0.26.1"
 httparse = "1.10.1"
 ipstack = { version = "1.0.0" }
-log = { version = "0.4.30", features = ["std"] }
+log = { version = "0.4.33", features = ["std"] }
 percent-encoding = "2.3.2"
 serde = { version = "1.0.228", features = ["derive"] }
 shlex = "2.0.1"
@@ -51,7 +51,7 @@ thiserror = "2.0.18"
 tokio = { version = "1.52.3", features = ["full"] }
 tokio-util = "0.7.18"
 tproxy-config = { version = "^7.0.7", default-features = false }
-tun = { version = "0.8.10", features = ["async"] }
+tun = { version = "0.8.13", features = ["async"] }
 udp-stream = { version = "0.0.12", default-features = false }
 unicase = "2.9.0"
 url = "2.5.8"
@@ -61,7 +61,7 @@ android_logger = "0.15.1"
 jni = { version = "0.22.4", default-features = false }
 
 [target.'cfg(target_os="linux")'.dependencies]
-bincode-next = "2.1.0"
+bincode-next = "3.1.1"
 
 [target.'cfg(target_os="windows")'.dependencies]
 windows-service = "0.8.1"
@@ -75,7 +75,7 @@ nix = { version = "0.31.3", default-features = false, features = [
 ] }
 
 [build-dependencies]
-chrono = "0.4.44"
+chrono = "0.4.45"
 serde_json = "1.0.150"
 
 # [profile.release]
