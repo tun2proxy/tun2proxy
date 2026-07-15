@@ -34,16 +34,16 @@ clap = { version = "4.6.1", features = ["derive", "wrap_help", "color"] }
 ctrlc2 = { version = "4.0.0", features = ["async", "termination"] }
 digest_auth = "0.3.1"
 dotenvy = "0.15.7"
-env_logger = "0.11.10"
-hashlink = "0.12.0"
+env_logger = "0.11.11"
+hashlink = "0.12.1"
 hickory-proto = "0.26.1"
 httparse = "1.10.1"
-ipstack = { version = "1.0.0" }
+ipstack = { version = "1.0.1" }
 log = { version = "0.4.33", features = ["std"] }
 percent-encoding = "2.3.2"
 serde = { version = "1.0.228", features = ["derive"] }
 shlex = "2.0.1"
-socks5-impl = { version = "0.9.0", default-features = false, features = [
+socks5-impl = { version = "0.9.4", default-features = false, features = [
     "tokio",
     "serde",
 ] }

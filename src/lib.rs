@@ -535,7 +535,7 @@ async fn handle_udp_gateway_session(
     let tcp_local_addr = stream.local_addr();
     let sn = stream.serial_number();
 
-    log::info!("[UdpGw] Beginning stream {} {} -> {}", sn, &tcp_local_addr, udp_dst);
+    log::info!("[UdpGw] Beginning stream {} {} -> {}", sn, tcp_local_addr, udp_dst);
 
     let Some(mut reader) = stream.get_reader() else {
         return Err("get reader failed".into());
@@ -552,22 +552,22 @@ async fn handle_udp_gateway_session(
             len = udp_stack.read(&mut tmp_buf) => {
                 let read_len = match len {
                     Ok(0) => {
-                        log::info!("[UdpGw] Ending stream {} {} <> {}", sn, &tcp_local_addr, udp_dst);
+                        log::info!("[UdpGw] Ending stream {} {} <> {}", sn, tcp_local_addr, udp_dst);
                         break;
                     }
                     Ok(n) => n,
                     Err(e) => {
-                        log::info!("[UdpGw] Ending stream {} {} <> {} with udp stack \"{}\"", sn, &tcp_local_addr, udp_dst, e);
+                        log::info!("[UdpGw] Ending stream {} {} <> {} with udp stack \"{}\"", sn, tcp_local_addr, udp_dst, e);
                         break;
                     }
                 };
                 crate::traffic_status::traffic_status_update(read_len, 0)?;
                 let sn = stream.serial_number();
                 if let Err(e) = UdpGwClient::send_udpgw_packet(ipv6_enabled, &tmp_buf[0..read_len], udp_dst, sn, &mut writer).await {
-                    log::info!("[UdpGw] Ending stream {} {} <> {} with send_udpgw_packet {}", sn, &tcp_local_addr, udp_dst, e);
+                    log::info!("[UdpGw] Ending stream {} {} <> {} with send_udpgw_packet {}", sn, tcp_local_addr, udp_dst, e);
                     break;
                 }
-                log::debug!("[UdpGw] stream {} {} -> {} send len {}", sn, &tcp_local_addr, udp_dst, read_len);
+                log::debug!("[UdpGw] stream {} {} -> {} send len {}", sn, tcp_local_addr, udp_dst, read_len);
                 stream.update_activity();
             }
             ret = UdpGwClient::recv_udpgw_packet(udp_mtu, udp_timeout, &mut reader) => {
@@ -576,25 +576,25 @@ async fn handle_udp_gateway_session(
                 }
                 match ret {
                     Err(e) => {
-                        log::warn!("[UdpGw] Ending stream {} {} <> {} with recv_udpgw_packet {}", sn, &tcp_local_addr, udp_dst, e);
+                        log::warn!("[UdpGw] Ending stream {} {} <> {} with recv_udpgw_packet {}", sn, tcp_local_addr, udp_dst, e);
                         stream.close();
                         break;
                     }
                     Ok((_, packet)) => match packet {
                         //should not received keepalive
                         UdpGwResponse::KeepAlive => {
-                            log::error!("[UdpGw] Ending stream {} {} <> {} with recv keepalive", sn, &tcp_local_addr, udp_dst);
+                            log::error!("[UdpGw] Ending stream {} {} <> {} with recv keepalive", sn, tcp_local_addr, udp_dst);
                             stream.close();
                             break;
                         }
                         //server udp may be timeout,can continue to receive udp data?
                         UdpGwResponse::Error => {
-                            log::info!("[UdpGw] Ending stream {} {} <> {} with recv udp error", sn, &tcp_local_addr, udp_dst);
+                            log::info!("[UdpGw] Ending stream {} {} <> {} with recv udp error", sn, tcp_local_addr, udp_dst);
                             stream.update_activity();
                             continue;
                         }
                         UdpGwResponse::TcpClose => {
-                            log::error!("[UdpGw] Ending stream {} {} <> {} with tcp closed", sn, &tcp_local_addr, udp_dst);
+                            log::error!("[UdpGw] Ending stream {} {} <> {} with tcp closed", sn, tcp_local_addr, udp_dst);
                             stream.close();
                             break;
                         }
@@ -602,9 +602,9 @@ async fn handle_udp_gateway_session(
                             use socks5_impl::protocol::StreamOperation;
                             let len = data.len();
                             let f = data.header.flags;
-                            log::debug!("[UdpGw] stream {sn} {} <- {} receive {f} len {len}", &tcp_local_addr, udp_dst);
+                            log::debug!("[UdpGw] stream {sn} {} <- {} receive {f} len {len}", tcp_local_addr, udp_dst);
                             if let Err(e) = udp_stack.write_all(&data.data).await {
-                                log::error!("[UdpGw] Ending stream {} {} <> {} with send_udp_packet {}", sn, &tcp_local_addr, udp_dst, e);
+                                log::error!("[UdpGw] Ending stream {} {} <> {} with send_udp_packet {}", sn, tcp_local_addr, udp_dst, e);
                                 break;
                             }
                         }
