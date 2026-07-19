@@ -187,6 +187,7 @@ Options:
   -b, --bypass <IP/CIDR>                   IPs used in routing setup which should bypass the tunnel, in the form of IP or IP/CIDR.
                                            Multiple IPs can be specified, e.g. --bypass 3.4.5.0/24 --bypass 5.6.7.8
       --tcp-timeout <seconds>              TCP timeout in seconds [default: 600]
+      --tcp-mss <bytes>                    MSS advertised in the SYN-ACK to the kernel side [default: none]
       --udp-timeout <seconds>              UDP timeout in seconds [default: 10]
   -v, --verbosity <level>                  Verbosity level [default: info] [possible values: off, error, warn, info, debug, trace]
       --daemonize                          Daemonize for unix family or run as Windows service
