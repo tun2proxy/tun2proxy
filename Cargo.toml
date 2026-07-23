@@ -27,10 +27,10 @@ default = ["udpgw"]
 udpgw = []
 
 [dependencies]
-async-trait = "0.1.89"
+async-trait = "0.1.91"
 base64easy = "0.1.7"
 chrono = "0.4.45"
-clap = { version = "4.6.1", features = ["derive", "wrap_help", "color"] }
+clap = { version = "4.6.4", features = ["derive", "wrap_help", "color"] }
 ctrlc2 = { version = "4.0.0", features = ["async", "termination"] }
 digest_auth = "0.3.1"
 dotenvy = "0.15.7"
@@ -41,17 +41,17 @@ httparse = "1.10.1"
 ipstack = { version = "1.0.1" }
 log = { version = "0.4.33", features = ["std"] }
 percent-encoding = "2.3.2"
-serde = { version = "1.0.228", features = ["derive"] }
+serde = { version = "1.0.229", features = ["derive"] }
 shlex = "2.0.1"
 socks5-impl = { version = "0.9.4", default-features = false, features = [
     "tokio",
     "serde",
 ] }
-thiserror = "2.0.18"
-tokio = { version = "1.52.3", features = ["full"] }
-tokio-util = "0.7.18"
+thiserror = "2.0.19"
+tokio = { version = "1.53.1", features = ["full"] }
+tokio-util = "0.7.19"
 tproxy-config = { version = "^7.0.7", default-features = false }
-tun = { version = "0.8.13", features = ["async"] }
+tun = { version = "0.8.14", features = ["async"] }
 udp-stream = { version = "0.0.12", default-features = false }
 unicase = "2.9.0"
 url = "2.5.8"
@@ -76,7 +76,7 @@ nix = { version = "0.31.3", default-features = false, features = [
 
 [build-dependencies]
 chrono = "0.4.45"
-serde_json = "1.0.150"
+serde_json = "1.0.151"
 
 # [profile.release]
 # strip = "symbols"
