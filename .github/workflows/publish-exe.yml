@@ -75,7 +75,7 @@ jobs:
           fi
           cargo install cbindgen
           if [[ "${{ contains(matrix.host_os, 'ubuntu') }}" == "true" && "${{ matrix.host_os }}" != "ubuntu-22.04" ]]; then
-            sudo .github/workflows/install-cross.sh
+            cargo install cross --git https://github.com/cross-rs/cross.git --rev 1d07d3f
           fi
 
       - name: Build
@@ -134,7 +134,3 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         with:
           files: mypubdir4/*
-
-      - name: Abort on error
-        if: ${{ failure() }}
-        run: echo "Some of jobs failed" && false
