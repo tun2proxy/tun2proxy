@@ -243,6 +243,9 @@ where
     ipstack_config.mtu(mtu)?;
     let mut tcp_cfg = ipstack::TcpConfig::default();
     tcp_cfg.timeout = std::time::Duration::from_secs(args.tcp_timeout);
+    if let Some(mss) = args.tcp_mss {
+        tcp_cfg.options = Some(vec![ipstack::TcpOptions::MaximumSegmentSize(mss)]);
+    }
     ipstack_config.with_tcp_config(tcp_cfg);
     ipstack_config.udp_timeout(std::time::Duration::from_secs(args.udp_timeout));
 

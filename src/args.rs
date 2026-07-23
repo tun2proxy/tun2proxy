@@ -116,6 +116,14 @@ pub struct Args {
     #[arg(long, value_name = "seconds", default_value = "600")]
     pub tcp_timeout: u64,
 
+    /// MSS advertised in the SYN-ACK to the kernel side. By default the userspace
+    /// stack sends no MSS option, so the peer OS falls back to its own default
+    /// (e.g. 512 on macOS), fragmenting large first segments such as a TLS
+    /// ClientHello. Set this to the tunnel's (MTU - 40) to let the peer send big
+    /// segments. `None` keeps the previous behaviour (no option advertised).
+    #[arg(long, value_name = "bytes")]
+    pub tcp_mss: Option<u16>,
+
     /// UDP timeout in seconds
     #[arg(long, value_name = "seconds", default_value = "10")]
     pub udp_timeout: u64,
@@ -191,6 +199,7 @@ impl Default for Args {
             bypass: vec![],
             mtu: tun::DEFAULT_MTU,
             tcp_timeout: 600,
+            tcp_mss: None,
             udp_timeout: 10,
             verbosity: ArgVerbosity::Info,
             virtual_dns_pool: IpCidr::from_str("198.18.0.0/15").unwrap(),
