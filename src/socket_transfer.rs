@@ -161,7 +161,12 @@ where
         let msg = recvmsg::<()>(socket.as_fd().as_raw_fd(), &mut iov, Some(&mut cmsg), MsgFlags::empty());
 
         let msg = match msg {
-            Err(Errno::EAGAIN) => continue,
+            Err(Errno::EAGAIN) => {
+                // `recvmsg` bypasses Tokio's readiness API, so stale readiness can
+                // otherwise make this loop spin and starve the broker task.
+                tokio::task::yield_now().await;
+                continue;
+            }
             msg => msg?,
         };
 
