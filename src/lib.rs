@@ -100,33 +100,64 @@ impl From<IpAddr> for SocketDomain {
 
 struct SocketQueue {
     tcp_v4: Mutex<Receiver<TcpSocket>>,
-    tcp_v6: Mutex<Receiver<TcpSocket>>,
+    tcp_v6: Option<Mutex<Receiver<TcpSocket>>>,
     udp_v4: Mutex<Receiver<UdpSocket>>,
-    udp_v6: Mutex<Receiver<UdpSocket>>,
+    udp_v6: Option<Mutex<Receiver<UdpSocket>>>,
 }
 
 impl SocketQueue {
     async fn recv_tcp(&self, domain: SocketDomain) -> Result<TcpSocket, std::io::Error> {
-        match domain {
+        let receiver = match domain {
             SocketDomain::IpV4 => &self.tcp_v4,
-            SocketDomain::IpV6 => &self.tcp_v6,
-        }
-        .lock()
-        .await
-        .recv()
-        .await
-        .ok_or(ErrorKind::Other.into())
+            SocketDomain::IpV6 => self.tcp_v6.as_ref().ok_or_else(|| std::io::Error::from(ErrorKind::Unsupported))?,
+        };
+        receiver.lock().await.recv().await.ok_or(ErrorKind::Other.into())
     }
     async fn recv_udp(&self, domain: SocketDomain) -> Result<UdpSocket, std::io::Error> {
-        match domain {
+        let receiver = match domain {
             SocketDomain::IpV4 => &self.udp_v4,
-            SocketDomain::IpV6 => &self.udp_v6,
-        }
-        .lock()
-        .await
-        .recv()
-        .await
-        .ok_or(ErrorKind::Other.into())
+            SocketDomain::IpV6 => self.udp_v6.as_ref().ok_or_else(|| std::io::Error::from(ErrorKind::Unsupported))?,
+        };
+        receiver.lock().await.recv().await.ok_or(ErrorKind::Other.into())
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn create_socket_queue(socket: Arc<Mutex<tokio::net::UnixDatagram>>, ipv6_enabled: bool) -> SocketQueue {
+    use crate::socket_transfer::request_sockets;
+    use tokio::sync::mpsc::channel;
+
+    macro_rules! create_receiver {
+        ($domain:ident) => {{
+            const SOCKETS_PER_REQUEST: usize = 64;
+
+            let socket = socket.clone();
+            let (tx, rx) = channel(SOCKETS_PER_REQUEST);
+            tokio::spawn(async move {
+                loop {
+                    let sockets = match request_sockets(socket.lock().await, SocketDomain::$domain, SOCKETS_PER_REQUEST as u32).await {
+                        Ok(sockets) => sockets,
+                        Err(err) => {
+                            log::warn!("Socket allocation request failed: {err}");
+                            continue;
+                        }
+                    };
+                    for socket in sockets {
+                        if tx.send(socket).await.is_err() {
+                            return;
+                        }
+                    }
+                }
+            });
+            Mutex::new(rx)
+        }};
+    }
+
+    SocketQueue {
+        tcp_v4: create_receiver!(IpV4),
+        tcp_v6: ipv6_enabled.then(|| create_receiver!(IpV6)),
+        udp_v4: create_receiver!(IpV4),
+        udp_v6: ipv6_enabled.then(|| create_receiver!(IpV6)),
     }
 }
 
@@ -185,46 +216,12 @@ where
     let socket_queue = match args.socket_transfer_fd {
         None => None,
         Some(fd) => {
-            use crate::socket_transfer::{reconstruct_socket, reconstruct_transfer_socket, request_sockets};
-            use tokio::sync::mpsc::channel;
+            use crate::socket_transfer::{reconstruct_socket, reconstruct_transfer_socket};
 
             let fd = reconstruct_socket(fd)?;
             let socket = reconstruct_transfer_socket(fd)?;
             let socket = Arc::new(Mutex::new(socket));
-
-            macro_rules! create_socket_queue {
-                ($domain:ident) => {{
-                    const SOCKETS_PER_REQUEST: usize = 64;
-
-                    let socket = socket.clone();
-                    let (tx, rx) = channel(SOCKETS_PER_REQUEST);
-                    tokio::spawn(async move {
-                        loop {
-                            let sockets =
-                                match request_sockets(socket.lock().await, SocketDomain::$domain, SOCKETS_PER_REQUEST as u32).await {
-                                    Ok(sockets) => sockets,
-                                    Err(err) => {
-                                        log::warn!("Socket allocation request failed: {err}");
-                                        continue;
-                                    }
-                                };
-                            for s in sockets {
-                                if let Err(_) = tx.send(s).await {
-                                    return;
-                                }
-                            }
-                        }
-                    });
-                    Mutex::new(rx)
-                }};
-            }
-
-            Some(Arc::new(SocketQueue {
-                tcp_v4: create_socket_queue!(IpV4),
-                tcp_v6: create_socket_queue!(IpV6),
-                udp_v4: create_socket_queue!(IpV4),
-                udp_v6: create_socket_queue!(IpV6),
-            }))
+            Some(Arc::new(create_socket_queue(socket, ipv6_enabled)))
         }
     };
 
@@ -420,6 +417,22 @@ where
         }
     }
     Ok(task_count.load(Relaxed))
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod socket_queue_tests {
+    use super::create_socket_queue;
+    use std::sync::Arc;
+    use tokio::sync::Mutex;
+
+    #[tokio::test]
+    async fn ipv4_only_mode_does_not_start_ipv6_queues() {
+        let (local, _peer) = tokio::net::UnixDatagram::pair().unwrap();
+        let queue = create_socket_queue(Arc::new(Mutex::new(local)), false);
+
+        assert!(queue.tcp_v6.is_none());
+        assert!(queue.udp_v6.is_none());
+    }
 }
 
 async fn handle_virtual_dns_session(mut udp: IpStackUdpStream, dns: Arc<Mutex<VirtualDns>>) -> crate::Result<()> {
