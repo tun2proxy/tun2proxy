@@ -23,9 +23,9 @@ path = "src/bin/udpgw_server.rs"
 required-features = ["udpgw"]
 
 [features]
-default = ["udpgw"]
+default = ["udpgw", "unshare"]
 udpgw = []
-unshare = ["tokio/process"]
+unshare = ["tokio/process", "bincode-next"]
 
 [dependencies]
 async-trait = "0.1.92"
@@ -84,8 +84,10 @@ android_logger = "0.15.1"
 jni = { version = "0.22.4", default-features = false }
 
 [target.'cfg(target_os="linux")'.dependencies]
-bincode-next = "3.1.1"
-tokio = { version = "1.53.1", default-features = false, features = ["process"] }
+bincode-next = { version = "3.1.1", optional = true }
+tokio = { version = "1.53.1", default-features = false, optional = true, features = [
+    "process",
+] }
 
 [target.'cfg(target_os="windows")'.dependencies]
 windows-service = "0.8.1"

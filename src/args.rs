@@ -2,7 +2,7 @@ use crate::{Error, Result};
 use socks5_impl::protocol::UserKey;
 use tproxy_config::IpCidr;
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unshare"))]
 use std::ffi::OsString;
 
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
@@ -51,11 +51,13 @@ pub struct Args {
 
     /// Create a tun interface in a newly created unprivileged namespace
     /// while maintaining proxy connectivity via the global network namespace.
+    #[cfg(feature = "unshare")]
     #[cfg(target_os = "linux")]
     #[arg(long)]
     pub unshare: bool,
 
     /// Create a pidfile of `unshare` process when using `--unshare`.
+    #[cfg(feature = "unshare")]
     #[cfg(target_os = "linux")]
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
@@ -64,7 +66,7 @@ pub struct Args {
     /// File descriptor for UNIX datagram socket meant to transfer
     /// network sockets from global namespace to the new one.
     /// See `unshare(1)`, `namespaces(7)`, `sendmsg(2)`, `unix(7)`.
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "unshare"))]
     #[arg(long, value_name = "fd", hide(true))]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub socket_transfer_fd: Option<i32>,
@@ -72,7 +74,7 @@ pub struct Args {
     /// Specify a command to run with root-like capabilities in the new namespace
     /// when using `--unshare`.
     /// This could be useful to start additional daemons, e.g. `openvpn` instance.
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "unshare"))]
     #[arg(requires = "unshare")]
     pub admin_command: Vec<OsString>,
 
@@ -184,13 +186,13 @@ impl Default for Args {
             tun_fd: None,
             #[cfg(unix)]
             close_fd_on_drop: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "unshare"))]
             unshare: false,
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "unshare"))]
             unshare_pidfile: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "unshare"))]
             socket_transfer_fd: None,
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "unshare"))]
             admin_command: Vec::new(),
             ipv6_enabled: false,
             setup,

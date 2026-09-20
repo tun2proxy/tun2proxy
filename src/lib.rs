@@ -1,4 +1,4 @@
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unshare"))]
 extern crate bincode_next as bincode;
 
 #[cfg(feature = "udpgw")]
@@ -67,10 +67,9 @@ pub mod win_svc;
 
 const DNS_PORT: u16 = 53;
 
-#[allow(unused)]
 #[derive(Hash, Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(
-    target_os = "linux",
+    all(target_os = "linux", feature = "unshare"),
     derive(bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)
 )]
 pub enum SocketProtocol {
@@ -78,10 +77,9 @@ pub enum SocketProtocol {
     Udp,
 }
 
-#[allow(unused)]
 #[derive(Hash, Copy, Clone, Eq, PartialEq, Debug)]
 #[cfg_attr(
-    target_os = "linux",
+    all(target_os = "linux", feature = "unshare"),
     derive(bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)
 )]
 pub enum SocketDomain {
@@ -122,7 +120,7 @@ impl SocketQueue {
     }
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unshare"))]
 fn create_socket_queue(socket: Arc<Mutex<tokio::net::UnixDatagram>>, ipv6_enabled: bool) -> SocketQueue {
     use crate::socket_transfer::request_sockets;
     use tokio::sync::mpsc::channel;
@@ -212,7 +210,7 @@ where
         None
     };
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "unshare"))]
     let socket_queue = match args.socket_transfer_fd {
         None => None,
         Some(fd) => {
@@ -225,7 +223,7 @@ where
         }
     };
 
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(not(all(target_os = "linux", feature = "unshare")))]
     let socket_queue = None;
 
     use socks5_impl::protocol::Version::{V4, V5};
@@ -419,7 +417,7 @@ where
     Ok(task_count.load(Relaxed))
 }
 
-#[cfg(all(test, target_os = "linux"))]
+#[cfg(all(test, target_os = "linux", feature = "unshare"))]
 mod socket_queue_tests {
     use super::create_socket_queue;
     use std::sync::Arc;
