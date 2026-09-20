@@ -23,23 +23,39 @@ path = "src/bin/udpgw_server.rs"
 required-features = ["udpgw"]
 
 [features]
-default = ["udpgw"]
+default = ["udpgw", "unshare"]
 udpgw = []
+unshare = ["tokio/process", "bincode-next"]
 
 [dependencies]
 async-trait = "0.1.92"
 base64easy = "0.1.7"
-chrono = "0.4.45"
-clap = { version = "4.6.6", features = ["derive", "wrap_help", "color"] }
-ctrlc2 = { version = "4.0.0", features = ["async", "termination"] }
+chrono = { version = "0.4.45", default-features = false, features = [
+    "clock",
+    "std",
+] }
+clap = { version = "4.6.7", default-features = false, features = [
+    "std",
+    "help",
+    "usage",
+    "error-context",
+    "derive",
+    "suggestions",
+] }
+ctrlc2 = { version = "4.0.0", default-features = false, features = [
+    "async",
+    "termination",
+] }
 digest_auth = "0.3.1"
 dotenvy = "0.15.7"
-env_logger = "0.11.11"
-hashlink = "0.12.1"
-hickory-proto = "0.26.1"
+env_logger = { version = "0.11.11", default-features = false, features = [
+    "humantime",
+] }
+hashlink = "0.12.2"
+hickory-proto = "0.26.3"
 httparse = "1.10.1"
 ipstack = { version = "1.0.1" }
-log = { version = "0.4.33", features = ["std"] }
+log = { version = "0.4.34", default-features = false, features = ["std"] }
 percent-encoding = "2.3.2"
 serde = { version = "1.0.229", features = ["derive"] }
 shlex = "2.0.1"
@@ -48,7 +64,14 @@ socks5-impl = { version = "0.9.6", default-features = false, features = [
     "serde",
 ] }
 thiserror = "2.0.20"
-tokio = { version = "1.53.1", features = ["full"] }
+tokio = { version = "1.53.1", default-features = false, features = [
+    "rt-multi-thread",
+    "macros",
+    "net",
+    "time",
+    "io-util",
+    "sync",
+] }
 tokio-util = "0.7.19"
 tproxy-config = { version = "^7.0.7", default-features = false }
 tun = { version = "0.8.14", features = ["async"] }
@@ -61,7 +84,10 @@ android_logger = "0.15.1"
 jni = { version = "0.22.4", default-features = false }
 
 [target.'cfg(target_os="linux")'.dependencies]
-bincode-next = "3.1.1"
+bincode-next = { version = "3.1.1", optional = true }
+tokio = { version = "1.53.1", default-features = false, optional = true, features = [
+    "process",
+] }
 
 [target.'cfg(target_os="windows")'.dependencies]
 windows-service = "0.8.1"
@@ -75,7 +101,10 @@ nix = { version = "0.31.3", default-features = false, features = [
 ] }
 
 [build-dependencies]
-chrono = "0.4.45"
+chrono = { version = "0.4.45", default-features = false, features = [
+    "clock",
+    "std",
+] }
 serde_json = "1.0.151"
 
 # [profile.release]

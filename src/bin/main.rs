@@ -63,7 +63,7 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
         let args = args.clone();
         let shutdown_token = shutdown_token.clone();
         async move {
-            #[cfg(target_os = "linux")]
+            #[cfg(all(target_os = "linux", feature = "unshare"))]
             if args.unshare && args.socket_transfer_fd.is_none() {
                 if let Err(err) = namespace_proxy_main(args, shutdown_token).await {
                     log::error!("namespace proxy error: {err}");
@@ -109,7 +109,7 @@ async fn main_async(args: Args) -> Result<(), BoxError> {
     Ok(())
 }
 
-#[cfg(target_os = "linux")]
+#[cfg(all(target_os = "linux", feature = "unshare"))]
 async fn namespace_proxy_main(
     _args: Args,
     shutdown_token: tokio_util::sync::CancellationToken,

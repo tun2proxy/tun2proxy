@@ -162,7 +162,7 @@ pub async fn general_run_async(
         restore = Some(tproxy_config::tproxy_setup(&tproxy_args).await?);
     }
 
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "unshare"))]
     {
         let mut admin_command_args = args.admin_command.iter();
         if let Some(command) = admin_command_args.next() {

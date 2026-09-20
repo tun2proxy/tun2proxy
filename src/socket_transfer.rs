@@ -1,4 +1,4 @@
-#![cfg(target_os = "linux")]
+#![cfg(all(target_os = "linux", feature = "unshare"))]
 
 use crate::{SocketDomain, SocketProtocol, error};
 use nix::{
