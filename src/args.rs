@@ -2,9 +2,6 @@ use crate::{Error, Result};
 use socks5_impl::protocol::UserKey;
 use tproxy_config::IpCidr;
 
-#[cfg(all(target_os = "linux", feature = "unshare"))]
-use std::ffi::OsString;
-
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::str::FromStr;
 
@@ -51,14 +48,12 @@ pub struct Args {
 
     /// Create a tun interface in a newly created unprivileged namespace
     /// while maintaining proxy connectivity via the global network namespace.
-    #[cfg(feature = "unshare")]
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "unshare"))]
     #[arg(long)]
     pub unshare: bool,
 
     /// Create a pidfile of `unshare` process when using `--unshare`.
-    #[cfg(feature = "unshare")]
-    #[cfg(target_os = "linux")]
+    #[cfg(all(target_os = "linux", feature = "unshare"))]
     #[arg(long)]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unshare_pidfile: Option<String>,
@@ -76,7 +71,7 @@ pub struct Args {
     /// This could be useful to start additional daemons, e.g. `openvpn` instance.
     #[cfg(all(target_os = "linux", feature = "unshare"))]
     #[arg(requires = "unshare")]
-    pub admin_command: Vec<OsString>,
+    pub admin_command: Vec<std::ffi::OsString>,
 
     /// IPv6 enabled
     #[arg(short = '6', long)]

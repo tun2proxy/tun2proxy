@@ -73,7 +73,7 @@ tokio = { version = "1.53.1", default-features = false, features = [
     "sync",
 ] }
 tokio-util = "0.7.19"
-tproxy-config = { version = "^7.0.7", default-features = false }
+tproxy-config = { version = "^7.0.9", default-features = false }
 tun = { version = "0.8.14", features = ["async"] }
 udp-stream = { version = "0.0.12", default-features = false }
 unicase = "2.9.0"
