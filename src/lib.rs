@@ -36,8 +36,9 @@ use udp_stream::UdpStream;
 use udpgw::{UDPGW_KEEPALIVE_TIME, UDPGW_MAX_CONNECTIONS, UdpGwClientStream, UdpGwResponse};
 
 pub use log::LevelFilter;
+pub use socks5_impl::protocol::{ProxyParameters, ProxyType};
 pub use {
-    args::{ArgDns, ArgProxy, Args, ProxyType},
+    args::{ArgDns, Args},
     error::{BoxError, Error, Result},
     traffic_status::{TrafficStatus, tun2proxy_set_traffic_status_callback},
 };
@@ -199,9 +200,13 @@ where
     D: AsyncRead + AsyncWrite + Unpin + Send + 'static,
 {
     log::info!("{} {} starting...", env!("CARGO_PKG_NAME"), version_info!());
-    log::info!("Proxy {} server: {}", args.proxy.proxy_type, args.proxy.addr);
 
-    let server_addr = args.proxy.addr;
+    let server_addr = args.proxy.addr.as_ref().map(|addr| SocketAddr::try_from(addr).unwrap());
+
+    if let Some(addr) = server_addr {
+        log::info!("Proxy {} server: {addr}", args.proxy.proxy_type);
+    }
+
     let key = args.proxy.credentials.clone();
     let dns_addr = args.dns_addr;
     let ipv6_enabled = args.ipv6_enabled;
@@ -229,10 +234,11 @@ where
 
     use socks5_impl::protocol::Version::{V4, V5};
     let mgr: Arc<dyn ProxyHandlerManager> = match args.proxy.proxy_type {
-        ProxyType::Socks5 => Arc::new(SocksProxyManager::new(server_addr, V5, key)),
-        ProxyType::Socks4 => Arc::new(SocksProxyManager::new(server_addr, V4, key)),
-        ProxyType::Http => Arc::new(HttpManager::new(server_addr, key)),
+        ProxyType::Socks5 => Arc::new(SocksProxyManager::new(server_addr.unwrap(), V5, key)),
+        ProxyType::Socks4 => Arc::new(SocksProxyManager::new(server_addr.unwrap(), V4, key)),
+        ProxyType::Http => Arc::new(HttpManager::new(server_addr.unwrap(), key)),
         ProxyType::None => Arc::new(NoProxyManager::new()),
+        ProxyType::Mixed => unreachable!("Mixed proxy type should not be used here"),
     };
 
     let mut ipstack_config = ipstack::IpStackConfig::default();

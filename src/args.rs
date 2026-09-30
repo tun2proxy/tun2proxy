@@ -1,8 +1,8 @@
-use crate::{Error, Result};
-use socks5_impl::protocol::UserKey;
+use crate::Result;
+use socks5_impl::protocol::ProxyParameters;
 use tproxy_config::IpCidr;
 
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
 #[macro_export]
@@ -23,8 +23,8 @@ pub struct Args {
     /// where proto is one of socks4, socks5, http.
     /// Username and password are encoded in percent encoding. For example:
     /// socks5://myname:pass%40word@127.0.0.1:1080
-    #[arg(short, long, value_parser = |s: &str| ArgProxy::try_from(s), value_name = "URL")]
-    pub proxy: ArgProxy,
+    #[arg(short, long, value_parser = |s: &str| ProxyParameters::try_from(s), value_name = "URL")]
+    pub proxy: ProxyParameters,
 
     /// Name of the tun interface, such as tun0, utun4, etc.
     /// If this option is not provided, the OS will generate a random one.
@@ -163,7 +163,7 @@ pub struct Args {
 fn validate_tun(p: &str) -> Result<String> {
     #[cfg(target_os = "macos")]
     if p.len() <= 4 || &p[..4] != "utun" {
-        return Err(Error::from("Invalid tun interface name, please use utunX"));
+        return Err(crate::Error::from("Invalid tun interface name, please use utunX"));
     }
     Ok(p.to_string())
 }
@@ -175,7 +175,7 @@ impl Default for Args {
         #[cfg(not(target_os = "linux"))]
         let setup = true;
         Args {
-            proxy: ArgProxy::default(),
+            proxy: ProxyParameters::default(),
             tun: None,
             #[cfg(unix)]
             tun_fd: None,
@@ -225,7 +225,7 @@ impl Args {
         args
     }
 
-    pub fn proxy(&mut self, proxy: ArgProxy) -> &mut Self {
+    pub fn proxy(&mut self, proxy: ProxyParameters) -> &mut Self {
         self.proxy = proxy;
         self
     }
@@ -305,120 +305,13 @@ pub enum ArgDns {
 
 #[cfg(target_os = "android")]
 impl TryFrom<jni::sys::jint> for ArgDns {
-    type Error = Error;
+    type Error = crate::Error;
     fn try_from(value: jni::sys::jint) -> Result<Self> {
         match value {
             0 => Ok(ArgDns::Virtual),
             1 => Ok(ArgDns::OverTcp),
             2 => Ok(ArgDns::Direct),
-            _ => Err(Error::from("Invalid DNS strategy")),
-        }
-    }
-}
-
-#[derive(Clone, Debug, serde::Serialize, serde::Deserialize)]
-pub struct ArgProxy {
-    pub proxy_type: ProxyType,
-    pub addr: SocketAddr,
-    #[serde(skip_serializing_if = "Option::is_none")]
-    pub credentials: Option<UserKey>,
-}
-
-impl Default for ArgProxy {
-    fn default() -> Self {
-        ArgProxy {
-            proxy_type: ProxyType::Socks5,
-            addr: "127.0.0.1:1080".parse().unwrap(),
-            credentials: None,
-        }
-    }
-}
-
-impl std::fmt::Display for ArgProxy {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let auth = match &self.credentials {
-            Some(creds) => format!("{creds}"),
-            None => "".to_owned(),
-        };
-        if auth.is_empty() {
-            write!(f, "{}://{}", self.proxy_type, self.addr)
-        } else {
-            write!(f, "{}://{}@{}", self.proxy_type, auth, self.addr)
-        }
-    }
-}
-
-impl TryFrom<&str> for ArgProxy {
-    type Error = Error;
-    fn try_from(s: &str) -> Result<Self> {
-        if s == "none" {
-            return Ok(ArgProxy {
-                proxy_type: ProxyType::None,
-                addr: "0.0.0.0:0".parse().unwrap(),
-                credentials: None,
-            });
-        }
-
-        let e = format!("`{s}` is not a valid proxy URL");
-        let url = url::Url::parse(s).map_err(|_| Error::from(&e))?;
-        let e = format!("`{s}` does not contain a host");
-        let host = url.host_str().ok_or(Error::from(e))?;
-
-        let e = format!("`{s}` does not contain a port");
-        let port = url.port_or_known_default().ok_or(Error::from(&e))?;
-
-        let e2 = format!("`{host}` does not resolve to a usable IP address");
-        let addr = (host, port).to_socket_addrs()?.next().ok_or(Error::from(&e2))?;
-
-        let credentials = if url.username() == "" && url.password().is_none() {
-            None
-        } else {
-            use percent_encoding::percent_decode;
-            let username = percent_decode(url.username().as_bytes()).decode_utf8()?;
-            let password = percent_decode(url.password().unwrap_or("").as_bytes()).decode_utf8()?;
-            Some(UserKey::new(username, password))
-        };
-
-        let proxy_type = url.scheme().to_ascii_lowercase().as_str().try_into()?;
-
-        Ok(ArgProxy {
-            proxy_type,
-            addr,
-            credentials,
-        })
-    }
-}
-
-#[repr(C)]
-#[derive(Copy, Clone, PartialEq, Eq, PartialOrd, Ord, Debug, Default, serde::Serialize, serde::Deserialize)]
-pub enum ProxyType {
-    Http = 0,
-    Socks4,
-    #[default]
-    Socks5,
-    None,
-}
-
-impl TryFrom<&str> for ProxyType {
-    type Error = Error;
-    fn try_from(value: &str) -> Result<Self> {
-        match value {
-            "http" => Ok(ProxyType::Http),
-            "socks4" => Ok(ProxyType::Socks4),
-            "socks5" => Ok(ProxyType::Socks5),
-            "none" => Ok(ProxyType::None),
-            scheme => Err(Error::from(&format!("`{scheme}` is an invalid proxy type"))),
-        }
-    }
-}
-
-impl std::fmt::Display for ProxyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            ProxyType::Socks4 => write!(f, "socks4"),
-            ProxyType::Socks5 => write!(f, "socks5"),
-            ProxyType::Http => write!(f, "http"),
-            ProxyType::None => write!(f, "none"),
+            _ => Err(crate::Error::from("Invalid DNS strategy")),
         }
     }
 }

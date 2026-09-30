@@ -140,7 +140,7 @@ pub async fn general_run_async(
     #[allow(unused_variables)]
     let mut tproxy_args = tproxy_config::TproxyArgs::new()
         .tun_dns(args.dns_addr)
-        .proxy_addr(args.proxy.addr)
+        .proxy_addr(args.proxy.addr.as_ref().map(|addr| addr.try_into().unwrap()).unwrap())
         .bypass_ips(&args.bypass)
         .ipv6_default_route(args.ipv6_enabled);
 
