@@ -35,7 +35,7 @@ pub(crate) fn tun2proxy_stop_internal() -> c_int {
 }
 
 pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -> c_int {
-    log::set_max_level(args.verbosity.into());
+    log::set_max_level(args.verbosity);
     if let Err(err) = log::set_boxed_logger(Box::<crate::dump_logger::DumpLogger>::default()) {
         log::debug!("set logger error: {err}");
     }

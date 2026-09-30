@@ -15,7 +15,7 @@ exclude = [
 ]
 
 [export.rename]
-"ArgVerbosity" = "Tun2proxyVerbosity"
+"LogLevel" = "Tun2proxyLogLevel"
 "ArgDns" = "Tun2proxyDns"
 "TrafficStatus" = "Tun2proxyTrafficStatus"
 

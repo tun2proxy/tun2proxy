@@ -9,7 +9,7 @@ use tokio::{
     sync::mpsc::{Receiver, Sender},
 };
 use tun2proxy::{
-    ArgVerbosity, BoxError, Error, Result,
+    BoxError, Error, Result,
     udpgw::{Packet, UdpFlag},
 };
 
@@ -52,9 +52,9 @@ pub struct UdpGwArgs {
     #[arg(short, long)]
     pub daemonize: bool,
 
-    /// Verbosity level
-    #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
-    pub verbosity: ArgVerbosity,
+    /// Verbosity level, possible values are "off", "error", "warn", "info", "debug", "trace"
+    #[arg(short, long, value_name = "level", default_value = "info")]
+    pub verbosity: log::LevelFilter,
 }
 
 impl UdpGwArgs {

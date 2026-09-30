@@ -35,8 +35,9 @@ use udp_stream::UdpStream;
 #[cfg(feature = "udpgw")]
 use udpgw::{UDPGW_KEEPALIVE_TIME, UDPGW_MAX_CONNECTIONS, UdpGwClientStream, UdpGwResponse};
 
+pub use log::LevelFilter;
 pub use {
-    args::{ArgDns, ArgProxy, ArgVerbosity, Args, ProxyType},
+    args::{ArgDns, ArgProxy, Args, ProxyType},
     error::{BoxError, Error, Result},
     traffic_status::{TrafficStatus, tun2proxy_set_traffic_status_callback},
 };

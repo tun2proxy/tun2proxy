@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - '**'
+      - "**"
   pull_request:
     branches:
-      - '**'
+      - "**"
   schedule:
-    - cron: '0 0 * * 0' # Every Sunday at midnight UTC
+    - cron: "0 0 * * 0" # Every Sunday at midnight UTC
 
 env:
   CARGO_TERM_COLOR: always
@@ -24,33 +24,29 @@ jobs:
     runs-on: ${{ matrix.os }}
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy, rustfmt
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
 
-    - name: rustfmt
-      if: ${{ !cancelled() }}
-      run: cargo fmt --all -- --check
+      - name: rustfmt
+        if: ${{ !cancelled() }}
+        run: cargo fmt --all -- --check
 
-    - name: check
-      if: ${{ !cancelled() }}
-      run: cargo check --verbose
+      - name: check
+        if: ${{ !cancelled() }}
+        run: cargo check --verbose
 
-    - name: clippy
-      if: ${{ !cancelled() }}
-      run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --all-targets --all-features -- -D warnings
 
-    - name: Build
-      if: ${{ !cancelled() }}
-      run: |
-        cargo build --verbose --tests --all-features
-        cargo clean
-        cargo build --verbose
-
-    - name: Abort on error
-      if: ${{ failure() }}
-      run: echo "Some of jobs failed" && false
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: |
+          cargo build --verbose --tests --all-features
+          cargo clean
+          cargo build --verbose
 
   build_n_test_android:
     strategy:
@@ -58,25 +54,22 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy, rustfmt
-    - name: Install cargo ndk and rust compiler for android target
-      if: ${{ !cancelled() }}
-      run: |
-        cargo install --locked cargo-ndk
-        rustup target add x86_64-linux-android
-    - name: clippy
-      if: ${{ !cancelled() }}
-      run: cargo ndk -t x86_64 clippy --all-features -- -D warnings
-    - name: Build
-      if: ${{ !cancelled() }}
-      run: |
-        cargo ndk -t x86_64 rustc --verbose --all-features --lib --crate-type=cdylib
-    - name: Abort on error
-      if: ${{ failure() }}
-      run: echo "Android build job failed" && false
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Install cargo ndk and rust compiler for android target
+        if: ${{ !cancelled() }}
+        run: |
+          cargo install --locked cargo-ndk
+          rustup target add x86_64-linux-android
+      - name: clippy
+        if: ${{ !cancelled() }}
+        run: cargo ndk -t x86_64 clippy --all-features -- -D warnings
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: |
+          cargo ndk -t x86_64 rustc --verbose --all-features --lib --crate-type=cdylib
 
   build_n_test_ios:
     strategy:
@@ -84,25 +77,22 @@ jobs:
     runs-on: macos-latest
 
     steps:
-    - uses: actions/checkout@v4
-    - uses: dtolnay/rust-toolchain@stable
-      with:
-        components: clippy, rustfmt
-    - name: Install cargo lipo and rust compiler for ios target
-      if: ${{ !cancelled() }}
-      run: |
-        cargo install --locked cargo-lipo
-        rustup target add x86_64-apple-ios aarch64-apple-ios
-    - name: clippy
-      if: ${{ !cancelled() }}
-      run: cargo clippy --target x86_64-apple-ios --all-features -- -D warnings
-    - name: Build
-      if: ${{ !cancelled() }}
-      run: |
-        cargo lipo --verbose --all-features
-    - name: Abort on error
-      if: ${{ failure() }}
-      run: echo "iOS build job failed" && false
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy, rustfmt
+      - name: Install cargo lipo and rust compiler for ios target
+        if: ${{ !cancelled() }}
+        run: |
+          cargo install --locked cargo-lipo
+          rustup target add x86_64-apple-ios aarch64-apple-ios
+      - name: clippy
+        if: ${{ !cancelled() }}
+        run: cargo clippy --target x86_64-apple-ios --all-features -- -D warnings
+      - name: Build
+        if: ${{ !cancelled() }}
+        run: |
+          cargo lipo --verbose --all-features
 
   semver:
     name: Check semver
@@ -112,11 +102,8 @@ jobs:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - name: Check semver
         if: ${{ !cancelled() }}
         uses: obi1kenobi/cargo-semver-checks-action@v2
-      - name: Abort on error
-        if: ${{ failure() }}
-        run: echo "Semver check failed" && false

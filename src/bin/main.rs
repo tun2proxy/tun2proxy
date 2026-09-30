@@ -1,4 +1,4 @@
-use tun2proxy::{ArgVerbosity, Args, BoxError};
+use tun2proxy::{Args, BoxError};
 
 fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
@@ -45,7 +45,7 @@ fn main() -> Result<(), BoxError> {
 
 fn setup_logging(args: &Args) {
     let avoid_trace = match args.verbosity {
-        ArgVerbosity::Trace => ArgVerbosity::Debug,
+        log::LevelFilter::Trace => log::LevelFilter::Debug,
         _ => args.verbosity,
     };
     let default = format!(

@@ -41,6 +41,7 @@ clap = { version = "4.6.7", default-features = false, features = [
     "error-context",
     "derive",
     "suggestions",
+    "wrap_help",
 ] }
 ctrlc2 = { version = "4.0.0", default-features = false, features = [
     "async",
@@ -55,15 +56,18 @@ hashlink = "0.12.2"
 hickory-proto = "0.26.3"
 httparse = "1.10.1"
 ipstack = { version = "1.0.1" }
-log = { version = "0.4.34", default-features = false, features = ["std"] }
+log = { version = "0.4.34", default-features = false, features = [
+    "std",
+    "serde",
+] }
 percent-encoding = "2.3.2"
 serde = { version = "1.0.229", features = ["derive"] }
 shlex = "2.0.1"
-socks5-impl = { version = "0.9.6", default-features = false, features = [
+socks5-impl = { version = "0.9.8", default-features = false, features = [
     "tokio",
     "serde",
 ] }
-thiserror = "2.0.20"
+thiserror = "2.0.21"
 tokio = { version = "1.53.1", default-features = false, features = [
     "rt-multi-thread",
     "macros",

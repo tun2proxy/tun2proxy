@@ -125,9 +125,9 @@ pub struct Args {
     #[arg(long, value_name = "seconds", default_value = "10")]
     pub udp_timeout: u64,
 
-    /// Verbosity level
-    #[arg(short, long, value_name = "level", value_enum, default_value = "info")]
-    pub verbosity: ArgVerbosity,
+    /// Verbosity level, possible values [off, error, warn, info, debug, trace]
+    #[arg(short, long, value_name = "level", default_value = "info")]
+    pub verbosity: log::LevelFilter,
 
     /// Daemonize for unix family or run as Windows service
     #[arg(long)]
@@ -198,7 +198,7 @@ impl Default for Args {
             tcp_timeout: 600,
             tcp_mss: None,
             udp_timeout: 10,
-            verbosity: ArgVerbosity::Info,
+            verbosity: log::LevelFilter::Info,
             virtual_dns_pool: IpCidr::from_str("198.18.0.0/15").unwrap(),
             daemonize: false,
             exit_on_fatal_error: false,
@@ -259,7 +259,7 @@ impl Args {
         self
     }
 
-    pub fn verbosity(&mut self, verbosity: ArgVerbosity) -> &mut Self {
+    pub fn verbosity(&mut self, verbosity: log::LevelFilter) -> &mut Self {
         self.verbosity = verbosity;
         self
     }
@@ -287,72 +287,6 @@ impl Args {
     pub fn setup(&mut self, setup: bool) -> &mut Self {
         self.setup = setup;
         self
-    }
-}
-
-#[repr(C)]
-#[derive(Default, Debug, Copy, Clone, PartialEq, Eq, PartialOrd, Ord, clap::ValueEnum, serde::Serialize, serde::Deserialize)]
-pub enum ArgVerbosity {
-    Off = 0,
-    Error,
-    Warn,
-    #[default]
-    Info,
-    Debug,
-    Trace,
-}
-
-#[cfg(target_os = "android")]
-impl TryFrom<jni::sys::jint> for ArgVerbosity {
-    type Error = Error;
-    fn try_from(value: jni::sys::jint) -> Result<Self> {
-        match value {
-            0 => Ok(ArgVerbosity::Off),
-            1 => Ok(ArgVerbosity::Error),
-            2 => Ok(ArgVerbosity::Warn),
-            3 => Ok(ArgVerbosity::Info),
-            4 => Ok(ArgVerbosity::Debug),
-            5 => Ok(ArgVerbosity::Trace),
-            _ => Err(Error::from("Invalid verbosity level")),
-        }
-    }
-}
-
-impl From<ArgVerbosity> for log::LevelFilter {
-    fn from(verbosity: ArgVerbosity) -> Self {
-        match verbosity {
-            ArgVerbosity::Off => log::LevelFilter::Off,
-            ArgVerbosity::Error => log::LevelFilter::Error,
-            ArgVerbosity::Warn => log::LevelFilter::Warn,
-            ArgVerbosity::Info => log::LevelFilter::Info,
-            ArgVerbosity::Debug => log::LevelFilter::Debug,
-            ArgVerbosity::Trace => log::LevelFilter::Trace,
-        }
-    }
-}
-
-impl From<log::Level> for ArgVerbosity {
-    fn from(level: log::Level) -> Self {
-        match level {
-            log::Level::Error => ArgVerbosity::Error,
-            log::Level::Warn => ArgVerbosity::Warn,
-            log::Level::Info => ArgVerbosity::Info,
-            log::Level::Debug => ArgVerbosity::Debug,
-            log::Level::Trace => ArgVerbosity::Trace,
-        }
-    }
-}
-
-impl std::fmt::Display for ArgVerbosity {
-    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
-        match self {
-            ArgVerbosity::Off => write!(f, "off"),
-            ArgVerbosity::Error => write!(f, "error"),
-            ArgVerbosity::Warn => write!(f, "warn"),
-            ArgVerbosity::Info => write!(f, "info"),
-            ArgVerbosity::Debug => write!(f, "debug"),
-            ArgVerbosity::Trace => write!(f, "trace"),
-        }
     }
 }
 
