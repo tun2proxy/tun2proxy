@@ -247,7 +247,6 @@ pub async fn run(args: UdpGwArgs, shutdown_token: tokio_util::sync::Cancellation
 }
 
 fn main() -> Result<(), BoxError> {
-    dotenvy::dotenv().ok();
     let args = UdpGwArgs::parse_args();
 
     let default = format!("{:?}", args.verbosity);
@@ -257,15 +256,9 @@ fn main() -> Result<(), BoxError> {
     if args.daemonize {
         let stdout = std::fs::File::create("/tmp/udpgw.out")?;
         let stderr = std::fs::File::create("/tmp/udpgw.err")?;
-        let daemonize = daemonize::Daemonize::new()
-            .working_directory("/tmp")
-            .umask(0o777)
-            .stdout(stdout)
-            .stderr(stderr)
-            .privileged_action(|| "Executed before drop privileges");
-        let _ = daemonize.start().map_err(|e| format!("Failed to daemonize process, error:{e:?}"))?;
+        tun2proxy::daemon::daemonize("/tmp", 0o777, stdout, stderr).map_err(|e| format!("Failed to daemonize process, error:{e:?}"))?;
     }
 
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_io().enable_time().build()?;
     rt.block_on(main_async(args))
 }

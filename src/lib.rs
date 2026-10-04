@@ -1,6 +1,3 @@
-#[cfg(all(target_os = "linux", feature = "unshare"))]
-extern crate bincode_next as bincode;
-
 #[cfg(feature = "udpgw")]
 use crate::udpgw::UdpGwClient;
 use crate::{
@@ -29,7 +26,8 @@ use tokio::{
     sync::{Mutex, mpsc::Receiver},
 };
 pub use tokio_util::sync::CancellationToken;
-use tproxy_config::is_private_ip;
+pub use crate::netutil::IpCidr;
+use crate::netutil::is_private_ip;
 pub use tun::DEFAULT_MTU;
 use udp_stream::UdpStream;
 #[cfg(feature = "udpgw")]
@@ -49,6 +47,12 @@ pub const FORCE_EXIT_TIMEOUT: std::time::Duration = std::time::Duration::from_se
 
 mod android;
 mod args;
+mod base64;
+#[cfg(unix)]
+#[doc(hidden)]
+pub mod daemon;
+mod lru;
+mod netutil;
 mod directions;
 mod dns;
 mod dump_logger;
@@ -70,20 +74,14 @@ pub mod win_svc;
 const DNS_PORT: u16 = 53;
 
 #[derive(Hash, Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(
-    all(target_os = "linux", feature = "unshare"),
-    derive(bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)
-)]
+#[cfg_attr(all(target_os = "linux", feature = "unshare"), derive(serde::Serialize, serde::Deserialize))]
 pub enum SocketProtocol {
     Tcp,
     Udp,
 }
 
 #[derive(Hash, Copy, Clone, Eq, PartialEq, Debug)]
-#[cfg_attr(
-    all(target_os = "linux", feature = "unshare"),
-    derive(bincode::Encode, bincode::Decode, serde::Serialize, serde::Deserialize)
-)]
+#[cfg_attr(all(target_os = "linux", feature = "unshare"), derive(serde::Serialize, serde::Deserialize))]
 pub enum SocketDomain {
     IpV4,
     IpV6,

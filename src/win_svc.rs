@@ -67,10 +67,10 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
     {
         let args = crate::Args::parse_args();
 
-        let default = format!("{:?},trust_dns_proto=warn", args.verbosity);
+        let default = format!("{:?}", args.verbosity);
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
-        let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+        let rt = tokio::runtime::Builder::new_multi_thread().enable_io().enable_time().build()?;
         rt.block_on(async {
             unsafe extern "C" fn traffic_cb(status: *const crate::TrafficStatus, _: *mut std::ffi::c_void) {
                 let status = unsafe { &*status };

@@ -1,6 +1,6 @@
 use crate::Result;
+use crate::netutil::IpCidr;
 use socks5_impl::protocol::ProxyParameters;
-use tproxy_config::IpCidr;
 
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
@@ -315,3 +315,4 @@ impl TryFrom<jni::sys::jint> for ArgDns {
         }
     }
 }
+

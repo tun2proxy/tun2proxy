@@ -16,16 +16,72 @@ use tokio::net::{TcpSocket, UdpSocket, UnixDatagram};
 
 const REQUEST_BUFFER_SIZE: usize = 64;
 
-#[derive(bincode::Encode, bincode::Decode, Hash, Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
+#[derive(Hash, Copy, Clone, Eq, PartialEq, Debug, Serialize, Deserialize)]
 struct Request {
     protocol: SocketProtocol,
     domain: SocketDomain,
     number: u32,
 }
 
-#[derive(bincode::Encode, bincode::Decode, PartialEq, Debug, Hash, Copy, Clone, Eq, Serialize, Deserialize)]
+impl Request {
+    fn encode(self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.len() < 6 {
+            return Err(std::io::Error::new(ErrorKind::InvalidInput, "request buffer too small"));
+        }
+        buf[0] = match self.protocol {
+            SocketProtocol::Tcp => 0,
+            SocketProtocol::Udp => 1,
+        };
+        buf[1] = match self.domain {
+            SocketDomain::IpV4 => 0,
+            SocketDomain::IpV6 => 1,
+        };
+        buf[2..6].copy_from_slice(&self.number.to_be_bytes());
+        Ok(6)
+    }
+
+    fn decode(buf: &[u8]) -> std::io::Result<Self> {
+        if buf.len() < 6 {
+            return Err(std::io::Error::new(ErrorKind::InvalidInput, "truncated socket request"));
+        }
+        let protocol = match buf[0] {
+            0 => SocketProtocol::Tcp,
+            1 => SocketProtocol::Udp,
+            _ => return Err(std::io::Error::new(ErrorKind::InvalidInput, "unknown protocol")),
+        };
+        let domain = match buf[1] {
+            0 => SocketDomain::IpV4,
+            1 => SocketDomain::IpV6,
+            _ => return Err(std::io::Error::new(ErrorKind::InvalidInput, "unknown domain")),
+        };
+        let number = u32::from_be_bytes(buf[2..6].try_into().unwrap());
+        Ok(Self { protocol, domain, number })
+    }
+}
+
+#[derive(PartialEq, Debug, Hash, Copy, Clone, Eq, Serialize, Deserialize)]
 enum Response {
     Ok,
+}
+
+impl Response {
+    fn encode(self, buf: &mut [u8]) -> std::io::Result<usize> {
+        if buf.is_empty() {
+            return Err(std::io::Error::new(ErrorKind::InvalidInput, "response buffer too small"));
+        }
+        buf[0] = 0;
+        Ok(1)
+    }
+
+    fn decode(buf: &[u8]) -> std::io::Result<Self> {
+        if buf.is_empty() {
+            return Err(std::io::Error::new(ErrorKind::InvalidInput, "truncated socket response"));
+        }
+        match buf[0] {
+            0 => Ok(Self::Ok),
+            _ => Err(std::io::Error::new(ErrorKind::InvalidInput, "unknown response")),
+        }
+    }
 }
 
 /// Reconstruct socket from raw `fd`
@@ -138,16 +194,12 @@ where
     let mut request = [0u8; 1000];
 
     // Send request
-    let size = bincode::encode_into_slice(
-        Request {
-            protocol: T::domain(),
-            domain,
-            number,
-        },
-        &mut request,
-        bincode::config::standard(),
-    )
-    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+    let size = Request {
+        protocol: T::domain(),
+        domain,
+        number,
+    }
+    .encode(&mut request)?;
 
     socket.send(&request[..size]).await?;
 
@@ -172,9 +224,7 @@ where
 
         // Parse response
         let response = &msg.iovs().next().unwrap()[..msg.bytes];
-        let response: Response = bincode::decode_from_slice(response, bincode::config::standard())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
-            .0;
+        let response = Response::decode(response)?;
         if !matches!(response, Response::Ok) {
             return Err("Request for new sockets failed".into());
         }
@@ -211,14 +261,10 @@ pub async fn process_socket_requests(socket: &UnixDatagram, shutdown_token: toki
             res = socket.recv(&mut buf[..]) => res?,
         };
 
-        let request: Request = bincode::decode_from_slice(&buf[..len], bincode::config::standard())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?
-            .0;
+        let request = Request::decode(&buf[..len])?;
 
-        let response = Response::Ok;
         let mut buf = [0u8; 1000];
-        let size = bincode::encode_into_slice(response, &mut buf, bincode::config::standard())
-            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidInput, e))?;
+        let size = Response::Ok.encode(&mut buf)?;
 
         let mut owned_fd_buf: Vec<OwnedFd> = Vec::with_capacity(request.number as usize);
         for _ in 0..request.number {

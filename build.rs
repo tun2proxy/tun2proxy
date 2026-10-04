@@ -4,8 +4,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("cargo:rustc-env=GIT_HASH={}", git_hash.trim());
     }
 
-    // Get the build time
-    let build_time = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    // Get the build time (UTC) without pulling chrono into the build graph.
+    let build_time = std::process::Command::new("date")
+        .args(["-u", "+%Y-%m-%d %H:%M:%S"])
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .map(|s| s.trim().to_string())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| "unknown".to_string());
     println!("cargo:rustc-env=BUILD_TIME={build_time}");
 
     #[cfg(target_os = "windows")]

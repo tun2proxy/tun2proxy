@@ -1,12 +1,12 @@
 use crate::error::Result;
-use hashlink::{LruCache, linked_hash_map::RawEntryMut};
+use crate::lru::LruCache;
 use std::{
     collections::HashMap,
     convert::TryInto,
     net::{IpAddr, Ipv4Addr, Ipv6Addr},
     time::{Duration, Instant},
 };
-use tproxy_config::IpCidr;
+use crate::netutil::IpCidr;
 
 const MAPPING_TIMEOUT: u64 = 60; // Mapping timeout in seconds
 
@@ -130,10 +130,10 @@ impl VirtualDns {
         let started_at = self.next_addr;
 
         loop {
-            if let RawEntryMut::Vacant(vacant) = self.lru_cache.raw_entry_mut().from_key(&self.next_addr) {
+            if !self.lru_cache.contains_key(&self.next_addr) {
                 let expiry = Instant::now() + Duration::from_secs(MAPPING_TIMEOUT);
                 let name0 = insert_name.clone();
-                vacant.insert(self.next_addr, NameCacheEntry { name: insert_name, expiry });
+                self.lru_cache.insert(self.next_addr, NameCacheEntry { name: insert_name, expiry });
                 self.name_to_ip.insert(name0, self.next_addr);
                 return Ok(self.next_addr);
             }
