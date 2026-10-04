@@ -52,7 +52,7 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
         return -2;
     }
 
-    let Ok(rt) = tokio::runtime::Builder::new_multi_thread().enable_all().build() else {
+    let Ok(rt) = tokio::runtime::Builder::new_multi_thread().enable_io().enable_time().build() else {
         log::error!("failed to create tokio runtime with");
         return -3;
     };
@@ -100,7 +100,7 @@ pub async fn general_run_async(
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
     {
-        use tproxy_config::{TUN_GATEWAY, TUN_IPV4, TUN_NETMASK};
+        use crate::netutil::{TUN_GATEWAY, TUN_IPV4, TUN_NETMASK};
         tun_config.address(TUN_IPV4).netmask(TUN_NETMASK).mtu(tun_mtu).up();
         tun_config.destination(TUN_GATEWAY);
     }
@@ -136,17 +136,24 @@ pub async fn general_run_async(
         cfg.packet_information(_packet_information);
     });
 
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(all(feature = "setup", any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     #[allow(unused_variables)]
-    let mut tproxy_args = tproxy_config::TproxyArgs::new()
-        .tun_dns(args.dns_addr)
-        .proxy_addr(args.proxy.addr.as_ref().map(|addr| addr.try_into().unwrap()).unwrap())
-        .bypass_ips(&args.bypass)
-        .ipv6_default_route(args.ipv6_enabled);
+    let mut tproxy_args = {
+        let bypass: Vec<tproxy_config::IpCidr> = args
+            .bypass
+            .iter()
+            .map(|c| c.to_tproxy_cidr().map_err(std::io::Error::other))
+            .collect::<std::io::Result<Vec<_>>>()?;
+        tproxy_config::TproxyArgs::new()
+            .tun_dns(args.dns_addr)
+            .proxy_addr(args.proxy.addr.as_ref().map(|addr| addr.try_into().unwrap()).unwrap())
+            .bypass_ips(&bypass)
+            .ipv6_default_route(args.ipv6_enabled)
+    };
 
     let device = tun::create_as_async(&tun_config)?;
 
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(all(feature = "setup", any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     if let Ok(tun_name) = tun::AbstractDevice::tun_name(&*device) {
         // Above line is equivalent to: `use tun::AbstractDevice; if let Ok(tun_name) = device.tun_name() {`
         tproxy_args = tproxy_args.tun_name(&tun_name);
@@ -154,12 +161,20 @@ pub async fn general_run_async(
 
     // TproxyState implements the Drop trait to restore network configuration,
     // so we need to assign it to a variable, even if it is not used.
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(all(feature = "setup", any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     let mut restore: Option<tproxy_config::TproxyState> = None;
 
-    #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+    #[cfg(all(feature = "setup", any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     if args.setup {
         restore = Some(tproxy_config::tproxy_setup(&tproxy_args).await?);
+    }
+
+    #[cfg(not(feature = "setup"))]
+    if args.setup {
+        log::error!("built without `setup` feature; rebuild with --features setup");
+        return Err(std::io::Error::other(
+            "built without `setup` feature; rebuild with --features setup",
+        ));
     }
 
     #[cfg(all(target_os = "linux", feature = "unshare"))]
@@ -190,7 +205,7 @@ pub async fn general_run_async(
 
     match join_handle.await? {
         Ok(sessions) => {
-            #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+            #[cfg(all(feature = "setup", any(target_os = "linux", target_os = "windows", target_os = "macos")))]
             tproxy_config::tproxy_remove(restore).await?;
 
             let max_sessions = args.max_sessions;

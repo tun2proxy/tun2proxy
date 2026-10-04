@@ -74,12 +74,32 @@ impl log::Log for DumpLogger {
     fn flush(&self) {}
 }
 
+fn utc_timestamp() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let secs = SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    // Howard Hinnant civil_from_days: days since 1970-01-01 -> UTC Y-M-D
+    let z = secs as i64 / 86400 + 719468;
+    let era = if z >= 0 { z } else { z - 146096 } / 146097;
+    let doe = (z - era * 146097) as u32;
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe as i64 + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    let y = y + if m <= 2 { 1 } else { 0 };
+    let tod = secs % 86400;
+    let hh = tod / 3600;
+    let mm = (tod % 3600) / 60;
+    let ss = tod % 60;
+    format!("{y:04}-{m:02}-{d:02} {hh:02}:{mm:02}:{ss:02}")
+}
+
 impl DumpLogger {
     fn do_dump_log(&self, record: &log::Record) {
-        let timestamp: chrono::DateTime<chrono::Local> = chrono::Local::now();
         let msg = format!(
             "[{} {:<5} {}] - {}",
-            timestamp.format("%Y-%m-%d %H:%M:%S"),
+            utc_timestamp(),
             record.level(),
             record.module_path().unwrap_or(""),
             record.args()

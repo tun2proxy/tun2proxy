@@ -25,12 +25,11 @@ pub enum Error {
     #[error("IpStackError {0:?}")]
     IpStack(#[from] Box<ipstack::IpStackError>),
 
-    #[error("DnsProtoError {0:?}")]
-    DnsProto(#[from] hickory_proto::ProtoError),
 
     #[error("httparse::Error {0:?}")]
     Httparse(#[from] httparse::Error),
 
+    #[cfg(feature = "http-digest")]
     #[error("digest_auth::Error {0:?}")]
     DigestAuth(#[from] digest_auth::Error),
 

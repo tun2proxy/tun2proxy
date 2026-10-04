@@ -6,21 +6,15 @@ use crate::{
 };
 use httparse::Response;
 use socks5_impl::protocol::UserKey;
-use std::{
-    collections::{HashMap, VecDeque, hash_map::RandomState},
-    iter::FromIterator,
-    net::SocketAddr,
-    str,
-    sync::Arc,
-};
+use std::{collections::VecDeque, net::SocketAddr, str, sync::Arc};
 use tokio::sync::Mutex;
-use unicase::UniCase;
 
 #[derive(Eq, PartialEq, Debug)]
 #[allow(dead_code)]
 enum AuthenticationScheme {
     None,
     Basic,
+    #[cfg(feature = "http-digest")]
     Digest,
 }
 
@@ -34,7 +28,10 @@ enum HttpState {
     Established,
 }
 
+#[cfg(feature = "http-digest")]
 pub(crate) type DigestState = digest_auth::WwwAuthenticateHeader;
+#[cfg(not(feature = "http-digest"))]
+pub(crate) type DigestState = ();
 
 pub struct HttpConnection {
     server_addr: SocketAddr,
@@ -46,7 +43,9 @@ pub struct HttpConnection {
     crlf_state: u8,
     counter: usize,
     skip: usize,
+    #[cfg_attr(not(feature = "http-digest"), allow(dead_code))]
     digest_state: Arc<Mutex<Option<DigestState>>>,
+    #[cfg_attr(not(feature = "http-digest"), allow(dead_code))]
     before: bool,
     credentials: Option<UserKey>,
     info: SessionInfo,
@@ -55,9 +54,16 @@ pub struct HttpConnection {
 
 static PROXY_AUTHENTICATE: &str = "Proxy-Authenticate";
 static PROXY_AUTHORIZATION: &str = "Proxy-Authorization";
+#[cfg(feature = "http-digest")]
 static CONNECTION: &str = "Connection";
+#[cfg(feature = "http-digest")]
 static TRANSFER_ENCODING: &str = "Transfer-Encoding";
+#[cfg(feature = "http-digest")]
 static CONTENT_LENGTH: &str = "Content-Length";
+
+fn header_ci<'a>(headers: &[httparse::Header<'a>], name: &str) -> Option<&'a [u8]> {
+    headers.iter().find(|h| h.name.eq_ignore_ascii_case(name)).map(|h| h.value)
+}
 
 /// Build the `Basic <b64>` header value for HTTP CONNECT proxy authentication.
 ///
@@ -68,7 +74,7 @@ static CONTENT_LENGTH: &str = "Content-Length";
 /// into the user-id) and cause the proxy to reject the request with `407`.
 fn basic_auth_header_value(credentials: &UserKey) -> String {
     let raw = format!("{}:{}", credentials.username, credentials.password);
-    let b64 = base64easy::encode(raw, base64easy::EngineKind::Standard);
+    let b64 = crate::base64::encode(raw);
     format!("Basic {b64}")
 }
 
@@ -122,11 +128,14 @@ impl HttpConnection {
         self.server_outbuf.extend(host.as_bytes());
         self.server_outbuf.extend(b"\r\n");
 
+        #[cfg(feature = "http-digest")]
         let scheme = if self.digest_state.lock().await.is_none() {
             AuthenticationScheme::Basic
         } else {
             AuthenticationScheme::Digest
         };
+        #[cfg(not(feature = "http-digest"))]
+        let scheme = AuthenticationScheme::Basic;
         self.send_auth_data(scheme).await?;
 
         self.server_outbuf.extend(b"\r\n");
@@ -139,6 +148,7 @@ impl HttpConnection {
         };
 
         match scheme {
+            #[cfg(feature = "http-digest")]
             AuthenticationScheme::Digest => {
                 let uri = if let Some(domain_name) = &self.domain_name {
                     format!("{}:{}", domain_name, self.info.dst.port())
@@ -236,10 +246,7 @@ impl HttpConnection {
                     return Err(e.into());
                 }
 
-                let headers_map: HashMap<UniCase<&str>, &[u8], RandomState> =
-                    HashMap::from_iter(headers.map(|x| (UniCase::new(x.name), x.value)));
-
-                let Some(auth_data) = headers_map.get(&UniCase::new(PROXY_AUTHENTICATE)) else {
+                let Some(auth_data) = header_ci(res.headers, PROXY_AUTHENTICATE) else {
                     return Err("Proxy requires auth but didn't send authentication details".into());
                 };
 
@@ -249,66 +256,33 @@ impl HttpConnection {
                     return Err("Proxy authentication method is not supported; only Digest is supported".into());
                 }
 
-                // Analize challenge params
-                let data = str::from_utf8(auth_data)?;
-                let state = digest_auth::parse(data)?;
-                if self.before && !state.stale {
-                    return Err("Bad credentials".into());
+                #[cfg(not(feature = "http-digest"))]
+                {
+                    let _ = (auth_data, len, version);
+                    return Err("Proxy authentication method is not supported; only Digest is supported".into());
                 }
 
-                // Update the digest state
-                self.digest_state.lock().await.replace(state);
-                self.before = true;
-
-                let closed = match headers_map.get(&UniCase::new(CONNECTION)) {
-                    Some(conn_header) => conn_header.eq_ignore_ascii_case(b"close"),
-                    None => false,
-                };
-
-                if closed || version == 0 {
-                    // Close mio stream connection and reset it
-                    // Reset all the buffers
-                    self.server_inbuf.clear();
-                    self.server_outbuf.clear();
-                    self.send_tunnel_request().await?;
-
-                    self.state = HttpState::Reset;
-                    return Ok(());
-                }
-
-                // The HTTP/1.1 expected to be keep alive waiting for the next frame so, we must
-                // compute the length of the response in order to detect the next frame (response)
-                // [RFC-9112](https://datatracker.ietf.org/doc/html/rfc9112#body.content-length)
-
-                // Transfer-Encoding isn't supported yet
-                if headers_map.contains_key(&UniCase::new(TRANSFER_ENCODING)) {
-                    return Err("Header Transfer-Encoding not supported".into());
-                }
-
-                let content_length = match headers_map.get(&UniCase::new(CONTENT_LENGTH)) {
-                    Some(v) => {
-                        let value = str::from_utf8(v)?;
-
-                        // https://www.rfc-editor.org/rfc/rfc9110#section-5.6.1
-                        match value.parse::<usize>() {
-                            Ok(x) => x,
-                            Err(_) => {
-                                let mut it = value.split(',').map(|x| x.parse::<usize>());
-                                let Some(first) = it.next() else {
-                                    return Err("Malformed response".into());
-                                };
-                                let f = first?;
-                                for k in it {
-                                    if k? != f {
-                                        return Err("Malformed response".into());
-                                    }
-                                }
-                                f
-                            }
-                        }
+                #[cfg(feature = "http-digest")]
+                {
+                    // Analize challenge params
+                    let data = str::from_utf8(auth_data)?;
+                    let state = digest_auth::parse(data)?;
+                    if self.before && !state.stale {
+                        return Err("Bad credentials".into());
                     }
-                    None => {
-                        // Close the connection by information miss
+
+                    // Update the digest state
+                    self.digest_state.lock().await.replace(state);
+                    self.before = true;
+
+                    let closed = match header_ci(res.headers, CONNECTION) {
+                        Some(conn_header) => conn_header.eq_ignore_ascii_case(b"close"),
+                        None => false,
+                    };
+
+                    if closed || version == 0 {
+                        // Close mio stream connection and reset it
+                        // Reset all the buffers
                         self.server_inbuf.clear();
                         self.server_outbuf.clear();
                         self.send_tunnel_request().await?;
@@ -316,13 +290,55 @@ impl HttpConnection {
                         self.state = HttpState::Reset;
                         return Ok(());
                     }
-                };
 
-                // Handshake state
-                self.state = HttpState::ExpectResponse;
-                self.skip = content_length + len;
+                    // The HTTP/1.1 expected to be keep alive waiting for the next frame so, we must
+                    // compute the length of the response in order to detect the next frame (response)
+                    // [RFC-9112](https://datatracker.ietf.org/doc/html/rfc9112#body.content-length)
 
-                return Box::pin(self.state_change()).await;
+                    // Transfer-Encoding isn't supported yet
+                    if header_ci(res.headers, TRANSFER_ENCODING).is_some() {
+                        return Err("Header Transfer-Encoding not supported".into());
+                    }
+
+                    let content_length = match header_ci(res.headers, CONTENT_LENGTH) {
+                        Some(v) => {
+                            let value = str::from_utf8(v)?;
+
+                            // https://www.rfc-editor.org/rfc/rfc9110#section-5.6.1
+                            match value.parse::<usize>() {
+                                Ok(x) => x,
+                                Err(_) => {
+                                    let mut it = value.split(',').map(|x| x.parse::<usize>());
+                                    let Some(first) = it.next() else {
+                                        return Err("Malformed response".into());
+                                    };
+                                    let f = first?;
+                                    for k in it {
+                                        if k? != f {
+                                            return Err("Malformed response".into());
+                                        }
+                                    }
+                                    f
+                                }
+                            }
+                        }
+                        None => {
+                            // Close the connection by information miss
+                            self.server_inbuf.clear();
+                            self.server_outbuf.clear();
+                            self.send_tunnel_request().await?;
+
+                            self.state = HttpState::Reset;
+                            return Ok(());
+                        }
+                    };
+
+                    // Handshake state
+                    self.state = HttpState::ExpectResponse;
+                    self.skip = content_length + len;
+
+                    return Box::pin(self.state_change()).await;
+                }
             }
             HttpState::ExpectResponse => {
                 if self.skip > 0 {
@@ -488,11 +504,11 @@ mod tests {
         let prefix = "Basic ";
         assert!(header.starts_with(prefix), "{header:?} missing `Basic ` prefix");
         let b64 = &header[prefix.len()..];
-        let decoded = base64easy::decode(b64, base64easy::EngineKind::Standard).unwrap();
+        let decoded = crate::base64::decode(b64).unwrap();
         assert_eq!(decoded, b"alice-foo:p_word");
 
         // And it must NOT match what `UserKey::Display` would have produced.
-        let regressed = base64easy::encode(creds.to_string(), base64easy::EngineKind::Standard);
+        let regressed = crate::base64::encode(creds.to_string());
         assert_ne!(b64, regressed, "basic-auth still using percent-encoded credentials");
     }
 

@@ -1,20 +1,13 @@
 use tun2proxy::{Args, BoxError};
 
 fn main() -> Result<(), BoxError> {
-    dotenvy::dotenv().ok();
     let args = Args::parse_args();
 
     #[cfg(unix)]
     if args.daemonize {
         let stdout = std::fs::File::create("/tmp/tun2proxy.out")?;
         let stderr = std::fs::File::create("/tmp/tun2proxy.err")?;
-        let daemonize = daemonize::Daemonize::new()
-            .working_directory("/tmp")
-            .umask(0o777)
-            .stdout(stdout)
-            .stderr(stderr)
-            .privileged_action(|| "Executed before drop privileges");
-        let _ = daemonize.start()?;
+        tun2proxy::daemon::daemonize("/tmp", 0o777, stdout, stderr)?;
     }
 
     #[cfg(target_os = "windows")]
@@ -23,7 +16,7 @@ fn main() -> Result<(), BoxError> {
         return Ok(());
     }
 
-    let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
+    let rt = tokio::runtime::Builder::new_multi_thread().enable_io().enable_time().build()?;
     rt.block_on(async move {
         let res = main_async(args).await;
         // Start a timer to force exit after FORCE_EXIT_TIMEOUT seconds. Use a std thread
@@ -49,7 +42,7 @@ fn setup_logging(args: &Args) {
         _ => args.verbosity,
     };
     let default = format!(
-        "{:?},hickory_proto=warn,ipstack={:?},netlink_proto={:?},netlink_sys={:?}",
+        "{:?},ipstack={:?},netlink_proto={:?},netlink_sys={:?}",
         args.verbosity, avoid_trace, avoid_trace, avoid_trace
     );
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
