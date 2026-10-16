@@ -96,6 +96,15 @@ pub async fn general_run_async(
     _packet_information: bool,
     shutdown_token: tokio_util::sync::CancellationToken,
 ) -> std::io::Result<usize> {
+    let mut args = args;
+    let _proxy_addr = if let Some(addr) = args.proxy.addr.as_ref() {
+        let addr = crate::args::resolve_proxy_addr(addr).await?;
+        args.proxy.addr = Some(addr.into());
+        Some(addr)
+    } else {
+        None
+    };
+
     let mut tun_config = tun::Configuration::default();
 
     #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -140,7 +149,7 @@ pub async fn general_run_async(
     #[allow(unused_variables)]
     let mut tproxy_args = tproxy_config::TproxyArgs::new()
         .tun_dns(args.dns_addr)
-        .proxy_addr(args.proxy.addr.as_ref().map(|addr| addr.try_into().unwrap()).unwrap())
+        .proxy_addr(_proxy_addr.unwrap_or_else(|| std::net::SocketAddr::from(([0, 0, 0, 0], 0))))
         .bypass_ips(&args.bypass)
         .ipv6_default_route(args.ipv6_enabled);
 

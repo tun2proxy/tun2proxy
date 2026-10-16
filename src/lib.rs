@@ -201,7 +201,11 @@ where
 {
     log::info!("{} {} starting...", env!("CARGO_PKG_NAME"), version_info!());
 
-    let server_addr = args.proxy.addr.as_ref().map(|addr| SocketAddr::try_from(addr).unwrap());
+    let server_addr = if let Some(addr) = args.proxy.addr.as_ref() {
+        Some(crate::args::resolve_proxy_addr(addr).await?)
+    } else {
+        None
+    };
 
     if let Some(addr) = server_addr {
         log::info!("Proxy {} server: {addr}", args.proxy.proxy_type);

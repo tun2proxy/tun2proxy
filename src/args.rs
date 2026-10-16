@@ -5,6 +5,50 @@ use tproxy_config::IpCidr;
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
+pub(crate) async fn resolve_proxy_addr(address: &socks5_impl::protocol::Address) -> std::io::Result<SocketAddr> {
+    use socks5_impl::protocol::Address;
+
+    match address {
+        Address::SocketAddress(addr) => Ok(*addr),
+        Address::DomainAddress(host, port) => {
+            let host = host.strip_prefix('[').and_then(|host| host.strip_suffix(']')).unwrap_or(host);
+            if let Ok(ip) = host.parse::<IpAddr>() {
+                return Ok(SocketAddr::new(ip, *port));
+            }
+
+            tokio::net::lookup_host((host, *port)).await?.next().ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::AddrNotAvailable,
+                    format!("proxy host {host} resolved to no addresses"),
+                )
+            })
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_proxy_addr;
+    use socks5_impl::protocol::ProxyParameters;
+
+    #[tokio::test]
+    async fn resolves_proxy_domain_with_system_resolver() {
+        let proxy = ProxyParameters::try_from("socks5://localhost:1080").unwrap();
+        let resolved = resolve_proxy_addr(proxy.addr.as_ref().unwrap()).await.unwrap();
+
+        assert!(resolved.ip().is_loopback());
+        assert_eq!(resolved.port(), 1080);
+    }
+
+    #[tokio::test]
+    async fn resolves_bracketed_ipv6_proxy_literal() {
+        let proxy = ProxyParameters::try_from("socks5://[::1]:1080").unwrap();
+        let resolved = resolve_proxy_addr(proxy.addr.as_ref().unwrap()).await.unwrap();
+
+        assert_eq!(resolved, "[::1]:1080".parse().unwrap());
+    }
+}
+
 #[macro_export]
 macro_rules! version_info {
     () => {
