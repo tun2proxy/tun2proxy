@@ -1,5 +1,5 @@
 use crate::error::Result;
-use socks5_impl::protocol::{Address, AsyncStreamOperation, BufMut, StreamOperation};
+use socks5_impl::{Address, AsyncStreamOperation, StreamOperation, protocol::BufMut};
 use std::{collections::VecDeque, hash::Hash, net::SocketAddr, sync::atomic::Ordering::Relaxed};
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},
@@ -153,7 +153,7 @@ impl Packet {
     }
 
     pub fn build_packet_from_address(conn_id: u16, remote_addr: &Address, data: &[u8]) -> std::io::Result<Self> {
-        use socks5_impl::protocol::Address::{DomainAddress, SocketAddress};
+        use socks5_impl::Address::{DomainAddress, SocketAddress};
         let packet = match remote_addr {
             SocketAddress(addr) => Packet::build_ip_packet(conn_id, *addr, data),
             DomainAddress(domain, port) => Packet::build_domain_packet(conn_id, *port, domain, data)?,
@@ -570,11 +570,11 @@ impl UdpGwClient {
     pub(crate) async fn send_udpgw_packet(
         ipv6_enabled: bool,
         data: &[u8],
-        remote_addr: &socks5_impl::protocol::Address,
+        remote_addr: &socks5_impl::Address,
         conn_id: u16,
         stream: &mut OwnedWriteHalf,
     ) -> Result<()> {
-        if !ipv6_enabled && remote_addr.get_type() == socks5_impl::protocol::AddressType::IPv6 {
+        if !ipv6_enabled && remote_addr.get_type() == socks5_impl::AddressType::IPv6 {
             return Err("ipv6 not support".into());
         }
         let out_data: Vec<u8> = Packet::build_packet_from_address(conn_id, remote_addr, data)?.into();

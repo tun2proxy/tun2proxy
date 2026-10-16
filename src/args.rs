@@ -1,13 +1,11 @@
 use crate::Result;
-use socks5_impl::protocol::ProxyParameters;
+use socks5_impl::{Address, ProxyParameters};
 use tproxy_config::IpCidr;
 
 use std::net::{IpAddr, SocketAddr};
 use std::str::FromStr;
 
-pub(crate) async fn resolve_proxy_addr(address: &socks5_impl::protocol::Address) -> std::io::Result<SocketAddr> {
-    use socks5_impl::protocol::Address;
-
+pub(crate) async fn resolve_proxy_addr(address: &Address) -> std::io::Result<SocketAddr> {
     match address {
         Address::SocketAddress(addr) => Ok(*addr),
         Address::DomainAddress(host, port) => {
@@ -16,20 +14,18 @@ pub(crate) async fn resolve_proxy_addr(address: &socks5_impl::protocol::Address)
                 return Ok(SocketAddr::new(ip, *port));
             }
 
-            tokio::net::lookup_host((host, *port)).await?.next().ok_or_else(|| {
-                std::io::Error::new(
-                    std::io::ErrorKind::AddrNotAvailable,
-                    format!("proxy host {host} resolved to no addresses"),
-                )
-            })
+            use std::io::{Error, ErrorKind::AddrNotAvailable};
+            tokio::net::lookup_host((host, *port))
+                .await?
+                .next()
+                .ok_or_else(|| Error::new(AddrNotAvailable, format!("proxy host {host} resolved to no addresses")))
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_proxy_addr;
-    use socks5_impl::protocol::ProxyParameters;
+    use super::*;
 
     #[tokio::test]
     async fn resolves_proxy_domain_with_system_resolver() {

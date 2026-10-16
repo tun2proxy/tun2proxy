@@ -1,4 +1,4 @@
-use socks5_impl::protocol::AsyncStreamOperation;
+use socks5_impl::AsyncStreamOperation;
 use std::net::SocketAddr;
 use tokio::{
     io::AsyncWriteExt,

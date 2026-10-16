@@ -5,7 +5,7 @@ use crate::{
     session_info::{IpProtocol, SessionInfo},
 };
 use httparse::Response;
-use socks5_impl::protocol::UserKey;
+use socks5_impl::UserKey;
 use std::{
     collections::{HashMap, VecDeque, hash_map::RandomState},
     iter::FromIterator,

@@ -4,7 +4,10 @@ use crate::{
     proxy_handler::{ProxyHandler, ProxyHandlerManager},
     session_info::SessionInfo,
 };
-use socks5_impl::protocol::{self, Address, AuthMethod, StreamOperation, UserKey, Version, handshake, password_method};
+use socks5_impl::{
+    Address, StreamOperation, UserKey,
+    protocol::{self, AuthMethod, Command, Version, handshake, password_method},
+};
 use std::{collections::VecDeque, net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 
@@ -30,7 +33,7 @@ struct SocksProxyImpl {
     server_outbuf: VecDeque<u8>,
     version: Version,
     credentials: Option<UserKey>,
-    command: protocol::Command,
+    command: Command,
     udp_associate: Option<SocketAddr>,
 }
 
@@ -41,7 +44,7 @@ impl SocksProxyImpl {
         domain_name: Option<String>,
         credentials: Option<UserKey>,
         version: Version,
-        command: protocol::Command,
+        command: Command,
     ) -> Result<Self> {
         let mut result = Self {
             server_addr,
@@ -63,7 +66,7 @@ impl SocksProxyImpl {
 
     fn send_client_hello_socks4(&mut self) -> Result<(), Error> {
         let credentials = &self.credentials;
-        self.server_outbuf.extend(&[self.version as u8, protocol::Command::Connect.into()]);
+        self.server_outbuf.extend(&[self.version as u8, Command::Connect.into()]);
         self.server_outbuf.extend(self.info.dst.port().to_be_bytes());
         let mut ip_vec = Vec::<u8>::new();
         let mut name_vec = Vec::<u8>::new();
@@ -175,8 +178,8 @@ impl SocksProxyImpl {
         let username = if credentials.username.ends_with(SESSION_INFO_MARKER) {
             let base_username = &credentials.username[..credentials.username.len() - SESSION_INFO_MARKER.len()];
             let proto = match self.command {
-                protocol::Command::Connect => "tcp",
-                protocol::Command::UdpAssociate => "udp",
+                Command::Connect => "tcp",
+                Command::UdpAssociate => "udp",
                 _ => "unknown",
             };
             format!("{}|{}|{}|{}", base_username, proto, self.info.src.ip(), self.info.src.port())
@@ -211,7 +214,7 @@ impl SocksProxyImpl {
     }
 
     fn send_request_socks5(&mut self) -> std::io::Result<()> {
-        let addr = if self.command == protocol::Command::UdpAssociate {
+        let addr = if self.command == Command::UdpAssociate {
             Address::unspecified()
         } else if let Some(domain_name) = &self.domain_name {
             Address::DomainAddress(domain_name.clone().into(), self.info.dst.port())
@@ -238,7 +241,7 @@ impl SocksProxyImpl {
         if response.reply != protocol::Reply::Succeeded {
             return Err(crate::Error::from(format!("SOCKS connection failed: {}", response.reply)).into());
         }
-        if self.command == protocol::Command::UdpAssociate {
+        if self.command == Command::UdpAssociate {
             self.udp_associate = Some(SocketAddr::try_from(&response.address)?);
             // log::trace!("UDP associate recieved address {}", response.address);
         }

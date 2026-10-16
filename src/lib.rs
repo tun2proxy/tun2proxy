@@ -14,7 +14,7 @@ pub use clap::ValueEnum;
 use ipstack::{IpStackStream, IpStackTcpStream, IpStackUdpStream};
 use proxy_handler::{ProxyHandler, ProxyHandlerManager};
 use socks::SocksProxyManager;
-pub use socks5_impl::protocol::UserKey;
+pub use socks5_impl::UserKey;
 #[cfg(feature = "udpgw")]
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 use std::{
@@ -36,7 +36,7 @@ use udp_stream::UdpStream;
 use udpgw::{UDPGW_KEEPALIVE_TIME, UDPGW_MAX_CONNECTIONS, UdpGwClientStream, UdpGwResponse};
 
 pub use log::LevelFilter;
-pub use socks5_impl::protocol::{ProxyParameters, ProxyType};
+pub use socks5_impl::{ProxyParameters, ProxyType};
 pub use {
     args::{ArgDns, Args},
     error::{BoxError, Error, Result},
@@ -386,7 +386,7 @@ where
                     tokio::spawn(async move {
                         let dst = info.dst; // real UDP destination address
                         let dst_addr = match domain_name {
-                            Some(ref d) => socks5_impl::protocol::Address::from((d.clone(), dst.port())),
+                            Some(ref d) => socks5_impl::Address::from((d.clone(), dst.port())),
                             None => dst.into(),
                         };
                         if let Err(e) = handle_udp_gateway_session(udp, udpgw, &dst_addr, proxy_handler, queue, ipv6_enabled).await {
@@ -536,7 +536,7 @@ async fn handle_tcp_session(
 async fn handle_udp_gateway_session(
     mut udp_stack: IpStackUdpStream,
     udpgw_client: Arc<UdpGwClient>,
-    udp_dst: &socks5_impl::protocol::Address,
+    udp_dst: &socks5_impl::Address,
     proxy_handler: Arc<Mutex<dyn ProxyHandler>>,
     socket_queue: Option<Arc<SocketQueue>>,
     ipv6_enabled: bool,
@@ -631,7 +631,7 @@ async fn handle_udp_gateway_session(
                             break;
                         }
                         UdpGwResponse::Data(data) => {
-                            use socks5_impl::protocol::StreamOperation;
+                            use socks5_impl::StreamOperation;
                             let len = data.len();
                             let f = data.header.flags;
                             log::debug!("[UdpGw] stream {sn} {} <- {} receive {f} len {len}", tcp_local_addr, udp_dst);
@@ -661,7 +661,7 @@ async fn handle_udp_associate_session(
     socket_queue: Option<Arc<SocketQueue>>,
     ipv6_enabled: bool,
 ) -> crate::Result<()> {
-    use socks5_impl::protocol::{Address, StreamOperation, UdpHeader};
+    use socks5_impl::{Address, StreamOperation, protocol::UdpHeader};
 
     let (session_info, server_addr, domain_name, udp_addr) = {
         let handler = proxy_handler.lock().await;
