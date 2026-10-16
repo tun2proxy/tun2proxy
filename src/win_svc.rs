@@ -71,7 +71,8 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
         env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
         let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-        rt.block_on(async {
+        let (timer_cancel_tx, timer_cancel_rx) = std::sync::mpsc::channel();
+        let timer_handle = rt.block_on(async {
             unsafe extern "C" fn traffic_cb(status: *const crate::TrafficStatus, _: *mut std::ffi::c_void) {
                 let status = unsafe { &*status };
                 log::debug!("Traffic: ▲ {} : ▼ {}", status.tx, status.rx);
@@ -84,16 +85,20 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
                 Err(e) => log::error!("failed to run tun2proxy with error: {e:?}"),
             }
             // Spawn a std thread so the timer survives runtime shutdown and reliably exits.
-            let _h = std::thread::spawn(move || {
-                // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
-                std::thread::sleep(crate::FORCE_EXIT_TIMEOUT);
-                log::info!("Forcing exit now.");
-                std::process::exit(-1);
+            let timer_handle = std::thread::spawn(move || {
+                if timer_cancel_rx.recv_timeout(crate::FORCE_EXIT_TIMEOUT).is_err() {
+                    // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
+                    log::info!("Forcing exit now.");
+                    std::process::exit(-1);
+                }
             });
             tokio::time::sleep(std::time::Duration::from_micros(100)).await;
 
-            Ok::<(), crate::Error>(())
+            Ok::<_, crate::Error>(timer_handle)
         })?;
+        drop(rt);
+        let _ = timer_cancel_tx.send(());
+        let _ = timer_handle.join();
     }
 
     // Tell the system that the service is stopped now

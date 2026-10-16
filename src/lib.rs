@@ -279,18 +279,25 @@ where
     });
 
     let task_count = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    let mut session_tasks = tokio::task::JoinSet::new();
     use std::sync::atomic::Ordering::Relaxed;
 
-    loop {
+    let result: std::io::Result<()> = 'run: loop {
         let task_count = task_count.clone();
         let virtual_dns = virtual_dns.clone();
         let ip_stack_stream = tokio::select! {
             _ = shutdown_token.cancelled() => {
                 log::info!("Shutdown received");
-                break;
+                break 'run Ok(());
+            }
+            _ = session_tasks.join_next(), if !session_tasks.is_empty() => {
+                continue;
             }
             ip_stack_stream = ip_stack.accept() => {
-                ip_stack_stream?
+                match ip_stack_stream {
+                    Ok(stream) => stream,
+                    Err(err) => break 'run Err(err.into()),
+                }
             }
         };
         let max_sessions = args.max_sessions;
@@ -299,7 +306,7 @@ where
                 if task_count.load(Relaxed) >= max_sessions {
                     if args.exit_on_fatal_error {
                         log::info!("Too many sessions that over {max_sessions}, exiting...");
-                        break;
+                        break 'run Ok(());
                     }
                     log::warn!("Too many sessions that over {max_sessions}, dropping new session");
                     continue;
@@ -314,9 +321,12 @@ where
                 } else {
                     None
                 };
-                let proxy_handler = mgr.new_proxy_handler(info, domain_name, false).await?;
+                let proxy_handler = match mgr.new_proxy_handler(info, domain_name, false).await {
+                    Ok(proxy_handler) => proxy_handler,
+                    Err(err) => break 'run Err(err),
+                };
                 let socket_queue = socket_queue.clone();
-                tokio::spawn(async move {
+                session_tasks.spawn(async move {
                     if let Err(err) = handle_tcp_session(tcp, proxy_handler, socket_queue).await {
                         log::error!("{info} error \"{err}\"");
                     }
@@ -328,7 +338,7 @@ where
                 if task_count.load(Relaxed) >= max_sessions {
                     if args.exit_on_fatal_error {
                         log::info!("Too many sessions that over {max_sessions}, exiting...");
-                        break;
+                        break 'run Ok(());
                     }
                     log::warn!("Too many sessions that over {max_sessions}, dropping new session");
                     continue;
@@ -342,9 +352,12 @@ where
                     }
                     if args.dns == ArgDns::OverTcp {
                         info.protocol = IpProtocol::Tcp;
-                        let proxy_handler = mgr.new_proxy_handler(info, None, false).await?;
+                        let proxy_handler = match mgr.new_proxy_handler(info, None, false).await {
+                            Ok(proxy_handler) => proxy_handler,
+                            Err(err) => break 'run Err(err),
+                        };
                         let socket_queue = socket_queue.clone();
-                        tokio::spawn(async move {
+                        session_tasks.spawn(async move {
                             if let Err(err) = handle_dns_over_tcp_session(udp, proxy_handler, socket_queue, ipv6_enabled).await {
                                 log::error!("{info} error \"{err}\"");
                             }
@@ -354,11 +367,11 @@ where
                         continue;
                     }
                     if args.dns == ArgDns::Virtual {
-                        tokio::spawn(async move {
-                            if let Some(virtual_dns) = virtual_dns {
-                                if let Err(err) = handle_virtual_dns_session(udp, virtual_dns).await {
-                                    log::error!("{info} error \"{err}\"");
-                                }
+                        session_tasks.spawn(async move {
+                            if let Some(virtual_dns) = virtual_dns
+                                && let Err(err) = handle_virtual_dns_session(udp, virtual_dns).await
+                            {
+                                log::error!("{info} error \"{err}\"");
                             }
                             let count = task_count.fetch_sub(1, Relaxed).saturating_sub(1);
                             log::trace!("Session count {count}");
@@ -381,9 +394,12 @@ where
                         SocketAddr::V6(_) => SocketAddr::V6(SocketAddrV6::new(Ipv6Addr::UNSPECIFIED, 0, 0, 0)),
                     };
                     let tcpinfo = SessionInfo::new(tcp_src, udpgw.get_udpgw_server_addr(), IpProtocol::Tcp);
-                    let proxy_handler = mgr.new_proxy_handler(tcpinfo, None, false).await?;
+                    let proxy_handler = match mgr.new_proxy_handler(tcpinfo, None, false).await {
+                        Ok(proxy_handler) => proxy_handler,
+                        Err(err) => break 'run Err(err),
+                    };
                     let queue = socket_queue.clone();
-                    tokio::spawn(async move {
+                    session_tasks.spawn(async move {
                         let dst = info.dst; // real UDP destination address
                         let dst_addr = match domain_name {
                             Some(ref d) => socks5_impl::Address::from((d.clone(), dst.port())),
@@ -400,7 +416,7 @@ where
                 match mgr.new_proxy_handler(info, domain_name, true).await {
                     Ok(proxy_handler) => {
                         let socket_queue = socket_queue.clone();
-                        tokio::spawn(async move {
+                        session_tasks.spawn(async move {
                             let ty = args.proxy.proxy_type;
                             if let Err(err) = handle_udp_associate_session(udp, ty, proxy_handler, socket_queue, ipv6_enabled).await {
                                 log::info!("Ending {info} with \"{err}\"");
@@ -424,7 +440,13 @@ where
                 continue;
             }
         }
-    }
+    };
+
+    shutdown_token.cancel();
+    session_tasks.abort_all();
+    while session_tasks.join_next().await.is_some() {}
+
+    result?;
     Ok(task_count.load(Relaxed))
 }
 

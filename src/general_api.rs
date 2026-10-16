@@ -25,11 +25,11 @@ pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tu
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
 pub(crate) fn tun2proxy_stop_internal() -> c_int {
-    if let Ok(mut lock) = TUN_QUIT.lock() {
-        if let Some(shutdown_token) = lock.take() {
-            shutdown_token.cancel();
-            return 0;
-        }
+    if let Ok(mut lock) = TUN_QUIT.lock()
+        && let Some(shutdown_token) = lock.take()
+    {
+        shutdown_token.cancel();
+        return 0;
     }
     -1
 }
@@ -57,19 +57,24 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
         return -3;
     };
     let args_clone = args.clone();
-    let res = rt.block_on(async move {
+    let (timer_cancel_tx, timer_cancel_rx) = std::sync::mpsc::channel();
+    let (res, timer_handle) = rt.block_on(async move {
         let ret = general_run_async(args_clone, tun_mtu, packet_information, shutdown_token).await;
         // Spawn a std thread to force exit after timeout so it isn't cancelled
         // when the tokio runtime is dropped.
-        let _h = std::thread::spawn(move || {
-            // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
-            std::thread::sleep(crate::FORCE_EXIT_TIMEOUT);
-            log::info!("Forcing exit now.");
-            std::process::exit(-1);
+        let timer_handle = std::thread::spawn(move || {
+            if timer_cancel_rx.recv_timeout(crate::FORCE_EXIT_TIMEOUT).is_err() {
+                // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
+                log::info!("Forcing exit now.");
+                std::process::exit(-1);
+            }
         });
         tokio::time::sleep(std::time::Duration::from_micros(100)).await;
-        ret
+        (ret, timer_handle)
     });
+    drop(rt);
+    let _ = timer_cancel_tx.send(());
+    let _ = timer_handle.join();
 
     let res = match res {
         Ok(sessions) => {

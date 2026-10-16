@@ -77,10 +77,10 @@ pub(crate) fn traffic_status_update(delta_tx: usize, delta_rx: usize) -> Result<
 }
 
 fn send_traffic_stat(traffic_status: &TrafficStatus) -> Result<()> {
-    if let Ok(cb) = TRAFFIC_STATUS_CALLBACK.lock() {
-        if let Some(cb) = cb.clone() {
-            unsafe { cb.call(traffic_status) };
-        }
+    if let Ok(cb) = TRAFFIC_STATUS_CALLBACK.lock()
+        && let Some(cb) = cb.clone()
+    {
+        unsafe { cb.call(traffic_status) };
     }
     Ok(())
 }

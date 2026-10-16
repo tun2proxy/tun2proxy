@@ -24,23 +24,29 @@ fn main() -> Result<(), BoxError> {
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
-    rt.block_on(async move {
+    let (timer_cancel_tx, timer_cancel_rx) = std::sync::mpsc::channel();
+    let (res, timer_handle) = rt.block_on(async move {
         let res = main_async(args).await;
         // Start a timer to force exit after FORCE_EXIT_TIMEOUT seconds. Use a std thread
         // so the timer is not cancelled when the tokio runtime is being shut down.
         let _h = std::thread::spawn(move || {
             log::info!("Starting {:?} exit timer", tun2proxy::FORCE_EXIT_TIMEOUT);
-            // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
-            std::thread::sleep(tun2proxy::FORCE_EXIT_TIMEOUT);
-            log::info!("Forcing exit now.");
-            std::process::exit(-1);
+            if timer_cancel_rx.recv_timeout(tun2proxy::FORCE_EXIT_TIMEOUT).is_err() {
+                // Delay some seconds then try to exit current process if not exited yet, normally this case should not happen
+                log::info!("Forcing exit now.");
+                std::process::exit(-1);
+            }
         });
 
         log::info!("Runtime.block_on exiting...");
         tokio::time::sleep(std::time::Duration::from_micros(100)).await;
 
-        res
-    })
+        (res, _h)
+    });
+    drop(rt);
+    let _ = timer_cancel_tx.send(());
+    let _ = timer_handle.join();
+    res
 }
 
 fn setup_logging(args: &Args) {
