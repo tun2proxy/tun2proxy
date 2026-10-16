@@ -97,8 +97,9 @@ pub async fn general_run_async(
     shutdown_token: tokio_util::sync::CancellationToken,
 ) -> std::io::Result<usize> {
     let mut args = args;
-    let _proxy_addr = if let Some(addr) = args.proxy.addr.as_ref() {
-        let addr = crate::args::resolve_proxy_addr(addr).await?;
+    let _proxy_addr = if let Some(addr) = args.proxy.addr.as_ref()
+        && let Some(addr) = addr.resolve_tokio().await?.next()
+    {
         args.proxy.addr = Some(addr.into());
         Some(addr)
     } else {
