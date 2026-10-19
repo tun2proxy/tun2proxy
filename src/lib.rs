@@ -569,10 +569,11 @@ async fn handle_udp_gateway_session(
 
     let mut stream = loop {
         match udpgw_client.pop_server_connection_from_queue().await {
-            Some(stream) => {
+            Some(mut stream) => {
                 if stream.is_closed() {
                     continue;
                 } else {
+                    stream.rotate_serial_number();
                     break stream;
                 }
             }
@@ -653,6 +654,12 @@ async fn handle_udp_gateway_session(
                             break;
                         }
                         UdpGwResponse::Data(data) => {
+                            let conn_id = data.header.conn_id;
+                            if conn_id != sn {
+                                log::debug!("[UdpGw] stream {sn} {tcp_local_addr} <- {udp_dst} ignoring late packet for retired conn_id {conn_id}");
+                                stream.update_activity();
+                                continue;
+                            }
                             use socks5_impl::StreamOperation;
                             let len = data.len();
                             let f = data.header.flags;
