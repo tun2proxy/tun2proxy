@@ -244,7 +244,7 @@ async fn process_udp(
     let last_act_map = last_act.clone();
     let stop_flag = stop.clone();
     let sessions_cleanup = sessions.clone();
-    let idle_ms = udp_timeout.max(3).saturating_mul(1000);
+    let idle_ms = udp_timeout.max(1).saturating_mul(1000);
     let max_frame_payload =
         (u16::MAX as usize).saturating_sub(tun2proxy::udpgw::UdpgwHeader::static_len() + packet_address(dst_addr).len());
     let effective_mtu = (udp_mtu as usize).min(max_frame_payload);

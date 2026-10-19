@@ -386,6 +386,11 @@ impl UdpGwClientStream {
         self.serial_number
     }
 
+    pub fn rotate_serial_number(&mut self) -> u16 {
+        self.serial_number = SERIAL_NUMBER.fetch_add(1, Relaxed);
+        self.serial_number
+    }
+
     pub fn new(tcp_server_stream: TcpStream) -> Self {
         let default = "0.0.0.0:0".parse::<SocketAddr>().unwrap();
         let local_addr = tcp_server_stream.local_addr().unwrap_or(default);
@@ -495,18 +500,34 @@ impl UdpGwClient {
                     log::warn!("stream {sn} {local_addr:?} send keepalive failed: {e}");
                     continue;
                 }
-                match UdpGwClient::recv_udpgw_packet(self.udp_mtu, self.udp_timeout, &mut stream_reader).await {
-                    Ok((len, UdpGwResponse::KeepAlive)) => {
-                        stream.update_activity();
-                        self.store_server_connection_full(stream, stream_reader, stream_writer).await;
-                        log::trace!("stream {sn} {local_addr:?} send keepalive and recieve it successfully");
-                        rx += len;
+                loop {
+                    match UdpGwClient::recv_udpgw_packet(self.udp_mtu, self.udp_timeout, &mut stream_reader).await {
+                        Ok((len, UdpGwResponse::KeepAlive)) => {
+                            stream.update_activity();
+                            self.store_server_connection_full(stream, stream_reader, stream_writer).await;
+                            log::trace!("stream {sn} {local_addr:?} send keepalive and recieve it successfully");
+                            rx += len;
+                            break;
+                        }
+                        Ok((len, UdpGwResponse::Data(data))) => {
+                            let conn_id = data.header.conn_id;
+                            log::trace!("stream {sn} {local_addr:?} keepalive ignored late data for conn_id {conn_id}");
+                            rx += len;
+                        }
+                        Ok((len, UdpGwResponse::Error)) => {
+                            log::trace!("stream {sn} {local_addr:?} keepalive ignored late error packet");
+                            rx += len;
+                        }
+                        Ok((len, v)) => {
+                            log::debug!("stream {sn} {local_addr:?} keepalive unexpected response: {v}");
+                            rx += len;
+                            break;
+                        }
+                        Err(e) => {
+                            log::debug!("stream {sn} {local_addr:?} keepalive no response, error \"{e}\"");
+                            break;
+                        }
                     }
-                    Ok((len, v)) => {
-                        log::debug!("stream {sn} {local_addr:?} keepalive unexpected response: {v}");
-                        rx += len;
-                    }
-                    Err(e) => log::debug!("stream {sn} {local_addr:?} keepalive no response, error \"{e}\""),
                 }
             }
             crate::traffic_status::traffic_status_update(tx, rx)?;
