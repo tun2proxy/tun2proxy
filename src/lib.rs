@@ -202,7 +202,7 @@ where
     log::info!("{} {} starting...", env!("CARGO_PKG_NAME"), version_info!());
 
     let server_addr = if let Some(addr) = args.proxy.addr.as_ref() {
-        addr.resolve_tokio().await?.next()
+        addr.resolve_using_tokio().await?.next()
     } else {
         None
     };

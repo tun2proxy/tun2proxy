@@ -63,7 +63,7 @@ log = { version = "0.4.34", default-features = false, features = [
 percent-encoding = "2.3.2"
 serde = { version = "1.0.229", features = ["derive"] }
 shlex = "2.0.1"
-socks5-impl = { version = "0.10.2", default-features = false, features = [
+socks5-impl = { version = "0.10.3", default-features = false, features = [
     "protocol",
     "tokio",
     "serde",

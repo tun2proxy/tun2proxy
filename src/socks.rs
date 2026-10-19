@@ -215,7 +215,7 @@ impl SocksProxyImpl {
 
     fn send_request_socks5(&mut self) -> std::io::Result<()> {
         let addr = if self.command == Command::UdpAssociate {
-            Address::unspecified()
+            Address::unspecified_v4()
         } else if let Some(domain_name) = &self.domain_name {
             Address::DomainAddress(domain_name.clone().into(), self.info.dst.port())
         } else {

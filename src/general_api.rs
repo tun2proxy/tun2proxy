@@ -103,7 +103,7 @@ pub async fn general_run_async(
 ) -> std::io::Result<usize> {
     let mut args = args;
     let _proxy_addr = if let Some(addr) = args.proxy.addr.as_ref()
-        && let Some(addr) = addr.resolve_tokio().await?.next()
+        && let Some(addr) = addr.resolve_using_tokio().await?.next()
     {
         args.proxy.addr = Some(addr.into());
         Some(addr)
