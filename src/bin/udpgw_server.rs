@@ -1,13 +1,19 @@
-use socks5_impl::AsyncStreamOperation;
+use socks5_impl::{Address, AsyncStreamOperation, StreamOperation};
+use std::collections::HashMap;
 use std::net::SocketAddr;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
+use std::time::Instant;
 use tokio::{
-    io::AsyncWriteExt,
+    io::{AsyncRead, AsyncWriteExt},
     net::{
         UdpSocket,
         tcp::{ReadHalf, WriteHalf},
     },
+    sync::Mutex,
     sync::mpsc::{Receiver, Sender},
 };
+use tokio_util::sync::CancellationToken;
 use tun2proxy::{
     BoxError, Error, Result,
     udpgw::{Packet, UdpFlag},
@@ -18,12 +24,12 @@ pub(crate) const CLIENT_DISCONNECT_TIMEOUT: tokio::time::Duration = std::time::D
 #[derive(Debug, Clone)]
 pub struct Client {
     addr: SocketAddr,
-    last_activity: std::time::Instant,
+    last_activity: Arc<AtomicU64>,
 }
 
 impl Client {
     pub fn new(addr: SocketAddr) -> Self {
-        let last_activity = std::time::Instant::now();
+        let last_activity = Arc::new(AtomicU64::new(now_millis()));
         Self { addr, last_activity }
     }
 }
@@ -63,49 +69,301 @@ impl UdpGwArgs {
     }
 }
 
-async fn send_error_response(tx: Sender<Packet>, conn_id: u16) {
+fn now_millis() -> u64 {
+    static START_INSTANT: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
+    START_INSTANT.get_or_init(Instant::now).elapsed().as_millis() as u64
+}
+
+fn packet_address(addr: SocketAddr) -> Address {
+    Address::SocketAddress(addr)
+}
+
+/// A per-(conn_id) UDP relay session within a single client TCP connection.
+struct Session {
+    sock: Arc<UdpSocket>,
+    dst: SocketAddr,
+    req_addr: Address,
+    generation: u64,
+    sent: Arc<AtomicU64>,
+    last_act: Arc<AtomicU64>,
+    stop: CancellationToken,
+}
+
+type SessionMap = Arc<Mutex<HashMap<u16, Session>>>;
+static NEXT_GENERATION: AtomicU64 = AtomicU64::new(1);
+
+struct OutboundItem {
+    packet: Packet,
+    generation: Option<u64>,
+}
+
+async fn send_error_response(tx: Sender<OutboundItem>, conn_id: u16) {
     let error_packet = Packet::build_error_packet(conn_id);
-    if let Err(e) = tx.send(error_packet).await {
+    if let Err(e) = tx
+        .send(OutboundItem {
+            packet: error_packet,
+            generation: None,
+        })
+        .await
+    {
         log::error!("send error response error {e:?}");
     }
 }
 
-async fn send_keepalive_response(tx: Sender<Packet>, conn_id: u16) {
+async fn send_keepalive_response(tx: Sender<OutboundItem>, conn_id: u16) {
     let keepalive_packet = Packet::build_keepalive_packet(conn_id);
-    if let Err(e) = tx.send(keepalive_packet).await {
+    if let Err(e) = tx
+        .send(OutboundItem {
+            packet: keepalive_packet,
+            generation: None,
+        })
+        .await
+    {
         log::error!("send keepalive response error {e:?}");
     }
 }
 
-/// Send data field of packet from client to destination server and receive response,
-/// then wrap response data to the packet's data field and send packet back to client.
-async fn process_udp(udp_mtu: u16, udp_timeout: u64, tx: Sender<Packet>, mut packet: Packet) -> Result<()> {
-    let Some(dst_addr) = &packet.address else {
+async fn stop_session(conn_id: u16, sessions: &SessionMap, delivery_lock: &Mutex<()>) {
+    let _delivery_guard = delivery_lock.lock().await;
+    if let Some(old) = sessions.lock().await.remove(&conn_id) {
+        old.stop.cancel();
+    }
+}
+
+async fn send_udp_datagram(sock: &UdpSocket, data: &[u8], dst: SocketAddr) -> std::io::Result<()> {
+    tokio::time::timeout(std::time::Duration::from_secs(1), sock.send_to(data, dst))
+        .await
+        .map_err(std::io::Error::from)??;
+    Ok(())
+}
+
+/// Send data field of packet from client to destination server.
+///
+/// Unlike the stock implementation this keeps a persistent relay socket per
+/// conn_id (and destination), so replies from the destination keep flowing to
+/// the client for the whole lifetime of the session instead of being limited
+/// to a single response per client datagram.
+async fn process_udp(
+    udp_mtu: u16,
+    udp_timeout: u64,
+    sessions: SessionMap,
+    delivery_lock: Arc<Mutex<()>>,
+    client_activity: Arc<AtomicU64>,
+    tx: Sender<OutboundItem>,
+    packet: Packet,
+) -> Result<()> {
+    let conn_id = packet.header.conn_id;
+    let Some(req_addr) = packet.address.clone() else {
+        stop_session(conn_id, &sessions, &delivery_lock).await;
         return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "udp request address is None").into());
     };
-    use std::net::ToSocketAddrs;
-    let Some(dst_addr) = dst_addr.to_socket_addrs()?.next() else {
-        return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "to_socket_addrs").into());
+
+    if packet.data.len() > udp_mtu as usize {
+        stop_session(conn_id, &sessions, &delivery_lock).await;
+        return Err(std::io::Error::new(std::io::ErrorKind::InvalidInput, "udp request exceeds configured MTU").into());
+    }
+
+    // Fast path: if the request address matches the existing session's request address,
+    // reuse it directly without re-running DNS resolution or invalidating in-flight replies.
+    {
+        let map = sessions.lock().await;
+        if let Some(s) = map.get(&conn_id)
+            && s.req_addr == req_addr
+        {
+            let n = s.sent.fetch_add(1, Ordering::SeqCst) + 1;
+            s.last_act.store(now_millis(), Ordering::SeqCst);
+            let sock = s.sock.clone();
+            let dst_addr = s.dst;
+            drop(map);
+            if n == 1 || n % 500 == 0 {
+                log::info!("session {conn_id} reuse #{n} -> {dst_addr}");
+            }
+            send_udp_datagram(&sock, &packet.data, dst_addr).await?;
+            return Ok(());
+        }
+    }
+
+    // Invalidate any existing session for this conn_id before async DNS resolution
+    // so queued responses from the old destination cannot be written while resolving.
+    stop_session(conn_id, &sessions, &delivery_lock).await;
+
+    let mut resolved = tokio::time::timeout(std::time::Duration::from_secs(10), req_addr.resolve_using_tokio())
+        .await
+        .map_err(std::io::Error::from)??;
+    let Some(dst_addr) = resolved.next() else {
+        return Err(std::io::Error::new(std::io::ErrorKind::AddrNotAvailable, "resolve_using_tokio").into());
     };
+
+    let delivery_guard = delivery_lock.lock().await;
+
+    // Create a new session after resolving the destination.
     let std_sock = match dst_addr {
-        std::net::SocketAddr::V6(_) => std::net::UdpSocket::bind("[::]:0")?,
-        std::net::SocketAddr::V4(_) => std::net::UdpSocket::bind("0.0.0.0:0")?,
+        SocketAddr::V6(_) => std::net::UdpSocket::bind("[::]:0")?,
+        SocketAddr::V4(_) => std::net::UdpSocket::bind("0.0.0.0:0")?,
     };
     std_sock.set_nonblocking(true)?;
     #[cfg(unix)]
-    nix::sys::socket::setsockopt(&std_sock, nix::sys::socket::sockopt::ReuseAddr, &true)?;
-    let socket = UdpSocket::from_std(std_sock)?;
-    // 1. send udp data to destination server
-    socket.send_to(&packet.data, &dst_addr).await?;
-    // 2. receive response from destination server
-    let mut buf = vec![0u8; udp_mtu as usize];
-    let (len, _addr) = tokio::time::timeout(tokio::time::Duration::from_secs(udp_timeout), socket.recv_from(&mut buf))
-        .await
-        .map_err(std::io::Error::from)??;
-    packet.data = buf[..len].to_vec();
-    // 3. send response back to client
-    use std::io::{Error, ErrorKind::BrokenPipe};
-    tx.send(packet).await.map_err(|e| Error::new(BrokenPipe, e))?;
+    {
+        use nix::sys::socket::{setsockopt, sockopt};
+        let _ = setsockopt(&std_sock, sockopt::ReuseAddr, &true);
+        let _ = setsockopt(&std_sock, sockopt::RcvBuf, &(4 * 1024 * 1024));
+    }
+    let socket = Arc::new(UdpSocket::from_std(std_sock)?);
+    let local_port = socket.local_addr().map(|a| a.port()).unwrap_or(0);
+    let generation = NEXT_GENERATION.fetch_add(1, Ordering::Relaxed);
+    log::info!("session {conn_id} (gen {generation}) created: local 0.0.0.0:{local_port} -> {dst_addr}");
+    let sent = Arc::new(AtomicU64::new(1));
+    let last_act = Arc::new(AtomicU64::new(now_millis()));
+    let stop = CancellationToken::new();
+
+    sessions.lock().await.insert(
+        conn_id,
+        Session {
+            sock: socket.clone(),
+            dst: dst_addr,
+            req_addr,
+            generation,
+            sent,
+            last_act: last_act.clone(),
+            stop: stop.clone(),
+        },
+    );
+
+    if let Err(e) = send_udp_datagram(&socket, &packet.data, dst_addr).await {
+        let mut map = sessions.lock().await;
+        if map.get(&conn_id).is_some_and(|session| session.generation == generation) {
+            map.remove(&conn_id);
+        }
+        return Err(e.into());
+    }
+    drop(delivery_guard);
+
+    // 3. relay every reply from the destination back to the client
+    let rsock = socket.clone();
+    let rtx = tx.clone();
+    let last_act_map = last_act.clone();
+    let stop_flag = stop.clone();
+    let sessions_cleanup = sessions.clone();
+    let idle_ms = udp_timeout.max(3).saturating_mul(1000);
+    let max_frame_payload =
+        (u16::MAX as usize).saturating_sub(tun2proxy::udpgw::UdpgwHeader::static_len() + packet_address(dst_addr).len());
+    let effective_mtu = (udp_mtu as usize).min(max_frame_payload);
+    tokio::spawn(async move {
+        let mut buf = vec![0u8; effective_mtu.saturating_add(1)];
+        let mut responses: u64 = 0;
+        let mut next_log: u64 = 1;
+        loop {
+            let received = tokio::select! {
+                biased;
+                _ = stop_flag.cancelled() => {
+                    log::info!("session {conn_id} relay exit (replaced) after {responses} responses, port {local_port}");
+                    break;
+                }
+                received = tokio::time::timeout(std::time::Duration::from_secs(1), rsock.recv_from(&mut buf)) => received,
+            };
+            match received {
+                Ok(Ok((_len, source))) if source != dst_addr => {
+                    log::debug!("session {conn_id} ignored UDP packet from unexpected source {source}, expected {dst_addr}");
+                    let expired = {
+                        let mut map = sessions_cleanup.lock().await;
+                        let idle_for = map.get(&conn_id).and_then(|session| {
+                            (session.generation == generation).then(|| now_millis().saturating_sub(session.last_act.load(Ordering::SeqCst)))
+                        });
+                        if idle_for.is_some_and(|idle| idle >= idle_ms) {
+                            map.remove(&conn_id);
+                            true
+                        } else {
+                            false
+                        }
+                    };
+                    if expired {
+                        log::info!("session {conn_id} relay exit (idle-timeout) after {responses} responses, port {local_port}");
+                        break;
+                    }
+                }
+                Ok(Ok((len, _addr))) => {
+                    if stop_flag.is_cancelled() {
+                        log::info!("session {conn_id} relay exit (replaced) after {responses} responses, port {local_port}");
+                        break;
+                    }
+                    let now = now_millis();
+                    last_act_map.store(now, Ordering::SeqCst);
+                    client_activity.store(now, Ordering::SeqCst);
+                    responses += 1;
+                    if responses >= next_log {
+                        log::info!("session {conn_id} relayed {responses} responses (last {len}B)");
+                        next_log = responses + 500;
+                    }
+                    let packet = if len > effective_mtu {
+                        log::debug!("session {conn_id} dropped oversized UDP response ({len}B > MTU {effective_mtu})");
+                        Packet::build_error_packet(conn_id)
+                    } else {
+                        match Packet::build_packet_from_address(conn_id, &packet_address(dst_addr), &buf[..len]) {
+                            Ok(packet) => packet,
+                            Err(e) => {
+                                log::debug!("session {conn_id} build response error {e}");
+                                continue;
+                            }
+                        }
+                    };
+                    let item = OutboundItem {
+                        packet,
+                        generation: Some(generation),
+                    };
+                    let sent = tokio::select! {
+                        biased;
+                        _ = stop_flag.cancelled() => {
+                            log::info!("session {conn_id} relay exit (replaced) after {responses} responses, port {local_port}");
+                            break;
+                        }
+                        sent = rtx.send(item) => sent,
+                    };
+                    if sent.is_err() {
+                        log::info!("session {conn_id} relay exit (client-gone) after {responses} responses, port {local_port}");
+                        break;
+                    }
+                }
+                Ok(Err(e)) => {
+                    log::info!("session {conn_id} relay exit (recv error {e}) after {responses} responses, port {local_port}");
+                    break;
+                }
+                Err(_) => {
+                    let (still_current, idle_expired) = {
+                        let mut map = sessions_cleanup.lock().await;
+                        let idle_ms_now = now_millis();
+                        let idle_for = map.get(&conn_id).and_then(|session| {
+                            (session.generation == generation).then(|| idle_ms_now.saturating_sub(session.last_act.load(Ordering::SeqCst)))
+                        });
+                        match idle_for {
+                            Some(idle) if idle >= idle_ms => {
+                                if let Some(s) = map.remove(&conn_id) {
+                                    s.stop.cancel();
+                                }
+                                (true, true)
+                            }
+                            Some(_) => (true, false),
+                            None => (false, false),
+                        }
+                    };
+                    if idle_expired {
+                        log::info!("session {conn_id} relay exit (idle-timeout) after {responses} responses, port {local_port}");
+                        break;
+                    }
+                    if !still_current {
+                        break;
+                    }
+                }
+            }
+        }
+        let mut map = sessions_cleanup.lock().await;
+        if let Some(s) = map.get(&conn_id)
+            && s.generation == generation
+        {
+            s.stop.cancel();
+            map.remove(&conn_id);
+        }
+    });
+
     Ok(())
 }
 
@@ -137,7 +395,14 @@ fn mask_socket_addr(socket_addr: std::net::SocketAddr) -> String {
     }
 }
 
-async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Packet>, mut client: Client, mut reader: ReadHalf<'_>) -> std::io::Result<()> {
+async fn process_client_udp_req(
+    args: &UdpGwArgs,
+    sessions: SessionMap,
+    delivery_lock: Arc<Mutex<()>>,
+    tx: Sender<OutboundItem>,
+    client: Client,
+    mut reader: ReadHalf<'_>,
+) -> std::io::Result<()> {
     let udp_timeout = args.udp_timeout;
     let udp_mtu = args.udp_mtu;
 
@@ -146,53 +411,107 @@ async fn process_client_udp_req(args: &UdpGwArgs, tx: Sender<Packet>, mut client
     loop {
         let masked_addr = masked_addr.clone();
         // 1. read udpgw packet from client
-        let res = tokio::time::timeout(tokio::time::Duration::from_secs(2), Packet::retrieve_from_async_stream(&mut reader)).await;
-        let packet = match res {
-            Ok(Ok(packet)) => packet,
-            Ok(Err(e)) => {
-                log::debug!("client {masked_addr} retrieve_from_async_stream \"{e}\"");
+        let packet = match retrieve_packet_or_disconnect(&mut reader, &client.last_activity).await {
+            Ok(packet) => packet,
+            Err(e) if e.kind() == std::io::ErrorKind::TimedOut => {
+                log::debug!("client {masked_addr} last_activity elapsed \"{e}\"");
                 break;
             }
             Err(e) => {
-                if client.last_activity.elapsed() >= CLIENT_DISCONNECT_TIMEOUT {
-                    log::debug!("client {masked_addr} last_activity elapsed \"{e}\"");
-                    break;
-                }
-                continue;
+                log::debug!("client {masked_addr} retrieve_from_async_stream \"{e}\"");
+                break;
             }
         };
-        client.last_activity = std::time::Instant::now();
+        client.last_activity.store(now_millis(), Ordering::SeqCst);
 
         let flags = packet.header.flags;
         let conn_id = packet.header.conn_id;
-        if flags & UdpFlag::KEEPALIVE == UdpFlag::KEEPALIVE {
+        if flags == UdpFlag::KEEPALIVE {
             log::trace!("client {masked_addr} send keepalive");
             // 2. if keepalive packet, do nothing, send keepalive response to client
             send_keepalive_response(tx.clone(), conn_id).await;
             continue;
         }
+        if flags != UdpFlag::DATA {
+            log::debug!("client {masked_addr} unexpected packet flags {flags} for conn_id {conn_id}");
+            stop_session(conn_id, &sessions, &delivery_lock).await;
+            send_error_response(tx.clone(), conn_id).await;
+            continue;
+        }
         log::trace!("client {masked_addr} received udp data {packet}");
 
-        // 3. process client udpgw packet in a new task
-        let tx = tx.clone();
-        tokio::spawn(async move {
-            if let Err(e) = process_udp(udp_mtu, udp_timeout, tx.clone(), packet).await {
-                send_error_response(tx, conn_id).await;
-                log::debug!("client {masked_addr} process udp function \"{e}\"");
-            }
-        });
+        // 3. process the client udpgw packet inline to preserve ordering
+        if let Err(e) = process_udp(
+            udp_mtu,
+            udp_timeout,
+            sessions.clone(),
+            delivery_lock.clone(),
+            client.last_activity.clone(),
+            tx.clone(),
+            packet,
+        )
+        .await
+        {
+            send_error_response(tx.clone(), conn_id).await;
+            log::debug!("client {masked_addr} process udp function \"{e}\"");
+        }
     }
     Ok(())
 }
 
-async fn write_to_client(addr: SocketAddr, mut writer: WriteHalf<'_>, mut rx: Receiver<Packet>) -> std::io::Result<()> {
+async fn retrieve_packet_or_disconnect<R>(reader: &mut R, last_activity: &AtomicU64) -> std::io::Result<Packet>
+where
+    R: AsyncRead + Unpin + Send + ?Sized,
+{
+    let disconnect_ms = CLIENT_DISCONNECT_TIMEOUT.as_millis() as u64;
+    let packet_read = Packet::retrieve_from_async_stream(reader);
+    tokio::pin!(packet_read);
+    loop {
+        tokio::select! {
+            result = &mut packet_read => return result,
+            _ = tokio::time::sleep(std::time::Duration::from_secs(2)) => {
+                if now_millis().saturating_sub(last_activity.load(Ordering::SeqCst)) >= disconnect_ms {
+                    return Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "client inactivity timeout"));
+                }
+            }
+        }
+    }
+}
+
+async fn write_to_client(
+    addr: SocketAddr,
+    sessions: SessionMap,
+    delivery_lock: Arc<Mutex<()>>,
+    client_activity: Arc<AtomicU64>,
+    mut writer: WriteHalf<'_>,
+    mut rx: Receiver<OutboundItem>,
+) -> std::io::Result<()> {
     let masked_addr = mask_socket_addr(addr);
     loop {
         use std::io::{Error, ErrorKind::BrokenPipe};
-        let packet = rx.recv().await.ok_or(Error::new(BrokenPipe, "recv error"))?;
+        let item = rx.recv().await.ok_or(Error::new(BrokenPipe, "recv error"))?;
+        let _delivery_guard = delivery_lock.lock().await;
+        if let Some(generation) = item.generation {
+            let conn_id = item.packet.header.conn_id;
+            let is_current = sessions
+                .lock()
+                .await
+                .get(&conn_id)
+                .is_some_and(|session| session.generation == generation);
+            if !is_current {
+                log::trace!("client {masked_addr} dropped stale response for conn_id {conn_id} (gen {generation})");
+                continue;
+            }
+        }
+        let packet = item.packet;
         log::trace!("send response to client {masked_addr} with {packet}");
         let data: Vec<u8> = packet.into();
-        let _r = writer.write(&data).await?;
+        // write_all: a partial write() would corrupt the udpgw frame stream
+        // and desynchronize the client-side packet parser.
+        tokio::time::timeout(CLIENT_DISCONNECT_TIMEOUT, writer.write_all(&data))
+            .await
+            .map_err(std::io::Error::from)??;
+        client_activity.store(now_millis(), Ordering::SeqCst);
     }
 }
 
@@ -200,7 +519,7 @@ async fn main_async(args: UdpGwArgs) -> Result<(), BoxError> {
     log::info!("{} {} starting...", module_path!(), tun2proxy::version_info!());
     log::info!("UDP Gateway Server running at {}", args.listen_addr);
 
-    let shutdown_token = tokio_util::sync::CancellationToken::new();
+    let shutdown_token = CancellationToken::new();
     let main_loop_handle = tokio::spawn(run(args, shutdown_token.clone()));
 
     let ctrlc_fired = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
@@ -222,26 +541,51 @@ async fn main_async(args: UdpGwArgs) -> Result<(), BoxError> {
     Ok(())
 }
 
-pub async fn run(args: UdpGwArgs, shutdown_token: tokio_util::sync::CancellationToken) -> crate::Result<()> {
+pub async fn run(args: UdpGwArgs, shutdown_token: CancellationToken) -> crate::Result<()> {
     let tcp_listener = tokio::net::TcpListener::bind(args.listen_addr).await?;
+    let mut client_tasks = tokio::task::JoinSet::new();
     loop {
         let (mut tcp_stream, addr) = tokio::select! {
-            v = tcp_listener.accept() => v?,
+            biased;
             _ = shutdown_token.cancelled() => break,
+            Some(result) = client_tasks.join_next(), if !client_tasks.is_empty() => {
+                if let Err(e) = result {
+                    log::warn!("client task join error: {e}");
+                }
+                continue;
+            }
+            accepted = tcp_listener.accept() => accepted?,
         };
         let client = Client::new(addr);
+        let sessions: SessionMap = Arc::new(Mutex::new(HashMap::new()));
+        let delivery_lock = Arc::new(Mutex::new(()));
         let masked_addr = mask_socket_addr(addr);
         log::info!("client {masked_addr} connected");
         let params = args.clone();
-        tokio::spawn(async move {
-            let (tx, rx) = tokio::sync::mpsc::channel::<Packet>(100);
+        let client_shutdown = shutdown_token.clone();
+        client_tasks.spawn(async move {
+            let (tx, rx) = tokio::sync::mpsc::channel::<OutboundItem>(1024);
             let (tcp_read_stream, tcp_write_stream) = tcp_stream.split();
+            let writer_sessions = sessions.clone();
+            let writer_delivery_lock = delivery_lock.clone();
+            let cleanup_sessions = sessions.clone();
+            let writer_activity = client.last_activity.clone();
             let res = tokio::select! {
-                v = process_client_udp_req(&params, tx, client, tcp_read_stream) => v,
-                v = write_to_client(addr, tcp_write_stream, rx) => v,
+                _ = client_shutdown.cancelled() => Ok(()),
+                v = process_client_udp_req(&params, sessions, delivery_lock, tx, client, tcp_read_stream) => v,
+                v = write_to_client(addr, writer_sessions, writer_delivery_lock, writer_activity, tcp_write_stream, rx) => v,
             };
+            let mut map = cleanup_sessions.lock().await;
+            for (_, session) in map.drain() {
+                session.stop.cancel();
+            }
             log::info!("client {masked_addr} disconnected with {res:?}");
         });
+    }
+    while let Some(result) = client_tasks.join_next().await {
+        if let Err(e) = result {
+            log::warn!("client task join error during shutdown: {e}");
+        }
     }
     Ok::<(), Error>(())
 }
@@ -268,4 +612,99 @@ fn main() -> Result<(), BoxError> {
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
     rt.block_on(main_async(args))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn partial_packet_read_survives_timeout_check() {
+        let expected = Packet::build_keepalive_packet(42);
+        let frame: Vec<u8> = expected.clone().into();
+        let (mut client, mut server) = tokio::io::duplex(64);
+        client.write_all(&frame[..1]).await.unwrap();
+        let last_activity = AtomicU64::new(now_millis());
+
+        let read = retrieve_packet_or_disconnect(&mut server, &last_activity);
+        tokio::pin!(read);
+        tokio::select! {
+            result = &mut read => panic!("partial frame unexpectedly completed: {result:?}"),
+            _ = tokio::time::sleep(std::time::Duration::from_millis(2100)) => {}
+        }
+
+        client.write_all(&frame[1..]).await.unwrap();
+        assert_eq!(read.await.unwrap(), expected);
+    }
+
+    #[tokio::test]
+    async fn generation_filter_drops_aba_and_stale_error_packets() {
+        let conn_id = 7;
+        let retired_conn_id = 8;
+        let dst_a: SocketAddr = "127.0.0.1:10001".parse().unwrap();
+        let sock = Arc::new(UdpSocket::bind("127.0.0.1:0").await.unwrap());
+        let sessions: SessionMap = Arc::new(Mutex::new(HashMap::new()));
+        let delivery_lock = Arc::new(Mutex::new(()));
+        let client_activity = Arc::new(AtomicU64::new(now_millis()));
+        let (tx, rx) = tokio::sync::mpsc::channel::<OutboundItem>(16);
+
+        // Session enters generation 3 (e.g. after A(gen 1) -> B(gen 2) -> A(gen 3)).
+        sessions.lock().await.insert(
+            conn_id,
+            Session {
+                sock,
+                dst: dst_a,
+                req_addr: Address::SocketAddress(dst_a),
+                generation: 3,
+                sent: Arc::new(AtomicU64::new(1)),
+                last_act: Arc::new(AtomicU64::new(now_millis())),
+                stop: CancellationToken::new(),
+            },
+        );
+
+        let stale_data = Packet::build_packet_from_address(conn_id, &Address::SocketAddress(dst_a), b"old-a").unwrap();
+        let stale_err = Packet::build_error_packet(conn_id);
+        let retired_session_data = Packet::build_packet_from_address(retired_conn_id, &Address::SocketAddress(dst_a), b"retired").unwrap();
+        let current_data = Packet::build_packet_from_address(conn_id, &Address::SocketAddress(dst_a), b"new-a").unwrap();
+
+        tx.send(OutboundItem {
+            packet: stale_data,
+            generation: Some(1),
+        })
+        .await
+        .unwrap();
+        tx.send(OutboundItem {
+            packet: stale_err,
+            generation: Some(2),
+        })
+        .await
+        .unwrap();
+        tx.send(OutboundItem {
+            packet: retired_session_data,
+            generation: Some(1),
+        })
+        .await
+        .unwrap();
+        tx.send(OutboundItem {
+            packet: current_data.clone(),
+            generation: Some(3),
+        })
+        .await
+        .unwrap();
+        drop(tx);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (accept_res, connect_res) = tokio::join!(listener.accept(), tokio::net::TcpStream::connect(addr));
+        let mut client_stream = connect_res.unwrap();
+        let mut server_stream = accept_res.unwrap().0;
+
+        let (_, server_write) = server_stream.split();
+        let _ = write_to_client(dst_a, sessions, delivery_lock, client_activity, server_write, rx).await;
+        drop(server_stream);
+
+        let received = Packet::retrieve_from_async_stream(&mut client_stream).await.unwrap();
+        assert_eq!(received, current_data);
+        assert!(Packet::retrieve_from_async_stream(&mut client_stream).await.is_err());
+    }
 }
