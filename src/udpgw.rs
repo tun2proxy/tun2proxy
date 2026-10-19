@@ -119,21 +119,27 @@ impl TryFrom<&[u8]> for Packet {
     type Error = std::io::Error;
 
     fn try_from(value: &[u8]) -> std::result::Result<Self, Self::Error> {
+        use std::io::{Error, ErrorKind::InvalidData};
         if value.len() < UDPGW_LENGTH_FIELD_SIZE {
-            return Err(std::io::ErrorKind::InvalidData.into());
+            return Err(Error::new(InvalidData, "frame too short"));
         }
-        let mut iter = std::io::Cursor::new(value);
-        use tokio_util::bytes::Buf;
-        let length = iter.get_u16();
-        if value.len() < length as usize + UDPGW_LENGTH_FIELD_SIZE {
-            return Err(std::io::ErrorKind::InvalidData.into());
+        let length = u16::from_be_bytes([value[0], value[1]]) as usize;
+        let total = length + UDPGW_LENGTH_FIELD_SIZE;
+        if value.len() < total {
+            return Err(Error::new(InvalidData, "incomplete frame"));
         }
+        let mut iter = std::io::Cursor::new(&value[UDPGW_LENGTH_FIELD_SIZE..total]);
         let header = UdpgwHeader::retrieve_from_stream(&mut iter)?;
-        let address = if header.flags & UdpFlag::DATA != UdpFlag::ZERO {
+        let address = if header.flags & UdpFlag::DATA == UdpFlag::DATA {
             Some(Address::retrieve_from_stream(&mut iter)?)
         } else {
             None
         };
+        let read_len = header.len() + address.as_ref().map_or(0, |addr| addr.len());
+        if length < read_len {
+            return Err(Error::new(InvalidData, "length field smaller than header and address length"));
+        }
+        use tokio_util::bytes::Buf;
         Ok(Packet::new(header, address, iter.chunk()))
     }
 }
@@ -153,11 +159,14 @@ impl Packet {
     }
 
     pub fn build_packet_from_address(conn_id: u16, remote_addr: &Address, data: &[u8]) -> std::io::Result<Self> {
-        use socks5_impl::Address::{DomainAddress, SocketAddress};
         let packet = match remote_addr {
-            SocketAddress(addr) => Packet::build_ip_packet(conn_id, *addr, data),
-            DomainAddress(domain, port) => Packet::build_domain_packet(conn_id, *port, domain, data)?,
+            Address::SocketAddress(addr) => Packet::build_ip_packet(conn_id, *addr, data),
+            Address::DomainAddress(domain, port) => Packet::build_domain_packet(conn_id, *port, domain, data)?,
         };
+        if packet.len().saturating_sub(UDPGW_LENGTH_FIELD_SIZE) > u16::MAX as usize {
+            use std::io::{Error, ErrorKind::InvalidInput};
+            return Err(Error::new(InvalidInput, "udpgw packet exceeds maximum frame length"));
+        }
         Ok(packet)
     }
 
@@ -167,11 +176,16 @@ impl Packet {
     }
 
     pub fn build_domain_packet(conn_id: u16, port: u16, domain: &str, data: &[u8]) -> std::io::Result<Self> {
+        use std::io::{Error, ErrorKind::InvalidInput};
         if domain.len() > 255 {
-            return Err(std::io::ErrorKind::InvalidInput.into());
+            return Err(Error::new(InvalidInput, "domain name exceeds 255 characters"));
         }
         let addr = Address::from((domain, port));
-        Ok(Packet::new(UdpgwHeader::new(UdpFlag::DATA, conn_id), Some(addr), data))
+        let packet = Packet::new(UdpgwHeader::new(UdpFlag::DATA, conn_id), Some(addr), data);
+        if packet.len().saturating_sub(UDPGW_LENGTH_FIELD_SIZE) > u16::MAX as usize {
+            return Err(Error::new(InvalidInput, "udpgw packet exceeds maximum frame length"));
+        }
+        Ok(packet)
     }
 }
 
@@ -443,16 +457,18 @@ impl UdpGwClient {
     }
 
     pub(crate) async fn store_server_connection(&self, stream: UdpGwClientStream) {
-        if self.server_connections.lock().await.len() < self.max_connections {
-            self.server_connections.lock().await.push_back(stream);
+        let mut conns = self.server_connections.lock().await;
+        if conns.len() < self.max_connections {
+            conns.push_back(stream);
         }
     }
 
     pub(crate) async fn store_server_connection_full(&self, mut stream: UdpGwClientStream, reader: OwnedReadHalf, writer: OwnedWriteHalf) {
-        if self.server_connections.lock().await.len() < self.max_connections {
+        let mut conns = self.server_connections.lock().await;
+        if conns.len() < self.max_connections {
             stream.set_reader(Some(reader));
             stream.set_writer(Some(writer));
-            self.server_connections.lock().await.push_back(stream);
+            conns.push_back(stream);
         }
     }
 
@@ -743,5 +759,27 @@ mod tests {
         assert!(matches!(resp, UdpGwResponse::KeepAlive));
         assert_eq!(len, 5);
         assert!(acc.is_empty());
+    }
+
+    #[test]
+    fn try_from_slice_ignores_trailing_bytes_and_rejects_truncated_header() {
+        let addr: SocketAddr = "203.0.113.9:51820".parse().unwrap();
+        let expected = Packet::build_ip_packet(8, addr, b"hello");
+        let mut bytes: Vec<u8> = (&expected).into();
+        bytes.extend_from_slice(b"trailing-next-frame-bytes");
+
+        let parsed = Packet::try_from(bytes.as_slice()).unwrap();
+        assert_eq!(parsed, expected);
+
+        let malformed = [0x00, 0x01, UdpFlag::KEEPALIVE.0, 0x00, 0x08];
+        assert!(Packet::try_from(&malformed[..]).is_err());
+    }
+
+    #[test]
+    fn build_packet_from_address_rejects_frames_exceeding_u16_max() {
+        let addr = Address::from("203.0.113.9:51820".parse::<SocketAddr>().unwrap());
+        let max_payload = (u16::MAX as usize) - UdpgwHeader::static_len() - addr.len();
+        assert!(Packet::build_packet_from_address(1, &addr, &vec![0u8; max_payload]).is_ok());
+        assert!(Packet::build_packet_from_address(1, &addr, &vec![0u8; max_payload + 1]).is_err());
     }
 }

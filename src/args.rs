@@ -1,9 +1,8 @@
 use crate::Result;
 use socks5_impl::ProxyParameters;
-use tproxy_config::IpCidr;
-
-use std::net::{IpAddr, SocketAddr};
+use std::net::IpAddr;
 use std::str::FromStr;
+use tproxy_config::IpCidr;
 
 #[macro_export]
 macro_rules! version_info {
@@ -145,7 +144,7 @@ pub struct Args {
     #[cfg(feature = "udpgw")]
     #[arg(long, value_name = "IP:PORT")]
     #[serde(skip_serializing_if = "Option::is_none")]
-    pub udpgw_server: Option<SocketAddr>,
+    pub udpgw_server: Option<std::net::SocketAddr>,
 
     /// Max connections for the UDP gateway, default value is 5
     #[cfg(feature = "udpgw")]
@@ -236,7 +235,7 @@ impl Args {
     }
 
     #[cfg(feature = "udpgw")]
-    pub fn udpgw_server(&mut self, udpgw: SocketAddr) -> &mut Self {
+    pub fn udpgw_server(&mut self, udpgw: std::net::SocketAddr) -> &mut Self {
         self.udpgw_server = Some(udpgw);
         self
     }

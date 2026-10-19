@@ -679,6 +679,7 @@ async fn handle_udp_gateway_session(
                             log::debug!("[UdpGw] stream {sn} {} <- {} receive {f} len {len}", tcp_local_addr, udp_dst);
                             if let Err(e) = udp_stack.write_all(&data.data).await {
                                 log::error!("[UdpGw] Ending stream {} {} <> {} with send_udp_packet {}", sn, tcp_local_addr, udp_dst, e);
+                                reusable = true;
                                 break;
                             }
                         }
