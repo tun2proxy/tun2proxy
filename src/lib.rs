@@ -601,6 +601,12 @@ async fn handle_udp_gateway_session(
     };
 
     let mut tmp_buf = vec![0; udp_mtu.into()];
+    // Partial inbound frame kept outside any future: makes the recv branch
+    // cancellation-safe under tokio::select! (see recv_udpgw_packet_csafe).
+    let mut recv_acc: Vec<u8> = Vec::with_capacity(4096);
+    // The connection may only go back to the pool when the flow ends without
+    // leaving a partially read frame behind (see recv_udpgw_packet_csafe).
+    let mut reusable = false;
 
     loop {
         tokio::select! {
@@ -608,11 +614,13 @@ async fn handle_udp_gateway_session(
                 let read_len = match len {
                     Ok(0) => {
                         log::info!("[UdpGw] Ending stream {} {} <> {}", sn, tcp_local_addr, udp_dst);
+                        reusable = true;
                         break;
                     }
                     Ok(n) => n,
                     Err(e) => {
                         log::info!("[UdpGw] Ending stream {} {} <> {} with udp stack \"{}\"", sn, tcp_local_addr, udp_dst, e);
+                        reusable = true;
                         break;
                     }
                 };
@@ -625,7 +633,12 @@ async fn handle_udp_gateway_session(
                 log::debug!("[UdpGw] stream {} {} -> {} send len {}", sn, tcp_local_addr, udp_dst, read_len);
                 stream.update_activity();
             }
-            ret = UdpGwClient::recv_udpgw_packet(udp_mtu, udp_timeout, &mut reader) => {
+            // Cancellation-safe reader (plain read() + caller-owned buffer):
+            // a select! cancellation mid-frame must never lose socket bytes.
+            // The per-read timeout is refreshed on every loop iteration, i.e.
+            // whenever the application sends a datagram, so active flows keep
+            // the stream alive while idle ones are still closed after udp_timeout.
+            ret = UdpGwClient::recv_udpgw_packet_csafe(udp_mtu, udp_timeout, &mut reader, &mut recv_acc) => {
                 if let Ok((len, _)) = ret {
                     crate::traffic_status::traffic_status_update(0, len)?;
                 }
@@ -676,10 +689,14 @@ async fn handle_udp_gateway_session(
         }
     }
 
-    if !stream.is_closed() {
+    // A connection may only return to the pool when no partial inbound frame is
+    // buffered: `recv_acc` can still hold bytes read from the socket before the
+    // recv branch was cancelled, and the next reader would start mid-stream.
+    if reusable && recv_acc.is_empty() {
         udpgw_client.store_server_connection_full(stream, reader, writer).await;
+    } else {
+        stream.close();
     }
-
     Ok(())
 }
 

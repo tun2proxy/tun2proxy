@@ -572,6 +572,68 @@ impl UdpGwClient {
         Ok((packet.len(), UdpGwClient::parse_udp_response(udp_mtu, packet)?))
     }
 
+    /// Cancellation-safe frame reader.
+    ///
+    /// `recv_udpgw_packet` above is NOT cancellation safe: `read_exact` inside
+    /// `Packet::retrieve_from_async_stream` may have already consumed socket
+    /// bytes into the future's local buffer when the future is dropped by
+    /// `tokio::select!` (the local-read branch wins whenever the app sends a
+    /// datagram). Those bytes are lost and the next read starts mid-frame,
+    /// which desynchronizes the parser ("Unsupported address type", "too much
+    /// data").
+    ///
+    /// This variant keeps the partial frame in `acc`, a buffer owned by the
+    /// caller (outside any future), and only ever awaits a plain `read()`,
+    /// which is cancellation safe. Intended to be called in a `select!` loop
+    /// with the same `acc` across iterations.
+    pub(crate) async fn recv_udpgw_packet_csafe(
+        udp_mtu: u16,
+        udp_timeout: u64,
+        stream: &mut OwnedReadHalf,
+        acc: &mut Vec<u8>,
+    ) -> Result<(usize, UdpGwResponse)> {
+        use tokio_util::bytes::Buf;
+        let mut chunk = [0u8; 8192];
+        loop {
+            if acc.len() >= UDPGW_LENGTH_FIELD_SIZE {
+                let length = u16::from_be_bytes([acc[0], acc[1]]) as usize;
+                if length >= 3 && acc.len() >= length + UDPGW_LENGTH_FIELD_SIZE {
+                    let total = length + UDPGW_LENGTH_FIELD_SIZE;
+                    let mut cur = std::io::Cursor::new(&acc[..total]);
+                    let _ = cur.get_u16();
+                    let header = UdpgwHeader::retrieve_from_stream(&mut cur)?;
+                    let address = if header.flags & UdpFlag::DATA == UdpFlag::DATA {
+                        Some(Address::retrieve_from_stream(&mut cur)?)
+                    } else {
+                        None
+                    };
+                    let read_len = header.len() + address.as_ref().map_or(0, |a| a.len());
+                    if length < read_len {
+                        return Err(std::io::Error::from(std::io::ErrorKind::InvalidData).into());
+                    }
+                    // `cur` spans the whole frame (length field included), so its
+                    // position is already the absolute offset of the payload.
+                    let data_start = cur.position() as usize;
+                    let data = acc[data_start..total].to_vec();
+                    acc.drain(..total);
+                    let full = UDPGW_LENGTH_FIELD_SIZE + read_len + data.len();
+                    let packet = Packet::new(header, address, &data);
+                    return Ok((full, UdpGwClient::parse_udp_response(udp_mtu, packet)?));
+                }
+                if length < 3 {
+                    return Err(std::io::Error::from(std::io::ErrorKind::InvalidData).into());
+                }
+            }
+            let n = tokio::time::timeout(tokio::time::Duration::from_secs(udp_timeout + 2), stream.read(&mut chunk))
+                .await
+                .map_err(std::io::Error::from)??;
+            if n == 0 {
+                return Err(std::io::Error::from(std::io::ErrorKind::UnexpectedEof).into());
+            }
+            acc.extend_from_slice(&chunk[..n]);
+        }
+    }
+
     /// Sends a UDP gateway packet.
     ///
     /// This function constructs and sends a UDP gateway packet based on the IPv6 enabled status, data length,
@@ -602,5 +664,84 @@ impl UdpGwClient {
         stream.write_all(&out_data).await?;
 
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::io::AsyncWriteExt;
+
+    /// The exact frame the udpgw server sends for a WireGuard handshake response:
+    /// LEN=102, FLAGS=DATA, IPv4 address, 92-byte payload starting with type 0x02.
+    fn handshake_response_frame(conn_id: u16, payload: &[u8]) -> Vec<u8> {
+        let mut frame = Vec::new();
+        let body_len = 3 + 7 + payload.len();
+        frame.extend_from_slice(&(body_len as u16).to_be_bytes());
+        frame.push(UdpFlag::DATA.0);
+        frame.extend_from_slice(&conn_id.to_be_bytes());
+        frame.push(0x01);
+        frame.extend_from_slice(&[203, 0, 113, 9]);
+        frame.extend_from_slice(&51820u16.to_be_bytes());
+        frame.extend_from_slice(payload);
+        frame
+    }
+
+    async fn read_one_frame(frame: &[u8], split_at: Option<usize>) -> (usize, UdpGwResponse, Vec<u8>) {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let client = tokio::net::TcpStream::connect(addr).await.unwrap();
+        let (mut server_side, _) = listener.accept().await.unwrap();
+        let (mut reader, _writer) = client.into_split();
+
+        match split_at {
+            Some(n) => {
+                server_side.write_all(&frame[..n]).await.unwrap();
+                server_side.flush().await.unwrap();
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                server_side.write_all(&frame[n..]).await.unwrap();
+            }
+            None => server_side.write_all(frame).await.unwrap(),
+        }
+
+        let mut acc = Vec::new();
+        let (len, resp) = UdpGwClient::recv_udpgw_packet_csafe(10240, 10, &mut reader, &mut acc)
+            .await
+            .unwrap();
+        (len, resp, acc)
+    }
+
+    #[tokio::test]
+    async fn csafe_reader_returns_byte_exact_payload() {
+        let mut payload: Vec<u8> = (0..92u8).collect();
+        payload[0] = 0x02; // wg MESSAGE_HANDSHAKE_RESPONSE type byte
+        let frame = handshake_response_frame(8, &payload);
+        assert_eq!(frame.len(), 104);
+        assert_eq!(payload[0], 0x02, "wg message type must stay at payload[0]");
+
+        let (len, resp, acc) = read_one_frame(&frame, Some(40)).await;
+        match resp {
+            UdpGwResponse::Data(p) => {
+                assert_eq!(p.header.conn_id, 8);
+                assert_eq!(p.header.flags, UdpFlag::DATA);
+                assert_eq!(p.data, payload, "payload must be delivered byte-exact");
+            }
+            other => panic!("unexpected response: {other}"),
+        }
+        assert_eq!(len, 104);
+        assert!(acc.is_empty(), "frame fully consumed");
+    }
+
+    #[tokio::test]
+    async fn csafe_reader_handles_addressless_frame() {
+        let mut frame = Vec::new();
+        frame.extend_from_slice(&3u16.to_be_bytes());
+        frame.push(UdpFlag::KEEPALIVE.0);
+        frame.extend_from_slice(&8u16.to_be_bytes());
+
+        let (len, resp, acc) = read_one_frame(&frame, None).await;
+        assert!(matches!(resp, UdpGwResponse::KeepAlive));
+        assert_eq!(len, 5);
+        assert!(acc.is_empty());
     }
 }
