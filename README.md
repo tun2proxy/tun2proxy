@@ -1,7 +1,7 @@
-[![tun2proxy](https://socialify.git.ci/tun2proxy/tun2proxy/image?logo=https%3A%2F%2Favatars.githubusercontent.com%2Fu%2F166490253%3Fs%3D400%26u%3D85d62eec8975a6e9ffa92c7414a5460abd0661ef%26v%3D4&description=1&name=1&forks=1&stargazers=1&theme=Light
-)](https://github.com/tun2proxy/tun2proxy)
+[![tun2proxy](https://socialify.git.ci/tun2proxy/tun2proxy/image?logo=https%3A%2F%2Favatars.githubusercontent.com%2Fu%2F166490253%3Fs%3D400%26u%3D85d62eec8975a6e9ffa92c7414a5460abd0661ef%26v%3D4&description=1&name=1&forks=1&stargazers=1&theme=Light)](https://github.com/tun2proxy/tun2proxy)
 
 # tun2proxy
+
 A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and Windows.
 
 [![Crates.io](https://img.shields.io/crates/v/tun2proxy.svg)](https://crates.io/crates/tun2proxy)
@@ -13,6 +13,7 @@ A tunnel interface for HTTP and SOCKS proxies on Linux, Android, macOS, iOS and 
 > Additional information can be found in the [wiki](https://github.com/tun2proxy/tun2proxy/wiki)
 
 ## Features
+
 - HTTP proxy support (unauthenticated, basic and digest auth)
 - SOCKS4 and SOCKS5 support (unauthenticated, username/password auth)
 - SOCKS4a and SOCKS5h support (through the virtual DNS feature)
@@ -39,6 +40,7 @@ tun2proxy --proxy "socks5://user+info:pass@127.0.0.1:1080"
 ```
 
 The proxy server will receive the username in the format:
+
 ```
 original_username|protocol|src_ip|src_port
 ```
@@ -52,14 +54,19 @@ For example, `user+info` becomes `user|tcp|10.0.0.5|54321`.
 
 Servers should parse this as exactly four `|`-separated fields and reject usernames that do not
 meet that requirement.
+
 ## Build
+
 Clone the repository and `cd` into the project folder. Then run the following:
+
 ```
 cargo build --release
 ```
 
 ### Building Framework for Apple Devices
+
 To build an XCFramework for macOS and iOS, run the following:
+
 ```
 ./build-apple.sh
 ```
@@ -76,6 +83,7 @@ Download the binary from [releases](https://github.com/tun2proxy/tun2proxy/relea
 Since v0.2.23 [build provenance attestations](https://docs.github.com/en/actions/security-guides/using-artifact-attestations-to-establish-provenance-for-builds#verifying-artifact-attestations-with-the-github-cli)
 are supported. These allow you to ensure that the builds have been generated from the code on GitHub through the GitHub
 CI/CD pipeline. To verify the authenticity of the build files, you can use the [GitHub CLI](https://cli.github.com/):
+
 ```shell
 gh attestation verify <*.zip file> --owner tun2proxy
 ```
@@ -85,19 +93,24 @@ gh attestation verify <*.zip file> --owner tun2proxy
 ### Install from source
 
 If you have [rust](https://rustup.rs/) toolchain installed, this should work:
+
 ```shell
 cargo install tun2proxy
 ```
+
 > Note: In Windows, you need to copy [wintun](https://www.wintun.net/) DLL to the same directory as the binary.
 > It's `%USERPROFILE%\.cargo\bin` by default.
 
 ## Setup
+
 ## Automated Setup
+
 Using `--setup`, you can have tun2proxy configure your system to automatically route all traffic through the
 specified proxy. This requires running the tool as root and will roughly perform the steps outlined in the section
 describing the manual setup, except that a bind mount is used to overlay the `/etc/resolv.conf` file.
 
 You would then run the tool as follows:
+
 ```bash
 sudo ./target/release/tun2proxy-bin --setup --proxy "socks5://1.2.3.4:1080"
 ```
@@ -110,7 +123,9 @@ actually tunneled. In such a case, the tool will tell you to specify the address
 wish to make use of the automated setup feature.
 
 ## Manual Setup
+
 A standard setup, which would route all traffic from your system through the tunnel interface, could look as follows:
+
 ```shell
 # The proxy type can be either SOCKS4, SOCKS5 or HTTP.
 PROXY_TYPE=SOCKS5
@@ -151,11 +166,13 @@ configured to listen on a local UDP port and communicates with a third-party ups
 
 When you terminate this program and want to eliminate the impact caused by the above several commands,
 you can execute the following command. The routes will be automatically deleted with the tunnel device.
+
 ```shell
 sudo ip link del tun0
 ```
 
 ## CLI
+
 ```
 Tunnel interface to proxy.
 
@@ -172,11 +189,11 @@ Options:
   -t, --tun <name>                         Name of the tun interface, such as tun0, utun4, etc. If this option is not provided, the
                                            OS will generate a random one
       --tun-fd <fd>                        File descriptor of the tun interface
-      --close-fd-on-drop <true or false>   Set whether to close the received raw file descriptor on drop or not. This setting is
-                                           dependent on [tun_fd] [possible values: true, false]
+      --close-fd-on-drop <BOOL>            Close the received file descriptor on drop (requires --tun-fd) [possible values: true,
+                                           false]
       --unshare                            Create a tun interface in a newly created unprivileged namespace while maintaining proxy
                                            connectivity via the global network namespace
-      --unshare-pidfile <UNSHARE_PIDFILE>  Create a pidfile of `unshare` process when using `--unshare`
+      --unshare-pidfile <path>             Create a pidfile of `unshare` process when using `--unshare`
   -6, --ipv6-enabled                       IPv6 enabled
   -s, --setup                              Routing and system setup, which decides whether to setup the routing and system
                                            configuration. This option requires root-like privileges on every platform.
@@ -199,12 +216,15 @@ Options:
   -h, --help                               Print help
   -V, --version                            Print version
 ```
+
 Currently, tun2proxy supports HTTP, SOCKS4/SOCKS4a and SOCKS5. A proxy is supplied to the `--proxy` argument in the
 URL format. For example, an HTTP proxy at `1.2.3.4:3128` with a username of `john.doe` and a password of `secret` is
 supplied as `--proxy http://john.doe:secret@1.2.3.4:3128`. This works analogously to curl's `--proxy` argument.
 
 ## Container Support
+
 ### Docker
+
 Tun2proxy can serve as a proxy for other Docker containers. To make use of that feature, first build the image:
 
 ```bash
@@ -238,6 +258,7 @@ docker run -it \
 	--network "container:tun2proxy" \
 	ubuntu:latest
 ```
+
 ### Docker Compose
 
 Create a `docker-compose.yaml` file with the following content:
@@ -270,7 +291,9 @@ docker compose up alpine
 ```
 
 ## Configuration Tips
+
 ### DNS
+
 When DNS resolution is performed by a service on your machine or through a server in your local network, DNS resolution
 will not be performed through the tunnel interface, since the routes to localhost or your local network are more
 specific than `0.0.0.0/1` and `128.0.0.0/1`.
@@ -283,6 +306,7 @@ will result in DNS leaks. A hacky solution to prevent this consists in making th
 `sudo chattr +i "$(realpath /etc/resolv.conf)"`.
 
 ### IPv6
+
 Some proxy servers might not support IPv6. When using virtual DNS, this is not a problem as DNS names are resolved by
 the proxy server. When DNS names are resolved to IPv6 addresses locally, this becomes a problem as the proxy will be
 asked to open connections to IPv6 destinations. In such a case, you can disable IPv6 on your machine. This can be done
@@ -291,6 +315,7 @@ or through `ip -6 route del default`, which causes the `libc` resolver (and othe
 requests for IPv6 addresses.
 
 ## Contributors ✨
+
 Thanks goes to these wonderful people:
 
 <a href="https://github.com/tun2proxy/tun2proxy/graphs/contributors">

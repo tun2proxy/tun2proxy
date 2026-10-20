@@ -38,10 +38,9 @@ pub struct Args {
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tun_fd: Option<i32>,
 
-    /// Set whether to close the received raw file descriptor on drop or not.
-    /// This setting is dependent on [tun_fd].
+    /// Close the received file descriptor on drop (requires --tun-fd).
     #[cfg(unix)]
-    #[arg(long, value_name = "true or false", conflicts_with = "tun", requires = "tun_fd")]
+    #[arg(long, value_name = "BOOL", conflicts_with = "tun", requires = "tun_fd")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub close_fd_on_drop: Option<bool>,
 
@@ -53,7 +52,7 @@ pub struct Args {
 
     /// Create a pidfile of `unshare` process when using `--unshare`.
     #[cfg(all(target_os = "linux", feature = "unshare"))]
-    #[arg(long)]
+    #[arg(long, value_name = "path")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub unshare_pidfile: Option<String>,
 
@@ -124,10 +123,6 @@ pub struct Args {
     #[arg(long, value_name = "seconds", default_value = "10")]
     pub udp_timeout: u64,
 
-    /// Verbosity level, possible values [off, error, warn, info, debug, trace]
-    #[arg(short, long, value_name = "level", default_value = "info")]
-    pub verbosity: log::LevelFilter,
-
     /// Daemonize for unix family or run as Windows service
     #[arg(long)]
     pub daemonize: bool,
@@ -157,6 +152,10 @@ pub struct Args {
     #[arg(long, value_name = "seconds", requires = "udpgw_server")]
     #[serde(skip_serializing_if = "Option::is_none")]
     pub udpgw_keepalive: Option<u64>,
+
+    /// Verbosity level, possible values [off, error, warn, info, debug, trace]
+    #[arg(short, long, value_name = "level", default_value = "info")]
+    pub verbosity: log::LevelFilter,
 }
 
 fn validate_tun(p: &str) -> Result<String> {

@@ -1,5 +1,4 @@
-Build iOS xcframework
-----------------
+## Build iOS xcframework
 
 # Install Rust build tools
 
@@ -11,6 +10,7 @@ Build iOS xcframework
 # Building iOS xcframework
 
 Run the following command in zsh (or bash):
+
 ```bash
 cd tun2proxy
 ./build-apple.sh
