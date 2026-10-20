@@ -118,6 +118,17 @@ impl ClientSessions {
         }
         generation
     }
+
+    async fn close_session(&self, conn_id: u16) -> bool {
+        let _delivery_guard = self.delivery_lock.lock().await;
+        self.generations.lock().await.remove(&conn_id);
+        if let Some(old) = self.sessions.lock().await.remove(&conn_id) {
+            old.stop.cancel();
+            true
+        } else {
+            false
+        }
+    }
 }
 
 struct OutboundItem {
@@ -466,6 +477,11 @@ async fn process_client_udp_req(
             send_keepalive_response(tx.clone(), conn_id).await;
             continue;
         }
+        if flags == UdpFlag::CLOSE {
+            let closed = state.close_session(conn_id).await;
+            log::debug!("client {masked_addr} close session {conn_id} (active: {closed})");
+            continue;
+        }
         if flags != UdpFlag::DATA {
             log::debug!("client {masked_addr} unexpected packet flags {flags} for conn_id {conn_id}");
             let generation = state.replace_generation(conn_id).await;
@@ -734,6 +750,78 @@ mod tests {
         assert_eq!(first, queued_before_idle_expiry);
         let second = Packet::retrieve_from_async_stream(&mut client_stream).await.unwrap();
         assert_eq!(second, current_data);
+        assert!(Packet::retrieve_from_async_stream(&mut client_stream).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn close_packet_stops_session_and_drops_queued_responses() {
+        let echo_sock = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let echo_addr = echo_sock.local_addr().unwrap();
+
+        let args = UdpGwArgs {
+            listen_addr: "127.0.0.1:0".parse().unwrap(),
+            udp_mtu: 1500,
+            udp_timeout: 30,
+            #[cfg(unix)]
+            daemonize: false,
+            verbosity: log::LevelFilter::Off,
+        };
+        let state = ClientSessions::new();
+        let (tx, rx) = tokio::sync::mpsc::channel::<OutboundItem>(16);
+        let client = Client::new("127.0.0.1:50000".parse().unwrap());
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let (accept_res, connect_res) = tokio::join!(listener.accept(), tokio::net::TcpStream::connect(addr));
+        let mut client_stream = connect_res.unwrap();
+        let mut server_stream = accept_res.unwrap().0;
+        let (server_read, server_write) = server_stream.split();
+
+        // Send DATA(conn_id=1) followed immediately by CLOSE(conn_id=1) and KEEPALIVE(conn_id=1).
+        let data_pkt = Packet::build_ip_packet(1, echo_addr, b"ping");
+        let close_pkt = Packet::build_close_packet(1);
+        let keepalive_pkt = Packet::build_keepalive_packet(1);
+
+        let mut wire: Vec<u8> = (&data_pkt).into();
+        let close_bytes: Vec<u8> = (&close_pkt).into();
+        let keepalive_bytes: Vec<u8> = (&keepalive_pkt).into();
+        wire.extend_from_slice(&close_bytes);
+        wire.extend_from_slice(&keepalive_bytes);
+        client_stream.write_all(&wire).await.unwrap();
+        client_stream.shutdown().await.unwrap();
+
+        process_client_udp_req(&args, state.clone(), tx.clone(), client.clone(), server_read)
+            .await
+            .unwrap();
+
+        // Active session and generation for conn_id=1 must be removed after CLOSE.
+        assert!(!state.sessions.lock().await.contains_key(&1));
+        assert!(!state.generations.lock().await.contains_key(&1));
+
+        // Even if a late response with generation 1 was queued before CLOSE completed, write_to_client drops it.
+        let late_resp = Packet::build_ip_packet(1, echo_addr, b"late-pong");
+        tx.send(OutboundItem {
+            packet: late_resp,
+            generation: Some(1),
+        })
+        .await
+        .unwrap();
+        drop(tx);
+
+        let _ = write_to_client(
+            echo_addr,
+            state.generations,
+            state.delivery_lock,
+            client.last_activity,
+            server_write,
+            rx,
+        )
+        .await;
+        drop(server_stream);
+
+        // Only the keepalive response should arrive on the client stream.
+        let received = Packet::retrieve_from_async_stream(&mut client_stream).await.unwrap();
+        assert_eq!(received, keepalive_pkt);
         assert!(Packet::retrieve_from_async_stream(&mut client_stream).await.is_err());
     }
 }

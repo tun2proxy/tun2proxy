@@ -21,8 +21,9 @@ pub struct UdpFlag(pub u8);
 impl UdpFlag {
     pub const ZERO: UdpFlag = UdpFlag(0x00);
     pub const KEEPALIVE: UdpFlag = UdpFlag(0x01);
-    pub const ERR: UdpFlag = UdpFlag(0x20);
     pub const DATA: UdpFlag = UdpFlag(0x02);
+    pub const CLOSE: UdpFlag = UdpFlag(0x04);
+    pub const ERR: UdpFlag = UdpFlag(0x20);
 }
 
 impl std::fmt::Display for UdpFlag {
@@ -30,8 +31,9 @@ impl std::fmt::Display for UdpFlag {
         let flag = match self.0 {
             0x00 => "ZERO",
             0x01 => "KEEPALIVE",
-            0x20 => "ERR",
             0x02 => "DATA",
+            0x04 => "CLOSE",
+            0x20 => "ERR",
             n => return write!(f, "Unknown UdpFlag(0x{n:02X})"),
         };
         write!(f, "{flag}")
@@ -60,8 +62,9 @@ impl std::ops::BitOr for UdpFlag {
 ///
 /// `FLAGS`: This field is used to indicate the packet type. The flags are defined as follows:
 /// - `0x01`: Keepalive packet without address and data
-/// - `0x20`: Error packet without address and data
 /// - `0x02`: Data packet with address and data
+/// - `0x04`: Close packet without address and data
+/// - `0x20`: Error packet without address and data
 ///
 /// `CONN_ID`: This field is used to indicate the unique connection ID for the packet.
 ///
@@ -152,6 +155,10 @@ impl Packet {
 
     pub fn build_keepalive_packet(conn_id: u16) -> Self {
         Packet::new(UdpgwHeader::new(UdpFlag::KEEPALIVE, conn_id), None, &[])
+    }
+
+    pub fn build_close_packet(conn_id: u16) -> Self {
+        Packet::new(UdpgwHeader::new(UdpFlag::CLOSE, conn_id), None, &[])
     }
 
     pub fn build_error_packet(conn_id: u16) -> Self {
@@ -561,6 +568,9 @@ impl UdpGwClient {
         if flags & UdpFlag::KEEPALIVE == UdpFlag::KEEPALIVE {
             return Ok(UdpGwResponse::KeepAlive);
         }
+        if flags & UdpFlag::CLOSE == UdpFlag::CLOSE {
+            return Ok(UdpGwResponse::TcpClose);
+        }
         if packet.data.len() > udp_mtu as usize {
             return Err("too much data".into());
         }
@@ -681,6 +691,14 @@ impl UdpGwClient {
 
         Ok(())
     }
+
+    /// Sends a UDP gateway close packet to notify the server to stop receiving data for `conn_id`.
+    pub(crate) async fn send_udpgw_close_packet(conn_id: u16, stream: &mut OwnedWriteHalf) -> Result<usize> {
+        let out_data: Vec<u8> = Packet::build_close_packet(conn_id).into();
+        let len = out_data.len();
+        stream.write_all(&out_data).await?;
+        Ok(len)
+    }
 }
 
 #[cfg(test)]
@@ -757,6 +775,15 @@ mod tests {
 
         let (len, resp, acc) = read_one_frame(&frame, None).await;
         assert!(matches!(resp, UdpGwResponse::KeepAlive));
+        assert_eq!(len, 5);
+        assert!(acc.is_empty());
+
+        let close_pkt = Packet::build_close_packet(9);
+        let close_frame: Vec<u8> = (&close_pkt).into();
+        assert_eq!(close_frame, vec![0x00, 0x03, UdpFlag::CLOSE.0, 0x00, 0x09]);
+        assert_eq!(Packet::try_from(close_frame.as_slice()).unwrap(), close_pkt);
+        let (len, resp, acc) = read_one_frame(&close_frame, None).await;
+        assert!(matches!(resp, UdpGwResponse::TcpClose));
         assert_eq!(len, 5);
         assert!(acc.is_empty());
     }

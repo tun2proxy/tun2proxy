@@ -694,7 +694,17 @@ async fn handle_udp_gateway_session(
     // buffered: `recv_acc` can still hold bytes read from the socket before the
     // recv branch was cancelled, and the next reader would start mid-stream.
     if reusable && recv_acc.is_empty() {
-        udpgw_client.store_server_connection_full(stream, reader, writer).await;
+        match UdpGwClient::send_udpgw_close_packet(sn, &mut writer).await {
+            Ok(len) => {
+                crate::traffic_status::traffic_status_update(len, 0)?;
+                stream.update_activity();
+                udpgw_client.store_server_connection_full(stream, reader, writer).await;
+            }
+            Err(e) => {
+                log::debug!("[UdpGw] stream {sn} {tcp_local_addr} -> {udp_dst} send close packet failed: {e}");
+                stream.close();
+            }
+        }
     } else {
         stream.close();
     }
