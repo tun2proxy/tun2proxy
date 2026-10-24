@@ -91,6 +91,7 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
                     log::info!("Forcing exit now.");
                     std::process::exit(-1);
                 }
+                log::info!("Exit timer cancelled. Exiting normally without forcing exit.");
             });
             tokio::time::sleep(std::time::Duration::from_micros(100)).await;
 
@@ -99,6 +100,7 @@ fn run_service(_arguments: Vec<std::ffi::OsString>) -> Result<(), crate::BoxErro
         drop(rt);
         let _ = timer_cancel_tx.send(());
         let _ = timer_handle.join();
+        log::info!("Service main logic exiting normally.");
     }
 
     // Tell the system that the service is stopped now

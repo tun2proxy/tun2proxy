@@ -36,6 +36,7 @@ fn main() -> Result<(), BoxError> {
                 log::info!("Forcing exit now.");
                 std::process::exit(-1);
             }
+            log::info!("Exit timer cancelled. Exiting normally without forcing exit.");
         });
 
         log::info!("Runtime.block_on exiting...");
@@ -46,6 +47,7 @@ fn main() -> Result<(), BoxError> {
     drop(rt);
     let _ = timer_cancel_tx.send(());
     let _ = timer_handle.join();
+    log::info!("Main function exiting normally.");
     res
 }
 

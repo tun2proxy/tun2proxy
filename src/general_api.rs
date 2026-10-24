@@ -68,6 +68,7 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
                 log::info!("Forcing exit now.");
                 std::process::exit(-1);
             }
+            log::info!("Exit timer cancelled. Exiting normally without forcing exit.");
         });
         tokio::time::sleep(std::time::Duration::from_micros(100)).await;
         (ret, timer_handle)
@@ -75,6 +76,7 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
     drop(rt);
     let _ = timer_cancel_tx.send(());
     let _ = timer_handle.join();
+    log::info!("General run for API exiting normally.");
 
     let res = match res {
         Ok(sessions) => {
