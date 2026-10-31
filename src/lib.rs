@@ -122,6 +122,44 @@ impl SocketQueue {
 }
 
 #[cfg(all(target_os = "linux", feature = "unshare"))]
+const SOCKET_REQUEST_INITIAL_RETRY_DELAY: std::time::Duration = std::time::Duration::from_millis(100);
+#[cfg(all(target_os = "linux", feature = "unshare"))]
+const SOCKET_REQUEST_MAX_RETRY_DELAY: std::time::Duration = std::time::Duration::from_secs(5);
+
+#[cfg(all(target_os = "linux", feature = "unshare"))]
+fn is_recoverable_socket_request_error(err: &crate::Error) -> bool {
+    match err {
+        crate::Error::Io(err) => matches!(
+            err.kind(),
+            std::io::ErrorKind::Interrupted
+                | std::io::ErrorKind::WouldBlock
+                | std::io::ErrorKind::TimedOut
+                | std::io::ErrorKind::ConnectionReset
+                | std::io::ErrorKind::ConnectionAborted
+                | std::io::ErrorKind::ConnectionRefused
+        ),
+        crate::Error::NixErrno(err) => matches!(
+            *err,
+            nix::errno::Errno::EINTR | nix::errno::Errno::EAGAIN | nix::errno::Errno::ENOBUFS | nix::errno::Errno::ENOMEM
+        ),
+        _ => false,
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "unshare"))]
+fn next_socket_request_retry_delay(delay: std::time::Duration) -> std::time::Duration {
+    delay.saturating_mul(2).min(SOCKET_REQUEST_MAX_RETRY_DELAY)
+}
+
+#[cfg(all(target_os = "linux", feature = "unshare"))]
+async fn wait_for_socket_request_retry<T>(tx: &tokio::sync::mpsc::Sender<T>, delay: std::time::Duration) -> bool {
+    tokio::select! {
+        _ = tx.closed() => false,
+        _ = tokio::time::sleep(delay) => true,
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "unshare"))]
 fn create_socket_queue(socket: Arc<Mutex<tokio::net::UnixDatagram>>, ipv6_enabled: bool) -> SocketQueue {
     use crate::socket_transfer::request_sockets;
     use tokio::sync::mpsc::channel;
@@ -133,14 +171,41 @@ fn create_socket_queue(socket: Arc<Mutex<tokio::net::UnixDatagram>>, ipv6_enable
             let socket = socket.clone();
             let (tx, rx) = channel(SOCKETS_PER_REQUEST);
             tokio::spawn(async move {
+                let mut retry_delay = SOCKET_REQUEST_INITIAL_RETRY_DELAY;
                 loop {
                     let sockets = match request_sockets(socket.lock().await, SocketDomain::$domain, SOCKETS_PER_REQUEST as u32).await {
                         Ok(sockets) => sockets,
-                        Err(err) => {
-                            log::warn!("Socket allocation request failed: {err}");
+                        Err(err) if is_recoverable_socket_request_error(&err) => {
+                            log::warn!(
+                                "Recoverable socket allocation request failure for {:?}: {err}; retrying in {retry_delay:?}",
+                                SocketDomain::$domain
+                            );
+                            if !wait_for_socket_request_retry(&tx, retry_delay).await {
+                                return;
+                            }
+                            retry_delay = next_socket_request_retry_delay(retry_delay);
                             continue;
                         }
+                        Err(err) => {
+                            log::error!(
+                                "Permanent socket allocation request failure for {:?}; stopping queue: {err}",
+                                SocketDomain::$domain
+                            );
+                            return;
+                        }
                     };
+                    if sockets.is_empty() {
+                        log::warn!(
+                            "Socket allocation returned no sockets for {:?}; retrying in {retry_delay:?}",
+                            SocketDomain::$domain
+                        );
+                        if !wait_for_socket_request_retry(&tx, retry_delay).await {
+                            return;
+                        }
+                        retry_delay = next_socket_request_retry_delay(retry_delay);
+                        continue;
+                    }
+                    retry_delay = SOCKET_REQUEST_INITIAL_RETRY_DELAY;
                     for socket in sockets {
                         if tx.send(socket).await.is_err() {
                             return;
@@ -157,6 +222,45 @@ fn create_socket_queue(socket: Arc<Mutex<tokio::net::UnixDatagram>>, ipv6_enable
         tcp_v6: ipv6_enabled.then(|| create_receiver!(IpV6)),
         udp_v4: create_receiver!(IpV4),
         udp_v6: ipv6_enabled.then(|| create_receiver!(IpV6)),
+    }
+}
+
+#[cfg(all(target_os = "linux", feature = "unshare"))]
+#[cfg(test)]
+mod socket_request_retry_tests {
+    use super::*;
+
+    #[test]
+    fn socket_request_errors_are_classified_for_retry() {
+        for kind in [
+            std::io::ErrorKind::Interrupted,
+            std::io::ErrorKind::WouldBlock,
+            std::io::ErrorKind::TimedOut,
+            std::io::ErrorKind::ConnectionReset,
+        ] {
+            assert!(is_recoverable_socket_request_error(&std::io::Error::from(kind).into()));
+        }
+        for kind in [
+            std::io::ErrorKind::InvalidInput,
+            std::io::ErrorKind::InvalidData,
+            std::io::ErrorKind::PermissionDenied,
+        ] {
+            assert!(!is_recoverable_socket_request_error(&std::io::Error::from(kind).into()));
+        }
+        assert!(!is_recoverable_socket_request_error(&crate::Error::from(
+            "invalid socket-transfer response"
+        )));
+    }
+
+    #[test]
+    fn socket_request_retry_delay_grows_and_is_capped() {
+        let next = next_socket_request_retry_delay(SOCKET_REQUEST_INITIAL_RETRY_DELAY);
+        assert_eq!(next, std::time::Duration::from_millis(200));
+
+        let capped = (0..10).fold(SOCKET_REQUEST_INITIAL_RETRY_DELAY, |delay, _| {
+            next_socket_request_retry_delay(delay)
+        });
+        assert_eq!(capped, SOCKET_REQUEST_MAX_RETRY_DELAY);
     }
 }
 
