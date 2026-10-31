@@ -18,15 +18,31 @@ pub unsafe extern "C" fn tun2proxy_run_with_cli_args(cli_args: *const c_char, tu
         log::error!("Failed to split CLI arguments");
         return -6;
     };
-    let args = <Args as ::clap::Parser>::parse_from(args);
+    let Ok(args) = <Args as ::clap::Parser>::try_parse_from(args) else {
+        log::error!("Failed to parse CLI arguments");
+        return -7;
+    };
     general_run_for_api(args, tun_mtu, packet_information)
 }
 
 static TUN_QUIT: std::sync::Mutex<Option<tokio_util::sync::CancellationToken>> = std::sync::Mutex::new(None);
 
+struct RunTokenGuard;
+
+impl Drop for RunTokenGuard {
+    fn drop(&mut self) {
+        match TUN_QUIT.lock() {
+            Ok(mut lock) => {
+                lock.take();
+            }
+            Err(err) => log::error!("failed to clear tun2proxy quit token: {err}"),
+        }
+    }
+}
+
 pub(crate) fn tun2proxy_stop_internal() -> c_int {
-    if let Ok(mut lock) = TUN_QUIT.lock()
-        && let Some(shutdown_token) = lock.take()
+    if let Ok(lock) = TUN_QUIT.lock()
+        && let Some(shutdown_token) = lock.as_ref()
     {
         shutdown_token.cancel();
         return 0;
@@ -51,6 +67,7 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
         log::error!("failed to lock tun2proxy quit token");
         return -2;
     }
+    let _run_token_guard = RunTokenGuard;
 
     let Ok(rt) = tokio::runtime::Builder::new_multi_thread().enable_all().build() else {
         log::error!("failed to create tokio runtime with");
@@ -78,7 +95,7 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
     let _ = timer_handle.join();
     log::info!("General run for API exiting normally.");
 
-    let res = match res {
+    match res {
         Ok(sessions) => {
             log::debug!("tun2proxy exited normally, current session count: {sessions}");
             0
@@ -87,13 +104,7 @@ pub fn general_run_for_api(args: Args, tun_mtu: u16, packet_information: bool) -
             log::error!("failed to run tun2proxy with error: {e:?}");
             -4
         }
-    };
-
-    if let Ok(mut lock) = TUN_QUIT.lock() {
-        lock.take();
     }
-
-    res
 }
 
 /// Run the tun2proxy component with some arguments.
@@ -227,4 +238,27 @@ pub async fn general_run_async(
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn tun2proxy_stop() -> c_int {
     tun2proxy_stop_internal()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn run_token_guard_clears_global_state_after_stop() {
+        let token = tokio_util::sync::CancellationToken::new();
+        {
+            let mut lock = TUN_QUIT.lock().unwrap();
+            assert!(lock.is_none());
+            *lock = Some(token.clone());
+        }
+
+        let guard = RunTokenGuard;
+        assert_eq!(tun2proxy_stop_internal(), 0);
+        assert!(token.is_cancelled());
+        assert!(TUN_QUIT.lock().unwrap().is_some());
+
+        drop(guard);
+        assert!(TUN_QUIT.lock().unwrap().is_none());
+    }
 }

@@ -104,6 +104,23 @@ struct SocketQueue {
     udp_v6: Option<Mutex<Receiver<UdpSocket>>>,
 }
 
+struct SessionCountGuard(Arc<std::sync::atomic::AtomicUsize>);
+
+impl SessionCountGuard {
+    fn new(count: Arc<std::sync::atomic::AtomicUsize>) -> Self {
+        let current = count.fetch_add(1, std::sync::atomic::Ordering::Relaxed).saturating_add(1);
+        log::trace!("Session count {current}");
+        Self(count)
+    }
+}
+
+impl Drop for SessionCountGuard {
+    fn drop(&mut self) {
+        let current = self.0.fetch_sub(1, std::sync::atomic::Ordering::Relaxed).saturating_sub(1);
+        log::trace!("Session count {current}");
+    }
+}
+
 impl SocketQueue {
     async fn recv_tcp(&self, domain: SocketDomain) -> Result<TcpSocket, std::io::Error> {
         let receiver = match domain {
@@ -414,8 +431,7 @@ where
                     log::warn!("Too many sessions that over {max_sessions}, dropping new session");
                     continue;
                 }
-                let count = task_count.fetch_add(1, Relaxed).saturating_add(1);
-                log::trace!("Session count {count}");
+                let session_count = SessionCountGuard::new(task_count.clone());
                 let info = SessionInfo::new(tcp.local_addr(), tcp.peer_addr(), IpProtocol::Tcp);
                 let domain_name = if let Some(virtual_dns) = &virtual_dns {
                     let mut virtual_dns = virtual_dns.lock().await;
@@ -430,11 +446,10 @@ where
                 };
                 let socket_queue = socket_queue.clone();
                 session_tasks.spawn(async move {
+                    let _session_count = session_count;
                     if let Err(err) = handle_tcp_session(tcp, proxy_handler, socket_queue).await {
                         log::error!("{info} error \"{err}\"");
                     }
-                    let count = task_count.fetch_sub(1, Relaxed).saturating_sub(1);
-                    log::trace!("Session count {count}");
                 });
             }
             IpStackStream::Udp(udp) => {
@@ -446,8 +461,7 @@ where
                     log::warn!("Too many sessions that over {max_sessions}, dropping new session");
                     continue;
                 }
-                let count = task_count.fetch_add(1, Relaxed).saturating_add(1);
-                log::trace!("Session count {count}");
+                let session_count = SessionCountGuard::new(task_count.clone());
                 let mut info = SessionInfo::new(udp.local_addr(), udp.peer_addr(), IpProtocol::Udp);
                 if info.dst.port() == DNS_PORT {
                     if is_private_ip(info.dst.ip()) {
@@ -461,23 +475,21 @@ where
                         };
                         let socket_queue = socket_queue.clone();
                         session_tasks.spawn(async move {
+                            let _session_count = session_count;
                             if let Err(err) = handle_dns_over_tcp_session(udp, proxy_handler, socket_queue, ipv6_enabled).await {
                                 log::error!("{info} error \"{err}\"");
                             }
-                            let count = task_count.fetch_sub(1, Relaxed).saturating_sub(1);
-                            log::trace!("Session count {count}");
                         });
                         continue;
                     }
                     if args.dns == ArgDns::Virtual {
                         session_tasks.spawn(async move {
+                            let _session_count = session_count;
                             if let Some(virtual_dns) = virtual_dns
                                 && let Err(err) = handle_virtual_dns_session(udp, virtual_dns).await
                             {
                                 log::error!("{info} error \"{err}\"");
                             }
-                            let count = task_count.fetch_sub(1, Relaxed).saturating_sub(1);
-                            log::trace!("Session count {count}");
                         });
                         continue;
                     }
@@ -503,6 +515,7 @@ where
                     };
                     let queue = socket_queue.clone();
                     session_tasks.spawn(async move {
+                        let _session_count = session_count;
                         let dst = info.dst; // real UDP destination address
                         let dst_addr = match domain_name {
                             Some(ref d) => socks5_impl::Address::from((d.clone(), dst.port())),
@@ -511,8 +524,6 @@ where
                         if let Err(e) = handle_udp_gateway_session(udp, udpgw, &dst_addr, proxy_handler, queue, ipv6_enabled).await {
                             log::info!("Ending {info} with \"{e}\"");
                         }
-                        let count = task_count.fetch_sub(1, Relaxed).saturating_sub(1);
-                        log::trace!("Session count {count}");
                     });
                     continue;
                 }
@@ -520,12 +531,11 @@ where
                     Ok(proxy_handler) => {
                         let socket_queue = socket_queue.clone();
                         session_tasks.spawn(async move {
+                            let _session_count = session_count;
                             let ty = args.proxy.proxy_type;
                             if let Err(err) = handle_udp_associate_session(udp, ty, proxy_handler, socket_queue, ipv6_enabled).await {
                                 log::info!("Ending {info} with \"{err}\"");
                             }
-                            let count = task_count.fetch_sub(1, Relaxed).saturating_sub(1);
-                            log::trace!("Session count {count}");
                         });
                     }
                     Err(e) => {
@@ -1124,5 +1134,18 @@ mod dns_tcp_response_tests {
         assert_eq!(a_response.answers.len(), 1);
         let aaaa_response = dns::parse_data_to_dns_message(&responses[1], false).unwrap();
         assert!(aaaa_response.answers.is_empty());
+    }
+
+    #[test]
+    fn session_count_guard_releases_count_on_early_exit() {
+        let count = Arc::new(std::sync::atomic::AtomicUsize::new(0));
+        let result: Result<(), ()> = {
+            let _guard = SessionCountGuard::new(count.clone());
+            assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 1);
+            Err(())
+        };
+
+        assert!(result.is_err());
+        assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 0);
     }
 }
