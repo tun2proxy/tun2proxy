@@ -4,6 +4,7 @@ import os
 import subprocess
 import time
 import unittest
+from unittest.mock import call, patch
 import psutil
 
 import dotenv
@@ -62,15 +63,37 @@ class Tun2ProxyTest(unittest.TestCase):
             p.terminate()
             p.wait()
 
+    def test_generated_test_names_match_invoked_configuration(self):
+        Tun2ProxyTest.add_tests()
+        ip_options = [None, 4]
+        if bool(int(os.environ.get('IPV6', 1))):
+            ip_options.append(6)
+        cases = list(itertools.product(ip_options, ['virtual', 'over-tcp'], ['SOCKS5_PROXY', 'HTTP_PROXY']))
+
+        with patch.object(Tun2ProxyTest, '_test') as run_test:
+            for ip_version, dns, proxy_var in cases:
+                test_name = 'test_ipv%s_dns%s_proxy%s' % (ip_version, dns, proxy_var)
+                self.assertTrue(hasattr(Tun2ProxyTest, test_name), test_name)
+                getattr(self, test_name)()
+
+        self.assertEqual(run_test.call_args_list, [call(*case) for case in cases])
+
     @classmethod
     def add_tests(cls):
         ip_options = [None, 4]
         if bool(int(os.environ.get('IPV6', 1))):
             ip_options.append(6)
+
+        def make_test(ip_version, dns, proxy_var):
+            def test(self):
+                return cls._test(ip_version, dns, proxy_var)
+
+            return test
+
         for ip_version, dns, proxy_var in itertools.product(ip_options, ['virtual', 'over-tcp'],
                                                             ['SOCKS5_PROXY', 'HTTP_PROXY']):
             setattr(cls, 'test_ipv%s_dns%s_proxy%s' % (ip_version, dns, proxy_var),
-                    lambda self: cls._test(ip_version, dns, proxy_var))
+                    make_test(ip_version, dns, proxy_var))
 
 
 if __name__ == '__main__':
