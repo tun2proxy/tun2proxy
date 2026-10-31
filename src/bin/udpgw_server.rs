@@ -667,6 +667,45 @@ mod tests {
     use super::*;
 
     #[tokio::test]
+    async fn process_udp_accepts_payload_at_configured_mtu() {
+        let destination = UdpSocket::bind("127.0.0.1:0").await.unwrap();
+        let destination_addr = destination.local_addr().unwrap();
+        let state = ClientSessions::new();
+        let client_activity = Arc::new(AtomicU64::new(now_millis()));
+        let (tx, _rx) = tokio::sync::mpsc::channel::<OutboundItem>(4);
+        let payload = vec![0x5a; 512];
+        let packet = Packet::new(
+            tun2proxy::udpgw::UdpgwHeader::new(UdpFlag::DATA, 41),
+            Some(Address::SocketAddress(destination_addr)),
+            &payload,
+        );
+
+        process_udp(512, 5, state.clone(), client_activity, tx, packet).await.unwrap();
+        let mut received = vec![0; payload.len() + 1];
+        let (len, _) = tokio::time::timeout(std::time::Duration::from_secs(1), destination.recv_from(&mut received))
+            .await
+            .unwrap()
+            .unwrap();
+        assert_eq!(&received[..len], payload);
+        assert!(state.close_session(41).await);
+    }
+
+    #[tokio::test]
+    async fn process_udp_rejects_payload_one_byte_over_configured_mtu() {
+        let state = ClientSessions::new();
+        let client_activity = Arc::new(AtomicU64::new(now_millis()));
+        let (tx, _rx) = tokio::sync::mpsc::channel::<OutboundItem>(4);
+        let packet = Packet::new(
+            tun2proxy::udpgw::UdpgwHeader::new(UdpFlag::DATA, 42),
+            Some(Address::SocketAddress("127.0.0.1:9".parse().unwrap())),
+            &vec![0x5a; 513],
+        );
+
+        assert!(process_udp(512, 5, state.clone(), client_activity, tx, packet).await.is_err());
+        assert!(!state.sessions.lock().await.contains_key(&42));
+    }
+
+    #[tokio::test]
     async fn partial_packet_read_survives_timeout_check() {
         let expected = Packet::build_keepalive_packet(42);
         let frame: Vec<u8> = expected.clone().into();

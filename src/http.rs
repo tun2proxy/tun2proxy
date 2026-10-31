@@ -511,4 +511,30 @@ mod tests {
         // Sanity: an actual digest header is still recognized.
         assert!(is_digest_scheme(b"Digest realm=\"x\", nonce=\"y\""));
     }
+
+    #[tokio::test]
+    async fn connect_success_headers_accept_single_byte_fragments_and_preserve_tunnel_data() {
+        let info = SessionInfo::new(
+            "127.0.0.1:12345".parse().unwrap(),
+            "192.0.2.1:443".parse().unwrap(),
+            IpProtocol::Tcp,
+        );
+        let mut connection = HttpConnection::new("127.0.0.1:3128".parse().unwrap(), info, None, None, Arc::new(Mutex::new(None)))
+            .await
+            .unwrap();
+        let response = b"HTTP/1.1 200 Connection established\r\n\r\nbanner";
+
+        for byte in response {
+            connection
+                .push_data(IncomingDataEvent {
+                    direction: IncomingDirection::FromServer,
+                    buffer: std::slice::from_ref(byte),
+                })
+                .await
+                .unwrap();
+        }
+
+        assert!(connection.connection_established());
+        assert_eq!(connection.peek_data(OutgoingDirection::ToClient).buffer, b"banner");
+    }
 }

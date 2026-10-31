@@ -1,5 +1,6 @@
 use crate::error::Result;
 use hashlink::{LruCache, linked_hash_map::RawEntryMut};
+use hickory_proto::{op::MessageType, rr::RecordType};
 use std::{
     collections::HashMap,
     convert::TryInto,
@@ -42,10 +43,15 @@ impl VirtualDns {
     /// Returns the DNS response to send back to the client.
     pub fn generate_query(&mut self, data: &[u8]) -> Result<(Vec<u8>, String, IpAddr)> {
         use crate::dns;
-        let message = dns::parse_data_to_dns_message(data, false)?;
+        let mut message = dns::parse_data_to_dns_message(data, false)?;
         let qname = dns::extract_domain_from_dns_message(&message)?;
+        let query_type = message.queries[0].query_type();
         let ip = self.find_or_allocate_ip(qname.clone())?;
-        let message = dns::build_dns_response(message, &qname, ip, 5)?;
+        if matches!((query_type, ip.is_ipv4()), (RecordType::A, true) | (RecordType::AAAA, false)) {
+            message = dns::build_dns_response(message, &qname, ip, 5)?;
+        } else {
+            message.metadata.message_type = MessageType::Response;
+        }
         Ok((message.to_vec()?, qname, ip))
     }
 
@@ -67,6 +73,7 @@ impl VirtualDns {
                 ip_bytes[i] = 0;
             }
         }
+
         let addr = if addr.is_ipv4() {
             let bytes: [u8; 4] = ip_bytes.as_slice().try_into()?;
             IpAddr::V4(Ipv4Addr::from(bytes))
@@ -146,5 +153,67 @@ impl VirtualDns {
                 return Err("Virtual IP space for DNS exhausted".into());
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use hickory_proto::{
+        op::{Message, OpCode, Query},
+        rr::{Name, RecordType},
+    };
+    use std::str::FromStr;
+
+    fn query_wire(name: &str, query_type: RecordType) -> Vec<u8> {
+        let mut message = Message::new(0, MessageType::Query, OpCode::Query);
+        message.add_query(Query::query(Name::from_str(name).unwrap(), query_type));
+        message.to_vec().unwrap()
+    }
+
+    fn dns(pool: &str) -> VirtualDns {
+        VirtualDns::new(IpCidr::from_str(pool).unwrap())
+    }
+
+    #[test]
+    fn virtual_dns_answers_only_the_address_family_of_its_pool() {
+        let mut ipv4_dns = dns("198.18.0.0/15");
+        let (a_response, _, ipv4) = ipv4_dns.generate_query(&query_wire("example.org.", RecordType::A)).unwrap();
+        assert!(ipv4.is_ipv4());
+        let a_response = Message::from_vec(&a_response).unwrap();
+        assert_eq!(a_response.answers.len(), 1);
+        assert!(matches!(a_response.answers[0].data, hickory_proto::rr::RData::A(_)));
+
+        let (aaaa_response, _, _) = ipv4_dns.generate_query(&query_wire("example.org.", RecordType::AAAA)).unwrap();
+        let aaaa_response = Message::from_vec(&aaaa_response).unwrap();
+        assert_eq!(aaaa_response.metadata.message_type, MessageType::Response);
+        assert!(aaaa_response.answers.is_empty());
+
+        let mut ipv6_dns = dns("2001:db8::/120");
+        let (aaaa_response, _, ipv6) = ipv6_dns.generate_query(&query_wire("example.org.", RecordType::AAAA)).unwrap();
+        assert!(ipv6.is_ipv6());
+        let aaaa_response = Message::from_vec(&aaaa_response).unwrap();
+        assert_eq!(aaaa_response.answers.len(), 1);
+        assert!(matches!(aaaa_response.answers[0].data, hickory_proto::rr::RData::AAAA(_)));
+
+        let (a_response, _, _) = ipv6_dns.generate_query(&query_wire("example.org.", RecordType::A)).unwrap();
+        let a_response = Message::from_vec(&a_response).unwrap();
+        assert!(a_response.answers.is_empty());
+    }
+
+    #[test]
+    fn expired_mapping_is_reclaimed_and_active_mapping_can_be_touched() {
+        let mut dns = dns("198.18.0.0/29");
+        let name = "expired.example".to_string();
+        let ip = dns.find_or_allocate_ip(name.clone()).unwrap();
+        dns.lru_cache.get_mut(&ip).unwrap().expiry = Instant::now() - Duration::from_secs(1);
+
+        let reclaimed_ip = dns.find_or_allocate_ip(name.clone()).unwrap();
+        assert_eq!(reclaimed_ip, ip);
+
+        dns.lru_cache.get_mut(&ip).unwrap().expiry = Instant::now() - Duration::from_secs(1);
+        dns.touch_ip(&ip);
+        let touched_ip = dns.find_or_allocate_ip(name).unwrap();
+        assert_eq!(touched_ip, ip);
     }
 }

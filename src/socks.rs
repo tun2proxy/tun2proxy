@@ -382,3 +382,56 @@ impl SocksProxyManager {
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::session_info::IpProtocol;
+
+    fn socks5_handler() -> SocksProxyImpl {
+        let src = "127.0.0.1:12345".parse().unwrap();
+        let dst = "192.0.2.1:443".parse().unwrap();
+        SocksProxyImpl::new(
+            "127.0.0.1:1080".parse().unwrap(),
+            SessionInfo::new(src, dst, IpProtocol::Tcp),
+            None,
+            Some(UserKey::new("user", "password")),
+            Version::V5,
+            Command::Connect,
+        )
+        .unwrap()
+    }
+
+    async fn push_server_data(handler: &mut SocksProxyImpl, data: &[u8]) {
+        handler
+            .push_data(IncomingDataEvent {
+                direction: IncomingDirection::FromServer,
+                buffer: data,
+            })
+            .await
+            .unwrap();
+    }
+
+    #[tokio::test]
+    async fn socks5_authentication_and_connect_reply_accept_fragmented_frames() {
+        let mut handler = socks5_handler();
+
+        push_server_data(&mut handler, &[0x05]).await;
+        assert_eq!(handler.state, SocksState::ServerHello);
+        push_server_data(&mut handler, &[0x02]).await;
+        assert_eq!(handler.state, SocksState::ReceiveAuthResponse);
+
+        push_server_data(&mut handler, &[0x01]).await;
+        assert_eq!(handler.state, SocksState::ReceiveAuthResponse);
+        push_server_data(&mut handler, &[0x00]).await;
+        assert_eq!(handler.state, SocksState::ReceiveResponse);
+
+        let connect_reply = [0x05, 0x00, 0x00, 0x01, 127, 0, 0, 1, 0x01, 0xbb];
+        push_server_data(&mut handler, &connect_reply[..6]).await;
+        assert_eq!(handler.state, SocksState::ReceiveResponse);
+        push_server_data(&mut handler, &connect_reply[6..9]).await;
+        assert_eq!(handler.state, SocksState::ReceiveResponse);
+        push_server_data(&mut handler, &connect_reply[9..]).await;
+        assert!(handler.connection_established());
+    }
+}

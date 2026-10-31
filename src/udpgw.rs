@@ -809,4 +809,18 @@ mod tests {
         assert!(Packet::build_packet_from_address(1, &addr, &vec![0u8; max_payload]).is_ok());
         assert!(Packet::build_packet_from_address(1, &addr, &vec![0u8; max_payload + 1]).is_err());
     }
+
+    #[test]
+    fn response_payload_obeys_configured_udp_mtu_boundary() {
+        let mtu = 512;
+        let address = Address::from("203.0.113.9:51820".parse::<SocketAddr>().unwrap());
+        let at_limit = Packet::new(UdpgwHeader::new(UdpFlag::DATA, 1), Some(address.clone()), &vec![7; mtu as usize]);
+        assert!(matches!(
+            UdpGwClient::parse_udp_response(mtu, at_limit).unwrap(),
+            UdpGwResponse::Data(_)
+        ));
+
+        let above_limit = Packet::new(UdpgwHeader::new(UdpFlag::DATA, 1), Some(address), &vec![7; mtu as usize + 1]);
+        assert!(UdpGwClient::parse_udp_response(mtu, above_limit).is_err());
+    }
 }

@@ -18,7 +18,6 @@ pub use socks5_impl::UserKey;
 #[cfg(feature = "udpgw")]
 use std::net::{Ipv4Addr, Ipv6Addr, SocketAddrV4, SocketAddrV6};
 use std::{
-    collections::VecDeque,
     io::ErrorKind,
     net::{IpAddr, SocketAddr},
     sync::Arc,
@@ -832,6 +831,7 @@ async fn handle_dns_over_tcp_session(
 
     let mut buf1 = [0_u8; 4096];
     let mut buf2 = [0_u8; 4096];
+    let mut response_buffer = Vec::new();
     loop {
         tokio::select! {
             len = udp_stack.read(&mut buf1) => {
@@ -858,41 +858,9 @@ async fn handle_dns_over_tcp_session(
                 if len == 0 {
                     break;
                 }
-                let mut buf = buf2[..len].to_vec();
-
                 crate::traffic_status::traffic_status_update(0, len)?;
 
-                let mut to_send: VecDeque<Vec<u8>> = VecDeque::new();
-                loop {
-                    if buf.len() < 2 {
-                        break;
-                    }
-                    let len = u16::from_be_bytes([buf[0], buf[1]]) as usize;
-                    if buf.len() < len + 2 {
-                        break;
-                    }
-
-                    // remove the length field
-                    let data = buf[2..len + 2].to_vec();
-
-                    let mut message = dns::parse_data_to_dns_message(&data, false)?;
-
-                    let name = dns::extract_domain_from_dns_message(&message)?;
-                    let ip = dns::extract_ipaddr_from_dns_message(&message);
-                    log::trace!("DNS over TCP query result: {name} -> {ip:?}");
-
-                    if !ipv6_enabled {
-                        dns::remove_ipv6_entries(&mut message);
-                    }
-
-                    to_send.push_back(message.to_vec()?);
-                    if len + 2 == buf.len() {
-                        break;
-                    }
-                    buf = buf[len + 2..].to_vec();
-                }
-
-                while let Some(packet) = to_send.pop_front() {
+                for packet in decode_dns_tcp_responses(&mut response_buffer, &buf2[..len], ipv6_enabled)? {
                     udp_stack.write_all(&packet).await?;
                 }
             }
@@ -902,6 +870,36 @@ async fn handle_dns_over_tcp_session(
     log::info!("Ending {session_info}");
 
     Ok(())
+}
+
+fn decode_dns_tcp_responses(buffer: &mut Vec<u8>, received: &[u8], ipv6_enabled: bool) -> crate::Result<Vec<Vec<u8>>> {
+    buffer.extend_from_slice(received);
+
+    let mut consumed = 0;
+    let mut responses = Vec::new();
+    while buffer.len() - consumed >= 2 {
+        let message_len = u16::from_be_bytes([buffer[consumed], buffer[consumed + 1]]) as usize;
+        let frame_end = consumed + 2 + message_len;
+        if buffer.len() < frame_end {
+            break;
+        }
+
+        let mut message = dns::parse_data_to_dns_message(&buffer[consumed + 2..frame_end], false)?;
+        let name = dns::extract_domain_from_dns_message(&message)?;
+        let ip = dns::extract_ipaddr_from_dns_message(&message);
+        log::trace!("DNS over TCP query result: {name} -> {ip:?}");
+
+        if !ipv6_enabled {
+            dns::remove_ipv6_entries(&mut message);
+        }
+        responses.push(message.to_vec()?);
+        consumed = frame_end;
+    }
+
+    if consumed > 0 {
+        buffer.drain(..consumed);
+    }
+    Ok(responses)
 }
 
 /// This function is used to handle the business logic of tun2proxy and SOCKS5 server.
@@ -953,4 +951,74 @@ async fn handle_proxy_session(server: &mut TcpStream, proxy_handler: Arc<Mutex<d
     }
     crate::traffic_status::traffic_status_update(tx, rx)?;
     Ok(proxy_handler.get_udp_associate())
+}
+
+#[cfg(test)]
+mod dns_tcp_response_tests {
+    use super::*;
+    use hickory_proto::{
+        op::{Message, MessageType, OpCode, Query},
+        rr::{
+            Name, RData, Record, RecordType,
+            rdata::{A, AAAA},
+        },
+    };
+    use std::{
+        net::{Ipv4Addr, Ipv6Addr},
+        str::FromStr,
+    };
+
+    fn response_frame(name: &str, record_type: RecordType) -> Vec<u8> {
+        let name = Name::from_str(name).unwrap();
+        let mut message = Message::new(0, MessageType::Response, OpCode::Query);
+        message.add_query(Query::query(name.clone(), record_type));
+        let answer = match record_type {
+            RecordType::A => Record::from_rdata(name, 60, RData::A(A(Ipv4Addr::new(192, 0, 2, 1)))),
+            RecordType::AAAA => Record::from_rdata(name, 60, RData::AAAA(AAAA(Ipv6Addr::LOCALHOST))),
+            _ => panic!("test response must use A or AAAA"),
+        };
+        message.add_answer(answer);
+        let message = message.to_vec().unwrap();
+        let mut frame = Vec::with_capacity(message.len() + 2);
+        frame.extend_from_slice(&(message.len() as u16).to_be_bytes());
+        frame.extend_from_slice(&message);
+        frame
+    }
+
+    #[test]
+    fn dns_tcp_responses_survive_split_prefix_and_body() {
+        let frame = response_frame("example.org.", RecordType::A);
+        let mut pending = Vec::new();
+
+        assert!(decode_dns_tcp_responses(&mut pending, &frame[..1], true).unwrap().is_empty());
+        assert_eq!(pending, frame[..1]);
+        assert!(decode_dns_tcp_responses(&mut pending, &frame[1..5], true).unwrap().is_empty());
+        assert_eq!(pending, frame[..5]);
+
+        let responses = decode_dns_tcp_responses(&mut pending, &frame[5..], true).unwrap();
+        assert_eq!(responses.len(), 1);
+        assert!(pending.is_empty());
+        let response = dns::parse_data_to_dns_message(&responses[0], false).unwrap();
+        assert_eq!(
+            dns::extract_ipaddr_from_dns_message(&response).unwrap(),
+            IpAddr::V4(Ipv4Addr::new(192, 0, 2, 1))
+        );
+    }
+
+    #[test]
+    fn dns_tcp_decoder_handles_coalesced_frames_and_ipv6_filtering() {
+        let a_frame = response_frame("a.example.", RecordType::A);
+        let aaaa_frame = response_frame("aaaa.example.", RecordType::AAAA);
+        let mut coalesced = a_frame;
+        coalesced.extend_from_slice(&aaaa_frame);
+        let mut pending = Vec::new();
+
+        let responses = decode_dns_tcp_responses(&mut pending, &coalesced, false).unwrap();
+        assert_eq!(responses.len(), 2);
+        assert!(pending.is_empty());
+        let a_response = dns::parse_data_to_dns_message(&responses[0], false).unwrap();
+        assert_eq!(a_response.answers.len(), 1);
+        let aaaa_response = dns::parse_data_to_dns_message(&responses[1], false).unwrap();
+        assert!(aaaa_response.answers.is_empty());
+    }
 }
