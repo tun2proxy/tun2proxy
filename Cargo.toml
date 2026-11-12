@@ -24,8 +24,10 @@ path = "src/bin/udpgw_server.rs"
 required-features = ["udpgw"]
 
 [features]
-default = ["udpgw", "unshare"]
+default = ["udpgw", "unshare", "daemonize"]
 udpgw = []
+# Only the binaries use it, for --daemonize on unix.
+daemonize = ["dep:daemonize"]
 unshare = ["tokio/process", "bincode-next"]
 
 [dependencies]
@@ -101,7 +103,7 @@ tokio = { version = "1.54.1", default-features = false, optional = true, feature
 windows-service = "0.8.1"
 
 [target.'cfg(unix)'.dependencies]
-daemonize = "0.5.0"
+daemonize = { version = "0.5.0", optional = true }
 nix = { version = "0.31.3", default-features = false, features = [
     "fs",
     "socket",

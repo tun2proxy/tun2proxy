@@ -645,7 +645,7 @@ fn main() -> Result<(), BoxError> {
     let default = format!("{:?}", args.verbosity);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "daemonize"))]
     if args.daemonize {
         let stdout = std::fs::File::create("/tmp/udpgw.out")?;
         let stderr = std::fs::File::create("/tmp/udpgw.err")?;
@@ -656,6 +656,11 @@ fn main() -> Result<(), BoxError> {
             .stderr(stderr)
             .privileged_action(|| "Executed before drop privileges");
         let _ = daemonize.start().map_err(|e| format!("Failed to daemonize process, error:{e:?}"))?;
+    }
+
+    #[cfg(all(unix, not(feature = "daemonize")))]
+    if args.daemonize {
+        return Err("daemonize support is not compiled in, rebuild with the `daemonize` feature".into());
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;

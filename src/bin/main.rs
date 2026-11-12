@@ -4,7 +4,7 @@ fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
     let args = Args::parse_args();
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "daemonize"))]
     if args.daemonize {
         let stdout = std::fs::File::create("/tmp/tun2proxy.out")?;
         let stderr = std::fs::File::create("/tmp/tun2proxy.err")?;
@@ -15,6 +15,11 @@ fn main() -> Result<(), BoxError> {
             .stderr(stderr)
             .privileged_action(|| "Executed before drop privileges");
         let _ = daemonize.start()?;
+    }
+
+    #[cfg(all(unix, not(feature = "daemonize")))]
+    if args.daemonize {
+        return Err("daemonize support is not compiled in, rebuild with the `daemonize` feature".into());
     }
 
     #[cfg(target_os = "windows")]
