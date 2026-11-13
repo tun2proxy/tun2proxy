@@ -303,6 +303,10 @@ impl ProxyHandler for SocksProxyImpl {
             }
         }
 
+        self.process_pending().await
+    }
+
+    async fn process_pending(&mut self) -> std::io::Result<()> {
         self.state_change()
     }
 

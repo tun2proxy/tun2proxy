@@ -41,6 +41,10 @@ impl ProxyHandler for NoProxyHandler {
         Ok(())
     }
 
+    async fn process_pending(&mut self) -> std::io::Result<()> {
+        Ok(())
+    }
+
     fn consume_data(&mut self, dir: OutgoingDirection, size: usize) {
         let buffer = match dir {
             OutgoingDirection::ToServer => &mut self.server_outbuf,

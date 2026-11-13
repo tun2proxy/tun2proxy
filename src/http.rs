@@ -384,6 +384,11 @@ impl ProxyHandler for HttpConnection {
             }
         }
 
+        self.process_pending().await?;
+        Ok(())
+    }
+
+    async fn process_pending(&mut self) -> std::io::Result<()> {
         self.state_change().await?;
         Ok(())
     }

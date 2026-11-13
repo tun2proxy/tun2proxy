@@ -1029,15 +1029,10 @@ fn decode_dns_tcp_responses(buffer: &mut Vec<u8>, received: &[u8], ipv6_enabled:
 /// `handle_proxy_session` stops as soon as the handler reports the connection
 /// established. Any bytes that followed the reply in the same read are left in
 /// the handler's server-side input buffer, because the handler only moves that
-/// buffer to its client-bound output on its next `push_data`. Pushing an empty
-/// server event runs that step once, and the client-bound output is drained.
+/// buffer to its client-bound output once the handler processes its pending data.
 async fn take_early_server_data(proxy_handler: &Arc<Mutex<dyn ProxyHandler>>) -> crate::Result<Vec<u8>> {
     let mut handler = proxy_handler.lock().await;
-    let event = IncomingDataEvent {
-        direction: IncomingDirection::FromServer,
-        buffer: &[],
-    };
-    handler.push_data(event).await?;
+    handler.process_pending().await?;
     let data = handler.peek_data(OutgoingDirection::ToClient).buffer.to_vec();
     handler.consume_data(OutgoingDirection::ToClient, data.len());
     Ok(data)
