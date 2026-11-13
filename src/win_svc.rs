@@ -1,4 +1,4 @@
-#![cfg(windows)]
+#![cfg(all(windows, feature = "daemonize"))]
 
 const SERVICE_NAME: &str = "tun2proxy";
 

@@ -17,12 +17,7 @@ fn main() -> Result<(), BoxError> {
         let _ = daemonize.start()?;
     }
 
-    #[cfg(all(unix, not(feature = "daemonize")))]
-    if args.daemonize {
-        return Err("daemonize support is not compiled in, rebuild with the `daemonize` feature".into());
-    }
-
-    #[cfg(target_os = "windows")]
+    #[cfg(all(windows, feature = "daemonize"))]
     if args.daemonize {
         tun2proxy::win_svc::start_service()?;
         return Ok(());

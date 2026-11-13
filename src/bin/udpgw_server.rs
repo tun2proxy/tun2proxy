@@ -54,7 +54,7 @@ pub struct UdpGwArgs {
     pub udp_timeout: u64,
 
     /// Daemonize for unix family or run as Windows service
-    #[cfg(unix)]
+    #[cfg(feature = "daemonize")]
     #[arg(short, long)]
     pub daemonize: bool,
 
@@ -658,9 +658,9 @@ fn main() -> Result<(), BoxError> {
         let _ = daemonize.start().map_err(|e| format!("Failed to daemonize process, error:{e:?}"))?;
     }
 
-    #[cfg(all(unix, not(feature = "daemonize")))]
+    #[cfg(all(windows, feature = "daemonize"))]
     if args.daemonize {
-        return Err("daemonize support is not compiled in, rebuild with the `daemonize` feature".into());
+        return Err("daemonize feature is not supported on Windows".into());
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
@@ -806,7 +806,7 @@ mod tests {
             listen_addr: "127.0.0.1:0".parse().unwrap(),
             udp_mtu: 1500,
             udp_timeout: 30,
-            #[cfg(unix)]
+            #[cfg(feature = "daemonize")]
             daemonize: false,
             verbosity: log::LevelFilter::Off,
         };
