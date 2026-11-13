@@ -4,7 +4,7 @@ fn main() -> Result<(), BoxError> {
     dotenvy::dotenv().ok();
     let args = Args::parse_args();
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "daemonize"))]
     if args.daemonize {
         let stdout = std::fs::File::create("/tmp/tun2proxy.out")?;
         let stderr = std::fs::File::create("/tmp/tun2proxy.err")?;
@@ -17,7 +17,7 @@ fn main() -> Result<(), BoxError> {
         let _ = daemonize.start()?;
     }
 
-    #[cfg(target_os = "windows")]
+    #[cfg(all(windows, feature = "daemonize"))]
     if args.daemonize {
         tun2proxy::win_svc::start_service()?;
         return Ok(());

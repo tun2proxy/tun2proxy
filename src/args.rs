@@ -124,6 +124,7 @@ pub struct Args {
     pub udp_timeout: u64,
 
     /// Daemonize for unix family or run as Windows service
+    #[cfg(feature = "daemonize")]
     #[arg(long)]
     pub daemonize: bool,
 
@@ -198,6 +199,7 @@ impl Default for Args {
             udp_timeout: 10,
             verbosity: log::LevelFilter::Info,
             virtual_dns_pool: IpCidr::from_str("198.18.0.0/15").unwrap(),
+            #[cfg(feature = "daemonize")]
             daemonize: false,
             exit_on_fatal_error: false,
             max_sessions: 200,

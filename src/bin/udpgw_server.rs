@@ -54,7 +54,7 @@ pub struct UdpGwArgs {
     pub udp_timeout: u64,
 
     /// Daemonize for unix family or run as Windows service
-    #[cfg(unix)]
+    #[cfg(feature = "daemonize")]
     #[arg(short, long)]
     pub daemonize: bool,
 
@@ -645,7 +645,7 @@ fn main() -> Result<(), BoxError> {
     let default = format!("{:?}", args.verbosity);
     env_logger::Builder::from_env(env_logger::Env::default().default_filter_or(default)).init();
 
-    #[cfg(unix)]
+    #[cfg(all(unix, feature = "daemonize"))]
     if args.daemonize {
         let stdout = std::fs::File::create("/tmp/udpgw.out")?;
         let stderr = std::fs::File::create("/tmp/udpgw.err")?;
@@ -656,6 +656,11 @@ fn main() -> Result<(), BoxError> {
             .stderr(stderr)
             .privileged_action(|| "Executed before drop privileges");
         let _ = daemonize.start().map_err(|e| format!("Failed to daemonize process, error:{e:?}"))?;
+    }
+
+    #[cfg(all(windows, feature = "daemonize"))]
+    if args.daemonize {
+        return Err("daemonize feature is not supported on Windows".into());
     }
 
     let rt = tokio::runtime::Builder::new_multi_thread().enable_all().build()?;
@@ -801,7 +806,7 @@ mod tests {
             listen_addr: "127.0.0.1:0".parse().unwrap(),
             udp_mtu: 1500,
             udp_timeout: 30,
-            #[cfg(unix)]
+            #[cfg(feature = "daemonize")]
             daemonize: false,
             verbosity: log::LevelFilter::Off,
         };
