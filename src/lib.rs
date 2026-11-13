@@ -638,9 +638,17 @@ async fn handle_tcp_session(
 
     log::info!("Beginning {session_info}");
 
-    if let Err(e) = handle_proxy_session(&mut server, proxy_handler).await {
+    if let Err(e) = handle_proxy_session(&mut server, proxy_handler.clone()).await {
         tcp_stack.shutdown().await?;
         return Err(e);
+    }
+
+    // Bytes the destination sent before the client said anything can arrive in
+    // the same read as the proxy's handshake reply. They are still buffered in
+    // the handler and must reach the client before anything read later.
+    let early = take_early_server_data(&proxy_handler).await?;
+    if !early.is_empty() {
+        tcp_stack.write_all(&early).await?;
     }
 
     let (mut t_rx, mut t_tx) = tokio::io::split(tcp_stack);
@@ -1016,6 +1024,20 @@ fn decode_dns_tcp_responses(buffer: &mut Vec<u8>, received: &[u8], ipv6_enabled:
     Ok(responses)
 }
 
+/// Returns server data that arrived together with the proxy handshake reply.
+///
+/// `handle_proxy_session` stops as soon as the handler reports the connection
+/// established. Any bytes that followed the reply in the same read are left in
+/// the handler's server-side input buffer, because the handler only moves that
+/// buffer to its client-bound output once the handler processes its pending data.
+async fn take_early_server_data(proxy_handler: &Arc<Mutex<dyn ProxyHandler>>) -> crate::Result<Vec<u8>> {
+    let mut handler = proxy_handler.lock().await;
+    handler.process_pending().await?;
+    let data = handler.peek_data(OutgoingDirection::ToClient).buffer.to_vec();
+    handler.consume_data(OutgoingDirection::ToClient, data.len());
+    Ok(data)
+}
+
 /// This function is used to handle the business logic of tun2proxy and SOCKS5 server.
 /// When handling UDP proxy, the return value UDP associate IP address is the result of this business logic.
 /// However, when handling TCP business logic, the return value Ok(None) is meaningless, just indicating that the operation was successful.
@@ -1147,5 +1169,81 @@ mod dns_tcp_response_tests {
 
         assert!(result.is_err());
         assert_eq!(count.load(std::sync::atomic::Ordering::Relaxed), 0);
+    }
+}
+
+#[cfg(test)]
+mod early_server_data_tests {
+    use super::*;
+    use socks5_impl::protocol::Version::V5;
+
+    fn session() -> SessionInfo {
+        SessionInfo::new(
+            "10.0.0.2:40000".parse().unwrap(),
+            "203.0.113.9:22".parse().unwrap(),
+            IpProtocol::Tcp,
+        )
+    }
+
+    /// Drains what the handler wants to send to the proxy, as the session loop does.
+    async fn drain_to_server(handler: &Arc<Mutex<dyn ProxyHandler>>) {
+        let mut handler = handler.lock().await;
+        let len = handler.peek_data(OutgoingDirection::ToServer).buffer.len();
+        handler.consume_data(OutgoingDirection::ToServer, len);
+    }
+
+    async fn from_server(handler: &Arc<Mutex<dyn ProxyHandler>>, bytes: &[u8]) {
+        let event = IncomingDataEvent {
+            direction: IncomingDirection::FromServer,
+            buffer: bytes,
+        };
+        handler.lock().await.push_data(event).await.unwrap();
+    }
+
+    /// A server that speaks first (SSH, SMTP, FTP) can have its first bytes
+    /// arrive in the same read as the SOCKS5 reply. They must reach the client.
+    #[tokio::test]
+    async fn socks5_data_read_with_the_reply_is_kept() {
+        let manager = SocksProxyManager::new("127.0.0.1:1080".parse().unwrap(), V5, None);
+        let handler = manager.new_proxy_handler(session(), None, false).await.unwrap();
+
+        drain_to_server(&handler).await; // greeting
+        from_server(&handler, &[5, 0]).await; // NO AUTH chosen
+        drain_to_server(&handler).await; // CONNECT request
+
+        let mut reply_and_banner = vec![5, 0, 0, 1, 0, 0, 0, 0, 0, 0];
+        reply_and_banner.extend_from_slice(b"SSH-2.0-test\r\n");
+        from_server(&handler, &reply_and_banner).await;
+        assert!(handler.lock().await.connection_established());
+
+        assert_eq!(take_early_server_data(&handler).await.unwrap(), b"SSH-2.0-test\r\n");
+        assert!(take_early_server_data(&handler).await.unwrap().is_empty(), "drained once");
+    }
+
+    /// The same for an HTTP CONNECT proxy, whose 200 response can be followed
+    /// by the destination's first bytes in one read.
+    #[tokio::test]
+    async fn http_connect_data_read_with_the_response_is_kept() {
+        let manager = HttpManager::new("127.0.0.1:8080".parse().unwrap(), None);
+        let handler = manager.new_proxy_handler(session(), None, false).await.unwrap();
+
+        drain_to_server(&handler).await; // CONNECT request
+        from_server(&handler, b"HTTP/1.1 200 Connection established\r\n\r\n220 smtp.test ESMTP\r\n").await;
+        assert!(handler.lock().await.connection_established());
+
+        assert_eq!(take_early_server_data(&handler).await.unwrap(), b"220 smtp.test ESMTP\r\n");
+    }
+
+    /// With nothing after the reply, there is nothing to deliver.
+    #[tokio::test]
+    async fn a_bare_reply_leaves_nothing_behind() {
+        let manager = SocksProxyManager::new("127.0.0.1:1080".parse().unwrap(), V5, None);
+        let handler = manager.new_proxy_handler(session(), None, false).await.unwrap();
+        drain_to_server(&handler).await;
+        from_server(&handler, &[5, 0]).await;
+        drain_to_server(&handler).await;
+        from_server(&handler, &[5, 0, 0, 1, 0, 0, 0, 0, 0, 0]).await;
+        assert!(handler.lock().await.connection_established());
+        assert!(take_early_server_data(&handler).await.unwrap().is_empty());
     }
 }
